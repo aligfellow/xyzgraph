@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xyzgraph"
+version = "0.1.0"
+description = "Convert xyz molecule file to a graph."
+authors = [{name = "Dr Alister Goodfellow"}]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "ase",
+    "cclib",
+    "rdkit",
+    "networkx"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+homepage = "https://github.com/aligfellow/xyzgraph"
+
+[project.scripts]
+xyzgraph = "xyzgraph.cli:main"
+xyzgraph-build = "xyzgraph.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"xyzgraph.data" = ["*.json", "*.yaml"]
