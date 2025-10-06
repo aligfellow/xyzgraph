@@ -113,6 +113,28 @@ ascii_ref, layout = graph_to_ascii(G_ref, return_layout=True)
 ascii_alt = graph_to_ascii(G_alt, reference_layout=layout)
 ```
 
+## Build Step Log
+(Feature removed; per-step internal metrics no longer exposed.)
+
+## xyz2mol Comparison Enhancements
+Using:
+```
+xyzgraph-build mol.xyz --compare-xyz2mol
+```
+Now also prints:
+- Edge connectivity differences (edges only in xyzgraph or only in xyz2mol).
+- Bond order differences (|Δ| ≥ 0.25) for shared edges.
+If ASCII output is active, xyz2mol ASCII is layout-aligned to the xyzgraph depiction.
+
+Example diff section:
+```
+# edge_diff: only_in_xyzgraph=1 only_in_xyz2mol=0 bond_order_diffs=2
+#   only_in_xyzgraph: 4-7
+#   bond_order_diffs (Δ≥0.25):
+#     1-2: xyzgraph=1.50 xyz2mol=1.00 Δ=+0.50
+#     2-3: xyzgraph=2.00 xyz2mol=1.50 Δ=+0.50
+```
+
 ## Methodology (Cheminformatics Path)
 
 1. Input / Preload

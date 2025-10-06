@@ -31,6 +31,29 @@ METALS = {
     'Gd','Tb','Dy','Ho','Er','Tm','Yb','Lu'
 }
 
+# Lazy-load caches (added)
+VDW = None
+VALENCES = None
+VALENCE_ELECTRONS = None
+
+def _get_vdw():
+    global VDW 
+    if VDW is None:
+        VDW = load_vdw_radii()
+    return VDW
+
+def _get_expected_valences():
+    global VALENCES
+    if VALENCES is None:
+        VALENCES = load_expected_valences()  # FIX: call the loader
+    return VALENCES
+
+def _get_valence_electrons():
+    global VALENCE_ELECTRONS
+    if VALENCE_ELECTRONS is None:
+        VALENCE_ELECTRONS = load_valence_electrons()
+    return VALENCE_ELECTRONS
+
 # ------------------------
 # Bond perception helpers
 # ------------------------
@@ -51,15 +74,11 @@ def _should_bond_metal(sym_i: str, sym_j: str, distance: float, vdw: Dict[str,fl
       - Metal to halides/oxo (ionic)
       - Metal to H (hydrides)
     """
-    metals = ('Li','Na','K','Mg','Ca','Zn','Sc','Ti','V','Cr','Mn','Fe','Co','Ni','Cu',
-              'Y','Zr','Nb','Mo','Tc','Ru','Rh','Pd','Ag','Cd')
-    
-    # If neither is metal, accept (already passed distance check)
-    if sym_i not in metals and sym_j not in metals:
+    if sym_i not in METALS and sym_j not in METALS:
         return True
-    
+        
     # Identify metal and other
-    metal = sym_i if sym_i in metals else sym_j
+    metal = sym_i if sym_i in METALS else sym_j
     other = sym_j if metal == sym_i else sym_i
     
     # Accept common ligands
@@ -78,55 +97,43 @@ def _initial_bonds(atoms: Atoms,
                    vdw_scale_h=0.45,
                    vdw_scale_h_metal=0.60,
                    vdw_scale=0.55,
-                   vdw_scale_metal=0.65) -> List[Tuple[int, int]]:
+                   vdw_scale_metal=0.65) -> Tuple[List[Tuple[int, int]], List[float]]:
     """
-    Determine preliminary bonds using element‑pair specific VDW scaling:
-      H–nonmetal: vdw_scale_h
-      H–metal:    vdw_scale_h_metal
-      nonmetal–nonmetal: vdw_scale
-      metal–(O/N/C/P/S or halide): vdw_scale_metal (filtered by _should_bond_metal)
-    Returns list of (i,j) pairs.
+    Return (bonds, bond_dists). Distances cached for later refinement / pruning.
     """
     bonds = []
+    dists: List[float] = []
     pos = atoms.positions
-    
     for i in range(len(atoms)):
         si = atoms[i].symbol
         for j in range(i+1, len(atoms)):
             sj = atoms[j].symbol
             d = _distance(pos[i], pos[j])
             r_sum_vdw = vdw.get(si, 2.0) + vdw.get(sj, 2.0)
-            
-            # Determine threshold based on atom types
             is_metal_i = si in METALS
             is_metal_j = sj in METALS
             has_metal = is_metal_i or is_metal_j
             has_h = 'H' in (si, sj)
-            
             if has_h and not has_metal:
-                # H to non-metal (e.g., C-H, O-H, N-H)
                 threshold = vdw_scale_h * r_sum_vdw
             elif has_h and has_metal:
-                # H to metal (e.g., M-H hydrides)
                 threshold = vdw_scale_h_metal * r_sum_vdw
             elif has_metal:
-                # Metal to non-H (coordination or ionic)
-                # Use permissive threshold; _should_bond_metal refines
                 threshold = vdw_scale_metal * r_sum_vdw
             else:
-                # Non-metal to non-metal
                 threshold = vdw_scale * r_sum_vdw
-            
             if d < threshold:
-                # Metal bonds: check chemical plausibility
                 if has_metal:
                     if _should_bond_metal(si, sj, d, vdw):
-                        bonds.append((i, j))
+                        bonds.append((i, j)); dists.append(d)
                 else:
-                    # Non-metal: accept if within threshold
-                    bonds.append((i, j))
-    
-    return bonds
+                    bonds.append((i, j)); dists.append(d)
+    return bonds, dists
+
+def _compute_bond_distances(atoms: Atoms,
+                            bonds: List[Tuple[int,int]]) -> List[float]:
+    pos = atoms.positions
+    return [float(np.linalg.norm(pos[i]-pos[j])) for i,j in bonds]
 
 def _build_temp_graph(atoms: Atoms,
                       bonds: List[Tuple[int,int]],
@@ -158,13 +165,20 @@ def _valence_sum(G: nx.Graph, n: int) -> float:
     """Sum fractional bond order around node n (default 1.0 if missing attribute)."""
     return sum(G.edges[n, nbr].get('bond_order', 1.0) for nbr in G.neighbors(n))
 
+# NEW: shared helper for list-based bond containers (used before graph assembly)
+def _bond_order_sum(index: int,
+                    bonds: List[Tuple[int,int]],
+                    bond_orders: List[float]) -> float:
+    return sum(bond_orders[k] for k,(a,b) in enumerate(bonds) if index == a or index == b)
+
 def _adjust_valences(atoms: Atoms,
                      bonds: List[Tuple[int,int]],
                      bond_orders: List[float],
                      expected: Dict[str,List[int]],
                      vdw: Dict[str,float],
                      max_iter: int = 5,
-                     multiplicity: int = 1):
+                     multiplicity: int = 1,
+                     bond_dists: Optional[List[float]] = None) -> Dict[str,int]:
     """
     Bond order refinement (non-metals):
       - Metals: coordination only, all bonds locked to 1.0 (no π promotion).
@@ -172,15 +186,18 @@ def _adjust_valences(atoms: Atoms,
       - Adjust only when (a) geometric proximity acceptable, (b) deficits complementary.
       - Avoid oscillation by minimum increment (0.5) and single-pass modifications.
     """
-    # Pre-lock metal-involving bonds
+    if bond_dists is None:
+        bond_dists = _compute_bond_distances(atoms, bonds)
     for k,(i,j) in enumerate(bonds):
         if atoms[i].symbol in METALS or atoms[j].symbol in METALS:
             bond_orders[k] = 1.0
-
     unpaired_budget = multiplicity - 1
+    promotions = 0
+    reductions = 0
+    iterations = 0
     for _ in range(max_iter):
+        iterations += 1
         G = _build_temp_graph(atoms, bonds, bond_orders)
-        # Precompute deficits for all (metals get 0.0 => no upward drive)
         deficits: Dict[int, float] = {}
         any_issue = False
         for n in range(len(atoms)):
@@ -189,14 +206,13 @@ def _adjust_valences(atoms: Atoms,
             if sym in METALS:
                 deficits[n] = 0.0
                 continue
-            allowed = expected.get(sym)
+            allowed = expected.get(sym, [])
             if not allowed:
                 deficits[n] = 0.0
                 continue
             target = min(allowed, key=lambda v: (abs(v - cur), -v))
             diff = target - cur
             if unpaired_budget > 0 and -1.3 < diff < -0.7:
-                # Allow one unpaired electron
                 deficits[n] = 0.0
                 unpaired_budget -= 1
             else:
@@ -205,38 +221,23 @@ def _adjust_valences(atoms: Atoms,
                 any_issue = True
         if not any_issue:
             break
-
         changed = 0
         for k,(i,j) in enumerate(bonds):
             si, sj = atoms[i].symbol, atoms[j].symbol
             bo = bond_orders[k]
-            # Metal rule: enforce single
             if si in METALS or sj in METALS:
                 if abs(bo - 1.0) > 1e-6:
-                    bond_orders[k] = 1.0
-                    changed += 1
+                    bond_orders[k] = 1.0; changed += 1
                 continue
-            # Basic filters
-            if bo >= 3.0:
-                continue
+            if bo >= 3.0: continue
             di, dj = deficits[i], deficits[j]
-            if 'H' in (si, sj):
-                continue
-            # Distance screening (normalize by VDW sum)
-            dist_ratio = _distance(atoms.positions[i], atoms.positions[j]) / (
-                vdw.get(si, 2.0) + vdw.get(sj, 2.0)
-            )
-            if dist_ratio > 0.60:
-                continue
-            # Over-valent pair: consider reduction
+            if 'H' in (si, sj): continue
+            dist_ratio = bond_dists[k] / (vdw.get(si,2.0)+vdw.get(sj,2.0))
+            if dist_ratio > 0.60: continue
             if di < -0.6 and dj < -0.6 and bo > 1.0:
-                bond_orders[k] = max(1.0, bo - 0.5)
-                changed += 1
-                continue
-            # If both near satisfied, skip
+                bond_orders[k] = max(1.0, bo - 0.5); reductions += 1; changed += 1; continue
             if abs(di) < 0.3 and abs(dj) < 0.3:
                 continue
-            # Candidate increase logic
             inc = 0.0
             if di > 0.3 and dj > 0.3:
                 inc = min(di, dj, (3.0 - bo if dist_ratio < 0.35 else 2.0 - bo))
@@ -245,10 +246,10 @@ def _adjust_valences(atoms: Atoms,
             elif dj > 0.3 and di < -0.3:
                 inc = min(dj, -di, 2.0 - bo)
             if inc >= 0.5:
-                bond_orders[k] = bo + inc
-                changed += 1
+                bond_orders[k] = bo + inc; promotions += 1; changed += 1
         if not changed:
             break
+    return {"iterations": iterations, "promotions": promotions, "reductions": reductions}
 
 def _detect_aromatic_cycles(atoms: Atoms,
                             bonds: List[Tuple[int,int]]) -> List[Tuple[int,int]]:
@@ -275,32 +276,30 @@ def _apply_aromatic(bonds: List[Tuple[int,int]],
 
 def _rdkit_aromatic_refine(atoms: Atoms,
                            bonds: List[Tuple[int,int]],
-                           bond_orders: List[float]):
+                           bond_orders: List[float]) -> int:
     """
     Build RDKit molecule and use its aromaticity perception to refine bond orders:
     - Any aromatic bond set to max(current, 1.5)
     - Non-aromatic bonds > 1.5 left as-is (kept from valence logic)
     """
+    upgrades = 0
     try:
         rw = Chem.RWMol()
-        for i, atom in enumerate(atoms):
+        for atom in atoms:
             rw.AddAtom(Chem.Atom(atom.symbol))
-        # provisional assignment (single; we are only asking for aromatic perception)
         for (i,j) in bonds:
             rw.AddBond(int(i), int(j), Chem.BondType.SINGLE)
         mol = rw.GetMol()
-        Chem.SanitizeMol(mol)  # perceives aromaticity
-        aromatic_pairs = set()
-        for b in mol.GetBonds():
-            if b.GetIsAromatic():
-                aromatic_pairs.add(tuple(sorted((b.GetBeginAtomIdx(), b.GetEndAtomIdx()))))
+        Chem.SanitizeMol(mol)
+        aromatic_pairs = {tuple(sorted((b.GetBeginAtomIdx(), b.GetEndAtomIdx())))
+                          for b in mol.GetBonds() if b.GetIsAromatic()}
         for idx,(i,j) in enumerate(bonds):
-            if tuple(sorted((i,j))) in aromatic_pairs:
-                if bond_orders[idx] < 1.5:
-                    bond_orders[idx] = 1.5
+            if tuple(sorted((i,j))) in aromatic_pairs and bond_orders[idx] < 1.5:
+                bond_orders[idx] = 1.5
+                upgrades += 1
     except Exception:
-        # Fallback: ignore refinement if RDKit fails
         pass
+    return upgrades
 
 def _compute_gasteiger(atoms: Atoms,
                        bonds: List[Tuple[int,int]],
@@ -395,20 +394,13 @@ def _compute_gasteiger(atoms: Atoms,
     except Exception:
         return [0.0]*len(atoms)
 
-# ------------------------
-# New sanitation helpers
-# ------------------------
-
 def _annotate_valences(G: nx.Graph):
-    for n in G.nodes:
-        val = 0.0
-        for nbr in G.neighbors(n):
-            val += G.edges[n, nbr].get('bond_order', 1.0)
-        G.nodes[n]['valence'] = val
+        for n in G.nodes:
+            G.nodes[n]['valence'] = _valence_sum(G, n)
 
 def _aggregate_hydrogen_charges(G: nx.Graph):
     # Choose preferred charge field
-    preferred_order = ['gasteiger', 'mulliken', 'hirshfeld']
+    preferred_order = ['gasteiger', 'mulliken']
     for n,data in G.nodes(data=True):
         # find a base numeric charge (fallback 0.0)
         base_charge = 0.0
@@ -446,43 +438,88 @@ def _sanitize_graph(G: nx.Graph, atoms: Atoms, expected: Dict[str, List[int]], v
         _annotate_valences(G)
     _aggregate_hydrogen_charges(G)
 
-# ------------------------
-# Public builders
-# ------------------------
-
 def _guess_multiplicity(atoms: Atoms, charge: int) -> int:
     """Multiplicity = 1 for even electrons, 2 for odd (simple heuristic)."""
     ne = int(np.sum(atoms.get_atomic_numbers())) - charge
     return 1 if ne % 2 == 0 else 2
 
+def _prune_small_rings(atoms: Atoms,
+                       bonds: List[Tuple[int,int]],
+                       bond_orders: List[float],
+                       ring_sizes: Tuple[int,...] = (3,4),
+                       ratio_cutoff: float = 1.18,
+                       max_passes: int = 4,
+                       skip_metal_cycles: bool = True,
+                       bond_dists: Optional[List[float]] = None) -> int:
+    """
+    Remove suspect bonds that create very strained small rings (3/4-member) by
+    deleting the longest edge when max(dist)/min(dist) exceeds ratio_cutoff.
+    NOTE: Cycles containing a metal are skipped (ferrocene / metallocenes form
+    many Fe–C–C 3-cycles that are chemically valid representations of hapticity).
+    """
+    if bond_dists is None:
+        bond_dists = _compute_bond_distances(atoms, bonds)
+    removed_total = 0
+    for _ in range(max_passes):
+        G = nx.Graph(); G.add_nodes_from(range(len(atoms))); G.add_edges_from(bonds)
+        cycles = nx.cycle_basis(G)
+        removed = False
+        # quick lookup
+        dist_lookup = {tuple(sorted((i,j))): d for (i,j), d in zip(bonds, bond_dists)}
+        for cyc in cycles:
+            if len(cyc) not in ring_sizes: continue
+            if skip_metal_cycles and any(atoms[i].symbol in METALS for i in cyc):
+                continue
+            cyc_edges = []
+            for k in range(len(cyc)):
+                a,b = cyc[k], cyc[(k+1)%len(cyc)]
+                cyc_edges.append(tuple(sorted((a,b))))
+            dists = [dist_lookup[e] for e in cyc_edges if e in dist_lookup]
+            if len(dists) != len(cyc_edges): continue
+            dmin = min(dists); dmax = max(dists)
+            if dmin < 1e-6: continue
+            if dmax/dmin >= ratio_cutoff:
+                worst = cyc_edges[dists.index(dmax)]
+                for idx,(e,(i,j)) in enumerate(zip(bond_dists, bonds)):
+                    if tuple(sorted((i,j))) == worst:
+                        bonds.pop(idx)
+                        bond_orders.pop(idx)
+                        bond_dists.pop(idx)
+                        removed_total += 1
+                        removed = True
+                        break
+                if removed: break
+        if not removed:
+            break
+    return removed_total
+
 def build_graph_cheminf(atoms: Atoms,
                         charge: int = 0,
                         multiplicity: Optional[int] = None,
                         sanitize_iterations: int = 5) -> nx.Graph:
-    vdw = load_vdw_radii()
-    expected = load_expected_valences()
+    vdw = _get_vdw()
+    expected = _get_expected_valences()
     if multiplicity is None:
         multiplicity = _guess_multiplicity(atoms, charge)
-    bonds = _initial_bonds(atoms, vdw)
+    bonds, bond_dists = _initial_bonds(atoms, vdw)
     bond_orders = [1.0]*len(bonds)
+    _prune_small_rings(atoms, bonds, bond_orders, bond_dists=bond_dists)
     arom = _detect_aromatic_cycles(atoms, bonds)
     _apply_aromatic(bonds, bond_orders, arom)
-    _adjust_valences(atoms, bonds, bond_orders, expected, vdw, multiplicity=multiplicity)
-    _rdkit_aromatic_refine(atoms, bonds, bond_orders)
-    arom = _detect_aromatic_cycles(atoms, bonds)
-    _apply_aromatic(bonds, bond_orders, arom)
-    
-    # NEW: Compute formal charges after bond orders finalized
+    _adjust_valences(atoms, bonds, bond_orders, expected, vdw,
+                     multiplicity=multiplicity, bond_dists=bond_dists)  # stats ignored
+    rdkit_up = _rdkit_aromatic_refine(atoms, bonds, bond_orders)
     formal_charges = _compute_formal_charges(atoms, bonds, bond_orders, charge)
-    
     charges_raw = _compute_gasteiger(atoms, bonds, bond_orders)
+    raw_sum = sum(charges_raw) if charges_raw else 0.0
     charges_adj = charges_raw[:]
-    if charges_adj and abs(sum(charges_adj) - charge) > 1e-6:
-        delta = (charge - sum(charges_adj))/len(charges_adj)
+    if charges_adj and abs(raw_sum - charge) > 1e-6:
+        delta = (charge - raw_sum)/len(charges_adj)
         charges_adj = [c + delta for c in charges_adj]
     G = _assemble_graph(atoms, bonds, bond_orders,
                         {'gasteiger_raw': charges_raw, 'gasteiger': charges_adj},
-                        formal_charges=formal_charges)  # NEW
+                        formal_charges=formal_charges,
+                        bond_dists=bond_dists)
     G.graph['total_charge'] = charge
     G.graph['multiplicity'] = multiplicity
     _sanitize_graph(G, atoms, expected, vdw, max_iter=sanitize_iterations)
@@ -530,15 +567,19 @@ def build_graph_xtb(atoms: Atoms,
             os.remove(os.path.join(work,f))
         os.rmdir(work)
     if not bonds:
-        vdw = load_vdw_radii()
-        bonds = _initial_bonds(atoms, vdw)
+        vdw = _get_vdw()
+        bonds, bond_dists = _initial_bonds(atoms, vdw)
         bond_orders = [1.0]*len(bonds)
+        _prune_small_rings(atoms, bonds, bond_orders, bond_dists=bond_dists)
         arom = _detect_aromatic_cycles(atoms, bonds)
         _apply_aromatic(bonds, bond_orders, arom)
         _rdkit_aromatic_refine(atoms, bonds, bond_orders)
-    expected = load_expected_valences()
-    vdw = load_vdw_radii()
-    G = _assemble_graph(atoms, bonds, bond_orders, {'mulliken': charges})
+    else:
+        bond_dists = _compute_bond_distances(atoms, bonds)
+    expected = _get_expected_valences()
+    vdw = _get_vdw()
+    G = _assemble_graph(atoms, bonds, bond_orders, {'mulliken': charges},
+                        bond_dists=bond_dists)
     G.graph['total_charge'] = charge
     G.graph['multiplicity'] = multiplicity
     _sanitize_graph(G, atoms, expected, vdw, max_iter=sanitize_iterations)
@@ -568,7 +609,8 @@ def _assemble_graph(atoms: Atoms,
                     bonds: List[Tuple[int,int]],
                     bond_orders: List[float],
                     charge_dict: Dict[str,List[float]],
-                    formal_charges: Optional[List[int]] = None) -> nx.Graph:
+                    formal_charges: Optional[List[int]] = None,
+                    bond_dists: Optional[List[float]] = None) -> nx.Graph:
     """
     Build NetworkX graph and attach:
       Node: symbol, atomic_number, charges{method:value}, agg_charge placeholder, formal_charge
@@ -580,12 +622,15 @@ def _assemble_graph(atoms: Atoms,
         G.add_node(i, symbol=a.symbol, atomic_number=a.number,
                    charges=charges, agg_charge=0.0,
                    formal_charge=formal_charges[i] if formal_charges else 0)
-    for (i,j), bo in zip(bonds, bond_orders):
+    if bond_dists is None:
+        bond_dists = _compute_bond_distances(atoms, bonds)
+    for ((i,j), bo, dist) in zip(bonds, bond_orders, bond_dists):
         si, sj = atoms[i].symbol, atoms[j].symbol
         G.add_edge(i, j,
                    bond_order=float(bo),
                    bond_type=(si, sj),
-                   metal_coord=(si in METALS or sj in METALS))
+                   metal_coord=(si in METALS or sj in METALS),
+                   distance=float(dist))
     return G
 
 def _bond_rdkit_order(b):
@@ -612,7 +657,7 @@ def _compute_formal_charges(atoms: Atoms,
         L = max(0, target - B) ; target = 2 (H) else 8
     Metals forced to 0 (coordination model). Residual charge distributed.
     """
-    valence_electrons = load_valence_electrons()
+    valence_electrons = _get_valence_electrons()
     formal = [0] * len(atoms)
     for i, atom in enumerate(atoms):
         sym = atom.symbol
@@ -621,19 +666,19 @@ def _compute_formal_charges(atoms: Atoms,
             continue
         V = valence_electrons.get(sym)
         if V is None:
-            # Fallback: treat unknown as 0 (noble/inert placeholder)
             formal[i] = 0
             continue
-        bond_order_sum = sum(bond_orders[k] for k,(a,b) in enumerate(bonds) if i in (a,b))
+        bond_order_sum = _bond_order_sum(i, bonds, bond_orders)
         B = 2.0 * bond_order_sum
         target = 2 if sym == 'H' else 8
         L = max(0, target - B)
         formal[i] = int(round(V - L - B/2))
-    residual = total_charge - sum(formal)
+    residual = total_charge - sum(formal)  
+    
     if residual != 0:
         bonded_atoms = []
         for idx in range(len(atoms)):
-            bond_count = sum(1 for k, (a, b) in enumerate(bonds) if idx in (a, b))
+            bond_count = _bond_order_sum(idx, bonds, bond_orders)
             if bond_count > 0:
                 bonded_atoms.append((abs(formal[idx]), idx))
         if not bonded_atoms:

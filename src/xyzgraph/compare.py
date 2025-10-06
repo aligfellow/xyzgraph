@@ -114,6 +114,39 @@ def xyz2mol_compare(atoms: Atoms,
         bond_map.setdefault(j, []).append((i,o,ar))
 
     out=[f"# xyz2mol graph: {mol.GetNumAtoms()} atoms, {mol.GetNumBonds()} bonds (charge={charge})"]
+
+    # NEW: connectivity / bond order diff if reference provided
+    if reference_graph is not None and reference_graph.number_of_nodes() == mol.GetNumAtoms():
+        # xyzgraph edges
+        ref_edges = {}
+        for i,j,d in reference_graph.edges(data=True):
+            ref_edges[tuple(sorted((i,j)))] = float(d.get('bond_order',1.0))
+        # xyz2mol edges
+        x2_edges = {}
+        for b in mol.GetBonds():
+            e = tuple(sorted((b.GetBeginAtomIdx(), b.GetEndAtomIdx())))
+            x2_edges[e] = float(_bond_rdkit_order(b))
+        only_ref = sorted(e for e in ref_edges.keys() if e not in x2_edges)
+        only_x2  = sorted(e for e in x2_edges.keys() if e not in ref_edges)
+        shared = sorted(e for e in ref_edges.keys() if e in x2_edges)
+        bo_diffs = []
+        for e in shared:
+            r = ref_edges[e]; x = x2_edges[e]
+            if abs(r - x) >= 0.25:
+                bo_diffs.append((e,r,x, r-x))
+        out.append("# edge_diff: only_in_xyzgraph={:,} only_in_xyz2mol={:,} bond_order_diffs={:,}".format(
+            len(only_ref), len(only_x2), len(bo_diffs)))
+        if only_ref:
+            out.append("#   only_in_xyzgraph: " + " ".join(f"{a}-{b}" for a,b in only_ref))
+        if only_x2:
+            out.append("#   only_in_xyz2mol: " + " ".join(f"{a}-{b}" for a,b in only_x2))
+        if bo_diffs:
+            out.append("#   bond_order_diffs (Δ≥0.25):")
+            for (a,b,r,x,delta) in bo_diffs[:40]:
+                out.append(f"#     {a}-{b}: xyzgraph={r:.2f} xyz2mol={x:.2f} Δ={delta:+.2f}")
+            if len(bo_diffs) > 40:
+                out.append("#     ...")
+
     if verbose and used:
         out.append("# used_params: "+", ".join(f"{k}={v}" for k,v in used.items()))
 

@@ -64,7 +64,7 @@ def main():
                               ascii=ascii_active,
                               ascii_scale=max(0.2, args.ascii_scale),
                               ascii_include_h=args.show_h,
-                            #   reference_graph=G   # NEW: align xyz2mol ASCII to reference
+                              reference_graph=G   # NEW: enable connectivity / bond order diff
                               ).rstrip())
 
 if __name__ == "__main__":
