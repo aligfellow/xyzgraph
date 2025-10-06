@@ -4,6 +4,33 @@ from rdkit import Chem
 
 PREF_CHARGE_ORDER = ['gasteiger', 'mulliken', 'hirshfeld', 'gasteiger_raw']
 
+# --- special edge glyph helper (retain ONLY this version) ---
+def _edge_char(attrs: Dict[str, any],
+               bo: float,
+               orient: str,
+               dx: int,
+               dy: int) -> Tuple[str, bool]:
+    """
+    Return (glyph, special_flag).
+    special_flag True => skip multi-line double/triple drawing.
+    Precedence: TS > NCI > normal.
+    """
+    if attrs.get('TS'):
+        return '*', True
+    if attrs.get('NCI'):
+        return '.', True
+    # default glyph logic (single/double/triple/aromatic fallback)
+    if bo >= 2.5:
+        return '#', False
+    if bo >= 1.9:
+        if orient == 'h': return '=', False
+        if orient == 'v': return '|', False
+        return ('/' if (dx > 0 and dy < 0) or (dx < 0 and dy > 0) else '\\'), False
+    if orient == 'h': return '-', False
+    if orient == 'v': return '|', False
+    return ('/' if (dx > 0 and dy < 0) or (dx < 0 and dy > 0) else '\\'), False
+# --- end helper ---
+
 def _pick_charge(d):
     for k in PREF_CHARGE_ORDER:
         if k in d.get('charges', {}):
@@ -147,9 +174,8 @@ class GraphToASCII:
                       mol: Chem.Mol,
                       nodes: List[int],
                       bond_orders_map: Dict[Tuple[int,int], float],
+                      edge_attr_map: Dict[Tuple[int,int], Dict[str, any]],  # NEW
                       scale_x: Optional[float] = None,
-                      scale_y: Optional[float] = None,
-                      padding: int = 1,
                       scale: float = 1.0) -> str:
         if mol.GetNumAtoms() == 0:
             return "<empty>"
@@ -182,6 +208,7 @@ class GraphToASCII:
             gx = int(round(((x - min(xs))/span_x) * scale_x * mult_x))
             gy = int(round(((y - min(ys))/span_y) * scale_y * mult_y))
             grid.append((gx,gy))
+        padding = 1
         max_gx = max(g for g,_ in grid) + padding
         max_gy = max(g for _,g in grid) + padding
         canvas = [[' ']*(max_gx+1) for _ in range(max_gy+1)]
@@ -213,30 +240,29 @@ class GraphToASCII:
 
         rev_map = {i: nodes[i] for i in range(n)}
 
+        # --- Modified edge drawing using special glyphs ---
         for b in mol.GetBonds():
             i = b.GetBeginAtomIdx(); j = b.GetEndAtomIdx()
             o1 = rev_map[i]; o2 = rev_map[j]
             bo = bond_orders_map.get((o1,o2), bond_orders_map.get((o2,o1), 1.0))
+            attrs = edge_attr_map.get((o1,o2), edge_attr_map.get((o2,o1), {}))
             (x1,y1) = grid[i]; (x2,y2) = grid[j]
             orient, dx, dy = classify(x1,y1,x2,y2)
-            bcls = bond_class(bo)
-            if bcls == 'triple':
-                glyph = '#'
-            elif bcls == 'double':
-                if orient == 'h': glyph = '='
-                elif orient == 'v': glyph = '|'
-                else: glyph = '/' if (dx>0 and dy<0) or (dx<0 and dy>0) else '\\'
-            else:
-                if orient == 'h': glyph = '-'
-                elif orient == 'v': glyph = '|'
-                else: glyph = '/' if (dx>0 and dy<0) or (dx<0 and dy>0) else '\\'
+            glyph, special = _edge_char(attrs, bo, orient, dx, dy)
             draw_line(x1,y1,x2,y2,glyph)
-            if bcls == 'double':
-                if orient == 'h': draw_parallel(x1,y1,x2,y2,0,1,'=')
-                elif orient == 'v': draw_parallel(x1,y1,x2,y2,1,0,'|')
+            # keep multi-line style only if not special and bond is double
+            if not special and 1.9 <= bo < 2.5:  # double
+                if orient == 'h':
+                    draw_parallel(x1,y1,x2,y2,0,1,glyph)
+                elif orient == 'v':
+                    draw_parallel(x1,y1,x2,y2,1,0,'|')
                 else:
-                    if glyph == '/': draw_parallel(x1,y1,x2,y2,-1,0,'/')
-                    else: draw_parallel(x1,y1,x2,y2,1,0,'\\')
+                    if glyph == '/':
+                        draw_parallel(x1,y1,x2,y2,-1,0,'/')
+                    else:
+                        draw_parallel(x1,y1,x2,y2,1,0,'\\')
+            # triple already shown as '#'; no duplication needed
+        # --- end modified edge drawing ---
 
         for m_idx, orig in enumerate(nodes):
             gx,gy = grid[m_idx]
@@ -247,7 +273,7 @@ class GraphToASCII:
                     sx = gx + 1
                     if sx < len(canvas[0]):
                         # Overwrite if blank or bond glyph
-                        if canvas[gy][sx] in (' ', '-', '=', '|', '/', '\\', '#'):
+                        if canvas[gy][sx] in (' ', '-', '=', '|', '/', '\\', '#', '*', '.'):
                             canvas[gy][sx] = sym[1]
 
         lines = ["".join(r).rstrip() for r in canvas]
@@ -277,12 +303,15 @@ class GraphToASCII:
         except Exception:
             layout = {orig: (0.0,0.0) for orig in nodes}
         bond_orders_map: Dict[Tuple[int,int], float] = {}
+        edge_attr_map: Dict[Tuple[int,int], Dict[str, any]] = {}  # NEW
         for i,j,data in graph.edges(data=True):
             if i in idx_map and j in idx_map:
                 bo = float(data.get('bond_order', 1.0))
                 bond_orders_map[(i,j)] = bo
                 bond_orders_map[(j,i)] = bo
-        ascii_str = self._mol_to_ascii(mol, nodes, bond_orders_map, scale=scale)
+                edge_attr_map[(i,j)] = data
+                edge_attr_map[(j,i)] = data
+        ascii_str = self._mol_to_ascii(mol, nodes, bond_orders_map, edge_attr_map, scale=scale)
         return ascii_str, layout
 
 def graph_to_ascii(G: nx.Graph,

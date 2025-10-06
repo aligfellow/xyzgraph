@@ -214,6 +214,36 @@ ASCII snippet example:
 ...
 ```
 
+## Data Access (VDW / Valence Tables)
+
+The internal data tables are now eagerly loaded on import, so:
+```python
+from xyzgraph import VDW, VALENCES, VALENCE_ELECTRONS
+print(VDW["C"], VALENCES["O"], VALENCE_ELECTRONS["N"])
+```
+works immediately.
+
+Lazy-style getters (they are effectively no-ops once loaded):
+```python
+from xyzgraph import get_vdw, get_expected_valences, get_valence_electrons
+vdw = get_vdw()
+valences = get_expected_valences()
+ve = get_valence_electrons()
+```
+
+`build_graph(...)` automatically populates all three caches on first use.
+
+### Special Edge Rendering (ASCII)
+If an edge dict contains:
+- TS_bond=True or TS=True  -> drawn with '*'
+- NCI=True                 -> drawn with '.'
+
+Example:
+```python
+G.edges[i, j]['TS'] = True 
+G.edges[k, l]['NCI'] = True
+```
+These override normal bond glyphs (single/double/triple/aromatic). Only a single character is used per edge.
 
 ## References
 Tckatenko, Jensen (plus ref), Rdkit?, Andrew White, ascii codes?, xyz2graph code?

@@ -54,6 +54,27 @@ def _get_valence_electrons():
         VALENCE_ELECTRONS = load_valence_electrons()
     return VALENCE_ELECTRONS
 
+# Public accessors (lightweight wrappers) ---------------------------
+def get_vdw() -> Dict[str, float]:
+    """
+    Public accessor for Van der Waals radii.
+    Ensures lazy cache is populated.
+    """
+    return _get_vdw()
+
+def get_expected_valences() -> Dict[str, List[int]]:
+    """
+    Public accessor for expected valence list per element.
+    """
+    return _get_expected_valences()
+
+def get_valence_electrons() -> Dict[str, int]:
+    """
+    Public accessor for valence electron counts.
+    """
+    return _get_valence_electrons()
+
+
 # ------------------------
 # Bond perception helpers
 # ------------------------
@@ -95,7 +116,7 @@ def _should_bond_metal(sym_i: str, sym_j: str, distance: float, vdw: Dict[str,fl
 def _initial_bonds(atoms: Atoms,
                    vdw: Dict[str, float],
                    vdw_scale_h=0.45,
-                   vdw_scale_h_metal=0.60,
+                   vdw_scale_h_metal=0.5,
                    vdw_scale=0.55,
                    vdw_scale_metal=0.65) -> Tuple[List[Tuple[int, int]], List[float]]:
     """
@@ -443,6 +464,25 @@ def _guess_multiplicity(atoms: Atoms, charge: int) -> int:
     ne = int(np.sum(atoms.get_atomic_numbers())) - charge
     return 1 if ne % 2 == 0 else 2
 
+def _valence_error_score(atoms: Atoms,
+                         bonds: List[Tuple[int,int]],
+                         bond_orders: List[float],
+                         expected: Dict[str,List[int]]) -> float:
+    """Sum of squared deviations from nearest allowed valence (non-metals only)."""
+    deg = {i:0.0 for i in range(len(atoms))}
+    for (i,j),bo in zip(bonds,bond_orders):
+        deg[i]+=bo; deg[j]+=bo
+    score = 0.0
+    for i,a in enumerate(atoms):
+        sym = a.symbol
+        if sym in METALS or sym not in expected:
+            continue
+        cur = deg[i]
+        target = min(expected[sym], key=lambda v: (abs(v-cur), -v))
+        diff = cur - target
+        score += diff*diff
+    return score
+
 def _prune_small_rings(atoms: Atoms,
                        bonds: List[Tuple[int,int]],
                        bond_orders: List[float],
@@ -450,45 +490,68 @@ def _prune_small_rings(atoms: Atoms,
                        ratio_cutoff: float = 1.18,
                        max_passes: int = 4,
                        skip_metal_cycles: bool = True,
-                       bond_dists: Optional[List[float]] = None) -> int:
+                       bond_dists: Optional[List[float]] = None,
+                       expected: Optional[Dict[str,List[int]]] = None,
+                       adaptive: bool = True,
+                       ratio_cutoff_3: float = 1.18,
+                       ratio_cutoff_4: float = 1.22,
+                       min_improvement: float = 0.0) -> int:
     """
-    Remove suspect bonds that create very strained small rings (3/4-member) by
-    deleting the longest edge when max(dist)/min(dist) exceeds ratio_cutoff.
-    NOTE: Cycles containing a metal are skipped (ferrocene / metallocenes form
-    many Fe–C–C 3-cycles that are chemically valid representations of hapticity).
+    Adaptive pruning of distorted small rings (size in ring_sizes):
+      - Distortion test via (max_dist / min_dist) > threshold (size-specific for 3/4; else ratio_cutoff).
+      - If adaptive=True: simulate single-edge removal (longest edge) and accept only
+        if valence error score does not worsen (and improves by >= min_improvement if set).
+      - No atom-type or topology special casing (no explicit spiro handling).
     """
     if bond_dists is None:
         bond_dists = _compute_bond_distances(atoms, bonds)
+    if expected is None and adaptive:
+        expected = _get_expected_valences()
     removed_total = 0
     for _ in range(max_passes):
         G = nx.Graph(); G.add_nodes_from(range(len(atoms))); G.add_edges_from(bonds)
         cycles = nx.cycle_basis(G)
+        if not cycles:
+            break
         removed = False
-        # quick lookup
         dist_lookup = {tuple(sorted((i,j))): d for (i,j), d in zip(bonds, bond_dists)}
         for cyc in cycles:
-            if len(cyc) not in ring_sizes: continue
-            if skip_metal_cycles and any(atoms[i].symbol in METALS for i in cyc):
+            L = len(cyc)
+            if L not in ring_sizes:
                 continue
-            cyc_edges = []
-            for k in range(len(cyc)):
-                a,b = cyc[k], cyc[(k+1)%len(cyc)]
-                cyc_edges.append(tuple(sorted((a,b))))
-            dists = [dist_lookup[e] for e in cyc_edges if e in dist_lookup]
-            if len(dists) != len(cyc_edges): continue
-            dmin = min(dists); dmax = max(dists)
-            if dmin < 1e-6: continue
-            if dmax/dmin >= ratio_cutoff:
-                worst = cyc_edges[dists.index(dmax)]
+            if skip_metal_cycles and any(atoms[a].symbol in METALS for a in cyc):
+                continue
+            cyc_edges = [tuple(sorted((cyc[k], cyc[(k+1)%L]))) for k in range(L)]
+            dvec = [dist_lookup[e] for e in cyc_edges if e in dist_lookup]
+            if len(dvec) != L:
+                continue
+            dmin = min(dvec); dmax = max(dvec)
+            if dmin < 1e-6:
+                continue
+            thr = ratio_cutoff_3 if L == 3 else (ratio_cutoff_4 if L == 4 else ratio_cutoff)
+            if dmax/dmin <= thr:
+                continue
+            worst = cyc_edges[dvec.index(dmax)]
+            if not adaptive or expected is None:
                 for idx,(e,(i,j)) in enumerate(zip(bond_dists, bonds)):
                     if tuple(sorted((i,j))) == worst:
-                        bonds.pop(idx)
-                        bond_orders.pop(idx)
-                        bond_dists.pop(idx)
-                        removed_total += 1
-                        removed = True
+                        bonds.pop(idx); bond_orders.pop(idx); bond_dists.pop(idx)
+                        removed_total += 1; removed = True
                         break
-                if removed: break
+            else:
+                current_score = _valence_error_score(atoms, bonds, bond_orders, expected)
+                for idx,(e,(i,j)) in enumerate(zip(bond_dists, bonds)):
+                    if tuple(sorted((i,j))) == worst:
+                        tbonds = bonds[:idx] + bonds[idx+1:]
+                        torders = bond_orders[:idx] + bond_orders[idx+1:]
+                        trial_score = _valence_error_score(atoms, tbonds, torders, expected)
+                        improvement = current_score - trial_score
+                        if trial_score <= current_score and improvement >= min_improvement:
+                            bonds.pop(idx); bond_orders.pop(idx); bond_dists.pop(idx)
+                            removed_total += 1; removed = True
+                        break
+            if removed:
+                break
         if not removed:
             break
     return removed_total
@@ -503,11 +566,14 @@ def build_graph_cheminf(atoms: Atoms,
         multiplicity = _guess_multiplicity(atoms, charge)
     bonds, bond_dists = _initial_bonds(atoms, vdw)
     bond_orders = [1.0]*len(bonds)
-    _prune_small_rings(atoms, bonds, bond_orders, bond_dists=bond_dists)
+    _prune_small_rings(atoms, bonds, bond_orders,
+                       bond_dists=bond_dists,
+                       expected=expected,
+                       adaptive=True)
     arom = _detect_aromatic_cycles(atoms, bonds)
     _apply_aromatic(bonds, bond_orders, arom)
     _adjust_valences(atoms, bonds, bond_orders, expected, vdw,
-                     multiplicity=multiplicity, bond_dists=bond_dists)  # stats ignored
+                     multiplicity=multiplicity, bond_dists=bond_dists)
     rdkit_up = _rdkit_aromatic_refine(atoms, bonds, bond_orders)
     formal_charges = _compute_formal_charges(atoms, bonds, bond_orders, charge)
     charges_raw = _compute_gasteiger(atoms, bonds, bond_orders)
@@ -568,20 +634,24 @@ def build_graph_xtb(atoms: Atoms,
         os.rmdir(work)
     if not bonds:
         vdw = _get_vdw()
+        expected = _get_expected_valences()
         bonds, bond_dists = _initial_bonds(atoms, vdw)
         bond_orders = [1.0]*len(bonds)
-        _prune_small_rings(atoms, bonds, bond_orders, bond_dists=bond_dists)
+        _prune_small_rings(atoms, bonds, bond_orders,
+                           bond_dists=bond_dists,
+                           expected=expected,
+                           adaptive=True)
         arom = _detect_aromatic_cycles(atoms, bonds)
         _apply_aromatic(bonds, bond_orders, arom)
         _rdkit_aromatic_refine(atoms, bonds, bond_orders)
     else:
         bond_dists = _compute_bond_distances(atoms, bonds)
-    expected = _get_expected_valences()
-    vdw = _get_vdw()
+        expected = _get_expected_valences()
     G = _assemble_graph(atoms, bonds, bond_orders, {'mulliken': charges},
                         bond_dists=bond_dists)
     G.graph['total_charge'] = charge
     G.graph['multiplicity'] = multiplicity
+    vdw = _get_vdw()
     _sanitize_graph(G, atoms, expected, vdw, max_iter=sanitize_iterations)
     return G
 
