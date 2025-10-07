@@ -26,7 +26,7 @@ def _edge_char(attrs: Dict[str, any],
         return '#', False, 'triple'
     
     # Double bonds - use more distinctive characters
-    if bo >= 1.9:
+    if bo >= 1.8:
         if orient == 'h': 
             return '=', False, 'double'
         if orient == 'v': 
@@ -36,6 +36,18 @@ def _edge_char(attrs: Dict[str, any],
             return '/', False, 'double'
         else:
             return '\\', False, 'double'
+        
+    #     # --- Aromatic bonds (1.35–1.8 range, typical) ---
+    # if 1.35 <= bo < 1.8:
+    #     # choose base single bond symbol by orientation
+    #     if orient == 'h':
+    #         return '-.', False, 'aromatic'
+    #     if orient == 'v':
+    #         return '|.', False, 'aromatic'
+    #     if (dx > 0 and dy < 0) or (dx < 0 and dy > 0):
+    #         return '/.', False, 'aromatic'
+    #     else:
+    #         return '\\.', False, 'aromatic'
     
     # Single bonds
     if orient == 'h': 
