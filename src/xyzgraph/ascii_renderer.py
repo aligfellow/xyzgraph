@@ -9,26 +9,43 @@ def _edge_char(attrs: Dict[str, any],
                bo: float,
                orient: str,
                dx: int,
-               dy: int) -> Tuple[str, bool]:
+               dy: int) -> Tuple[str, bool, str]:
     """
-    Return (glyph, special_flag).
+    Return (glyph, special_flag, bond_type).
     special_flag True => skip multi-line double/triple drawing.
+    bond_type in ['single', 'double', 'triple'] for parallel line logic.
     Precedence: TS > NCI > normal.
     """
     if attrs.get('TS'):
-        return '*', True
+        return '*', True, 'special'
     if attrs.get('NCI'):
-        return '.', True
-    # default glyph logic (single/double/triple/aromatic fallback)
+        return '.', True, 'special'
+    
+    # Triple bonds
     if bo >= 2.5:
-        return '#', False
+        return '#', False, 'triple'
+    
+    # Double bonds - use more distinctive characters
     if bo >= 1.9:
-        if orient == 'h': return '=', False
-        if orient == 'v': return '|', False
-        return ('/' if (dx > 0 and dy < 0) or (dx < 0 and dy > 0) else '\\'), False
-    if orient == 'h': return '-', False
-    if orient == 'v': return '|', False
-    return ('/' if (dx > 0 and dy < 0) or (dx < 0 and dy > 0) else '\\'), False
+        if orient == 'h': 
+            return '=', False, 'double'
+        if orient == 'v': 
+            return '‖', False, 'double'  # Unicode double vertical line
+        # For diagonals, we'll handle spacing differently
+        if (dx > 0 and dy < 0) or (dx < 0 and dy > 0):
+            return '/', False, 'double'
+        else:
+            return '\\', False, 'double'
+    
+    # Single bonds
+    if orient == 'h': 
+        return '-', False, 'single'
+    if orient == 'v': 
+        return '|', False, 'single'
+    if (dx > 0 and dy < 0) or (dx < 0 and dy > 0):
+        return '/', False, 'single'
+    else:
+        return '\\', False, 'single'
 # --- end helper ---
 
 def _pick_charge(d):
@@ -174,7 +191,7 @@ class GraphToASCII:
                       mol: Chem.Mol,
                       nodes: List[int],
                       bond_orders_map: Dict[Tuple[int,int], float],
-                      edge_attr_map: Dict[Tuple[int,int], Dict[str, any]],  # NEW
+                      edge_attr_map: Dict[Tuple[int,int], Dict[str, any]],
                       scale_x: Optional[float] = None,
                       scale: float = 1.0) -> str:
         if mol.GetNumAtoms() == 0:
@@ -194,7 +211,7 @@ class GraphToASCII:
                 mult_x, mult_y = 17, 10; scale_x, scale_y = 1.55, 1.15
         else:
             mult_x, mult_y = 14, 8
-        # NEW: global user scale
+        # Global user scale
         mult_x = int(max(1, round(mult_x * scale)))
         mult_y = int(max(1, round(mult_y * scale)))
 
@@ -220,11 +237,6 @@ class GraphToASCII:
             if adx < 0.35*ady: return 'v', dx, dy
             return 'd', dx, dy
 
-        def bond_class(bo: float):
-            if bo >= 2.5: return 'triple'
-            if bo >= 1.9: return 'double'
-            return 'single'
-
         def draw_line(x1,y1,x2,y2,ch):
             steps = max(abs(x2-x1), abs(y2-y1))
             steps = max(1, steps)
@@ -238,9 +250,34 @@ class GraphToASCII:
         def draw_parallel(x1,y1,x2,y2,ox,oy,ch):
             draw_line(x1+ox,y1+oy,x2+ox,y2+oy,ch)
 
+        # IMPROVED: Draw double diagonal bonds with wider spacing
+        def draw_double_diagonal(x1,y1,x2,y2,glyph):
+            """Draw double diagonal bond with improved spacing"""
+            steps = max(abs(x2-x1), abs(y2-y1))
+            steps = max(1, steps)
+            
+            # Determine perpendicular offset direction
+            dx, dy = x2-x1, y2-y1
+            if glyph == '/':
+                # For /, offset perpendicular is along \
+                offset_pairs = [(0, 0), (1, 0), (-1, 0)]  # center, right, left
+            else:  # '\\'
+                # For \, offset perpendicular is along /
+                offset_pairs = [(0, 0), (-1, 0), (1, 0)]  # center, left, right
+            
+            # Draw main line
+            for t in range(steps+1):
+                xt = int(round(x1 + (x2-x1)*t/steps))
+                yt = int(round(y1 + (y2-y1)*t/steps))
+                for ox, oy in offset_pairs[:2]:  # Draw two parallel lines
+                    xp, yp = xt + ox, yt + oy
+                    if 0 <= yp < len(canvas) and 0 <= xp < len(canvas[0]):
+                        if canvas[yp][xp] == ' ':
+                            canvas[yp][xp] = glyph
+
         rev_map = {i: nodes[i] for i in range(n)}
 
-        # --- Modified edge drawing using special glyphs ---
+        # --- IMPROVED edge drawing with better double bond rendering ---
         for b in mol.GetBonds():
             i = b.GetBeginAtomIdx(); j = b.GetEndAtomIdx()
             o1 = rev_map[i]; o2 = rev_map[j]
@@ -248,21 +285,29 @@ class GraphToASCII:
             attrs = edge_attr_map.get((o1,o2), edge_attr_map.get((o2,o1), {}))
             (x1,y1) = grid[i]; (x2,y2) = grid[j]
             orient, dx, dy = classify(x1,y1,x2,y2)
-            glyph, special = _edge_char(attrs, bo, orient, dx, dy)
+            glyph, special, bond_type = _edge_char(attrs, bo, orient, dx, dy)
+            
+            # Draw main bond line
             draw_line(x1,y1,x2,y2,glyph)
-            # keep multi-line style only if not special and bond is double
-            if not special and 1.9 <= bo < 2.5:  # double
+            
+            # Handle double bonds with improved spacing
+            if not special and bond_type == 'double':
                 if orient == 'h':
+                    # Horizontal: add line above
                     draw_parallel(x1,y1,x2,y2,0,1,glyph)
                 elif orient == 'v':
-                    draw_parallel(x1,y1,x2,y2,1,0,'|')
+                    # Vertical: add line to the right
+                    draw_parallel(x1,y1,x2,y2,1,0,'‖')
                 else:
+                    # Diagonal: use improved double diagonal rendering
+                    # Draw second parallel line with better spacing
                     if glyph == '/':
-                        draw_parallel(x1,y1,x2,y2,-1,0,'/')
+                        draw_parallel(x1,y1,x2,y2,1,0,'/')
                     else:
                         draw_parallel(x1,y1,x2,y2,1,0,'\\')
-            # triple already shown as '#'; no duplication needed
-        # --- end modified edge drawing ---
+            
+            # Triple bonds: just draw single '#' (no additional lines)
+        # --- end improved edge drawing ---
 
         for m_idx, orig in enumerate(nodes):
             gx,gy = grid[m_idx]
@@ -273,7 +318,7 @@ class GraphToASCII:
                     sx = gx + 1
                     if sx < len(canvas[0]):
                         # Overwrite if blank or bond glyph
-                        if canvas[gy][sx] in (' ', '-', '=', '|', '/', '\\', '#', '*', '.'):
+                        if canvas[gy][sx] in (' ', '-', '=', '|', '/', '\\', '#', '*', '.', '‖'):
                             canvas[gy][sx] = sym[1]
 
         lines = ["".join(r).rstrip() for r in canvas]
@@ -303,7 +348,7 @@ class GraphToASCII:
         except Exception:
             layout = {orig: (0.0,0.0) for orig in nodes}
         bond_orders_map: Dict[Tuple[int,int], float] = {}
-        edge_attr_map: Dict[Tuple[int,int], Dict[str, any]] = {}  # NEW
+        edge_attr_map: Dict[Tuple[int,int], Dict[str, any]] = {}
         for i,j,data in graph.edges(data=True):
             if i in idx_map and j in idx_map:
                 bo = float(data.get('bond_order', 1.0))

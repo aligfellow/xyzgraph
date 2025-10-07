@@ -2,6 +2,7 @@ import os
 import numpy as np
 import networkx as nx
 from typing import List, Tuple, Dict, Any, Optional
+from itertools import combinations
 from ase import Atoms
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -322,6 +323,912 @@ def _rdkit_aromatic_refine(atoms: Atoms,
         pass
     return upgrades
 
+DEBUG_BOND_ORDER = True
+
+def set_bond_order_debug(enabled: bool):
+    """Enable/disable bond order refinement debugging"""
+    global DEBUG_BOND_ORDER
+    DEBUG_BOND_ORDER = enabled
+
+def _debug_print(msg: str, level: int = 0):
+    """Print debug message with indentation"""
+    if DEBUG_BOND_ORDER:
+        indent = "  " * level
+        print(f"{indent}{msg}")
+
+def _compute_formal_charge_simple(symbol: str, 
+                                   valence_electrons: int,
+                                   bond_order_sum: float, 
+                                   lone_pairs: int = 0) -> int:
+    """
+    Formal charge = V - (L + B/2)
+    where V=valence electrons, L=2*lone_pairs, B=bond electrons (2*bond_order_sum)
+    
+    For convenience, we assume lone pairs fill to octet:
+    L = max(0, target - B) where target = 2 for H, 8 for others
+    """
+    if symbol == 'H':
+        return valence_electrons - int(bond_order_sum)
+    
+    target = 8
+    B = 2 * bond_order_sum
+    L = max(0, target - B)
+    return int(round(valence_electrons - L - B/2))
+
+def _score_bond_assignment(atoms, bonds, bond_orders, 
+                           valence_electrons_dict, expected_valences,
+                           total_charge: int,
+                           debug: bool = False) -> Tuple[float, List[int]]:
+    """
+    Score a bond order assignment based on:
+    1. Sum of absolute formal charges (minimize this - PRIMARY)
+    2. Number of charged atoms (prefer fewer - SECONDARY)
+    3. Ring conjugation preservation (IMPORTANT)
+    4. Electronegativity-aware charge placement
+    5. Protonation preference
+    6. Valence satisfaction error
+    7. Charge balance error
+    8. Chemical reasonableness penalties
+    
+    Returns (score, formal_charges) where lower score is better
+    """
+    EN = {
+        'H': 2.2, 'C': 2.5, 'N': 3.0, 'O': 3.5, 'F': 4.0,
+        'P': 2.2, 'S': 2.6, 'Cl': 3.2, 'Br': 3.0, 'I': 2.7
+    }
+    
+    n_atoms = len(atoms)
+    bond_sums = [0.0] * n_atoms
+    
+    for (i, j), bo in zip(bonds, bond_orders):
+        bond_sums[i] += bo
+        bond_sums[j] += bo
+    
+    # Build a temporary graph to find rings
+    import networkx as nx
+    G = nx.Graph()
+    G.add_nodes_from(range(n_atoms))
+    for (i, j) in bonds:
+        G.add_edge(i, j)
+    
+    # Find all rings (cycles)
+    try:
+        rings = list(nx.cycle_basis(G))
+    except:
+        rings = []
+    
+    # Identify which atoms are in rings
+    atoms_in_rings = set()
+    for ring in rings:
+        atoms_in_rings.update(ring)
+    
+    # NEW: Identify which atoms have H neighbors
+    has_hydrogen = [False] * n_atoms
+    for (i, j), bo in zip(bonds, bond_orders):
+        if atoms[i].symbol == 'H':
+            has_hydrogen[j] = True
+        elif atoms[j].symbol == 'H':
+            has_hydrogen[i] = True
+    
+    formal_charges = []
+    valence_errors = 0.0
+    en_penalty = 0.0
+    violation_penalty = 0.0
+    chemical_weirdness = 0.0
+    protonation_penalty = 0.0
+    conjugation_penalty = 0.0  # NEW: penalty for breaking ring conjugation
+    
+    if debug:
+        _debug_print("=== Scoring bond assignment ===", 2)
+    
+    # ========== INSERT RING CONJUGATION CHECK HERE ==========
+    for ring in rings:
+        if len(ring) not in (5, 6):
+            continue
+            
+        conjugatable = {'C', 'N', 'O', 'S', 'P'}
+        if not all(atoms[i].symbol in conjugatable for i in ring):
+            continue
+        
+        ring_set = set(ring)
+        
+        # Count elevated bonds WITHIN the ring
+        ring_edges = [(ring[k], ring[(k+1) % len(ring)]) for k in range(len(ring))]
+        elevated_bonds = 0
+        
+        for i, j in ring_edges:
+            for bond_idx, (bi, bj) in enumerate(bonds):
+                if {bi, bj} == {i, j}:
+                    bo = bond_orders[bond_idx]
+                    if bo > 1.3:
+                        elevated_bonds += 1
+                    break
+        
+        # Check for exocyclic double bonds FROM ring atoms
+        exocyclic_double = 0
+        for ring_atom in ring:
+            ring_atom_sym = atoms[ring_atom].symbol
+            
+            for bond_idx, (i, j) in enumerate(bonds):
+                if ring_atom in (i, j):
+                    other = j if i == ring_atom else i
+                    
+                    if other not in ring_set:
+                        bo = bond_orders[bond_idx]
+                        if bo >= 1.8:
+                            other_sym = atoms[other].symbol
+                            
+                            if ring_atom_sym == 'C' and other_sym != 'O':
+                                exocyclic_double += 1
+                                if debug:
+                                    _debug_print(f"!!! Ring C{ring_atom}={other_sym}{other} breaks conjugation", 3)
+                            
+                            elif ring_atom_sym == 'N' and other_sym in ('C', 'P', 'S'):
+                                exocyclic_double += 1
+                                if debug:
+                                    _debug_print(f"!!! Ring N{ring_atom}={other_sym}{other} breaks conjugation", 3)
+        
+        # Score conjugation quality
+        expected_elevated = len(ring) // 2
+        
+        if elevated_bonds >= expected_elevated - 1:
+            if exocyclic_double > 0:
+                conjugation_penalty += exocyclic_double * 12.0
+                if debug:
+                    _debug_print(f"Ring conjugated but has {exocyclic_double} bad exocyclic doubles", 3)
+        else:
+            deficit = (expected_elevated - 1) - elevated_bonds
+            if deficit > 0:
+                conjugation_penalty += deficit * 5.0
+                if exocyclic_double > 0:
+                    conjugation_penalty += exocyclic_double * 12.0
+                    if debug:
+                        _debug_print(f"Ring poorly conjugated AND has exocyclic doubles", 3)
+    # ========== END RING CONJUGATION CHECK ==========
+    
+    for idx, atom in enumerate(atoms):
+        sym = atom.symbol
+        
+        if sym in METALS:
+            formal_charges.append(0)
+            continue
+        
+        V = valence_electrons_dict.get(sym, 0)
+        fc = _compute_formal_charge_simple(sym, V, bond_sums[idx])
+        formal_charges.append(fc)
+        
+        # Protonation preference
+        if has_hydrogen[idx]:
+            if fc == 0:
+                for (i, j), bo in zip(bonds, bond_orders):
+                    if idx in (i, j):
+                        other = j if i == idx else i
+                        if atoms[other].symbol != 'H':
+                            other_V = valence_electrons_dict.get(atoms[other].symbol, 0)
+                            other_fc = _compute_formal_charge_simple(atoms[other].symbol, other_V, bond_sums[other])
+                            if other_fc > 0:
+                                if sym in ('N', 'O'):
+                                    protonation_penalty += 8.0
+                                    if debug:
+                                        _debug_print(f"!!! PROTONATION MISMATCH: {sym}{idx}-H is neutral but neighbor {atoms[other].symbol}{other} is +{other_fc}", 3)
+                                else:
+                                    protonation_penalty += 3.0
+            elif fc > 0 and sym in ('N', 'O', 'S'):
+                # Expected protonation - small bonus
+                en_penalty -= 1.5
+                if debug:
+                    _debug_print(f"  ✓ Expected protonation: {sym}{idx}-H is +{fc}", 3)
+        
+        # Electronegativity penalty
+        en = EN.get(sym, 2.5)
+        if fc > 0:
+            if sym == 'N':
+                en_penalty += fc * 0.2
+            elif sym == 'S':
+                en_penalty += fc * 0.8
+            elif sym == 'P':
+                en_penalty += fc * 0.6
+            elif sym == 'O':
+                en_penalty += fc * (en - 2.5) * 0.8
+            else:
+                en_penalty += fc * (en - 2.5) * 0.5
+        elif fc < 0:
+            en_penalty += abs(fc) * (3.5 - en) * 0.5
+        
+        if debug and fc != 0:
+            _debug_print(f"Atom {idx} ({sym}): valence={bond_sums[idx]:.1f}, formal_charge={fc}, in_ring={idx in atoms_in_rings}", 3)
+        
+        # Chemical weirdness check
+        if sym == 'N' and bond_sums[idx] >= 4.5:
+            double_bonds_to_O = 0
+            for (i, j), bo in zip(bonds, bond_orders):
+                if idx in (i, j) and bo >= 1.8:
+                    other = j if i == idx else i
+                    if atoms[other].symbol == 'O':
+                        double_bonds_to_O += 1
+            
+            if double_bonds_to_O >= 2:
+                chemical_weirdness += 30.0
+                if debug:
+                    _debug_print(f"!!! CHEMICAL WEIRDNESS: N{idx} has {double_bonds_to_O} double bonds to O", 3)
+        
+        # Valence error
+        if sym in expected_valences:
+            allowed = expected_valences[sym]
+            current = bond_sums[idx]
+            min_error = min(abs(current - v) for v in allowed)
+            
+            absolute_limits = {
+                'C': 4, 'N': 5, 'O': 3, 'F': 1,
+                'S': 6, 'P': 5, 'Cl': 7, 'Br': 7, 'I': 7,
+            }
+            
+            if sym in absolute_limits:
+                absolute_max = absolute_limits[sym]
+                if current > absolute_max + 0.1:
+                    violation_penalty += 1000.0
+                    if debug:
+                        _debug_print(f"!!! VALENCE VIOLATION: {sym}{idx} has {current:.1f} > absolute max {absolute_max} (fc={fc:+d})", 3)
+            
+            valence_errors += min_error ** 2
+            
+            if sym in ('O', 'N', 'F', 'Cl', 'S') and current < 2 and fc == 0:
+                valence_errors += 1.0
+            
+            if debug and min_error > 0.3:
+                target = min(allowed, key=lambda v: abs(v - current))
+                _debug_print(f"Atom {idx} ({sym}): current={current:.1f}, target={target}, error={min_error:.2f}", 3)
+    
+    # Scoring components
+    formal_charge_penalty = sum(abs(fc) for fc in formal_charges)
+    num_charged_atoms = sum(1 for fc in formal_charges if fc != 0)
+    charge_balance_error = abs(sum(formal_charges) - total_charge)
+    
+    # Weighted score
+    score = (
+        1000.0 * violation_penalty +         # Catastrophic if violates absolute max
+        30.0 * chemical_weirdness +          # Penalty for weird bonding (N(=O)₂)
+        12.0 * conjugation_penalty +         # NEW: Penalty for breaking ring conjugation
+        8.0 * protonation_penalty +          # Penalty for wrong charge placement near H
+        10.0 * formal_charge_penalty +       # Minimize total formal charge
+        3.0 * num_charged_atoms +            # Prefer fewer charged atoms
+        2.0 * en_penalty +                   # EN-aware charge placement
+        5.0 * charge_balance_error +         # Balance total charge
+        5.0 * valence_errors                 # Satisfy valences
+    )
+    
+    if debug:
+        _debug_print(f"Score breakdown: violation={violation_penalty}, weirdness={chemical_weirdness}, conjugation={conjugation_penalty:.1f}, protonation={protonation_penalty:.1f}, fc_penalty={formal_charge_penalty}, n_charged={num_charged_atoms}, en_penalty={en_penalty:.2f}, charge_error={charge_balance_error}, valence_error={valence_errors:.2f}", 3)
+        _debug_print(f"Total score: {score:.2f}", 3)
+    
+    return score, formal_charges
+
+def _get_adjustable_bonds(atoms, bonds, bond_orders, 
+                         max_bond_order: float = 3.0,
+                         debug: bool = False) -> List[int]:
+    """
+    Return indices of bonds that can be adjusted:
+    - Not involving metals (keep those at 1.0)
+    - Not H-X bonds (those are almost always single)
+    - Not already at max bond order
+    """
+    adjustable = []
+    for idx, ((i, j), bo) in enumerate(zip(bonds, bond_orders)):
+        si, sj = atoms[i].symbol, atoms[j].symbol
+        
+        if si in METALS or sj in METALS:
+            continue
+        if 'H' in (si, sj):
+            continue
+        if bo >= max_bond_order:
+            continue
+        
+        adjustable.append(idx)
+    
+    if debug:
+        _debug_print(f"Found {len(adjustable)} adjustable bonds out of {len(bonds)} total", 2)
+        if adjustable and len(adjustable) <= 10:
+            for idx in adjustable:
+                i, j = bonds[idx]
+                _debug_print(f"  Bond {idx}: {atoms[i].symbol}{i}-{atoms[j].symbol}{j} (order={bond_orders[idx]:.1f})", 3)
+    
+    return adjustable
+
+def _enumerate_bond_order_candidates(atoms, bonds, bond_orders,
+                                     valence_electrons_dict, expected_valences,
+                                     total_charge: int,
+                                     max_candidates: int = 100,
+                                     debug: bool = False) -> List[Tuple[float, List[float], List[int]]]:
+    """
+    Generate candidate bond order assignments using local search:
+    1. Start from current assignment
+    2. Try incrementing bond orders for adjustable bonds
+    3. Score each candidate
+    4. Return top candidates sorted by score
+    
+    Returns list of (score, bond_orders, formal_charges)
+    """
+    adjustable = _get_adjustable_bonds(atoms, bonds, bond_orders, debug=debug)
+    
+    if not adjustable:
+        score, fc = _score_bond_assignment(atoms, bonds, bond_orders, 
+                                           valence_electrons_dict, expected_valences,
+                                           total_charge, debug=debug)
+        if debug:
+            _debug_print("No adjustable bonds found", 2)
+        return [(score, bond_orders[:], fc)]
+    
+    candidates = []
+    
+    # Current assignment
+    score, fc = _score_bond_assignment(atoms, bonds, bond_orders,
+                                       valence_electrons_dict, expected_valences,
+                                       total_charge, debug=debug)
+    candidates.append((score, bond_orders[:], fc))
+    
+    if debug:
+        _debug_print(f"Current assignment score: {score:.2f}", 2)
+    
+    # Try single bond increments (1.0 -> 2.0, 2.0 -> 3.0)
+    for idx in adjustable:
+        new_orders = bond_orders[:]
+        increment = 1.0 if new_orders[idx] < 2.0 else 1.0
+        new_orders[idx] = min(3.0, new_orders[idx] + increment)
+        
+        score, fc = _score_bond_assignment(atoms, bonds, new_orders,
+                                           valence_electrons_dict, expected_valences,
+                                           total_charge, debug=False)
+        candidates.append((score, new_orders, fc))
+    
+    # Try pairs of increments (conjugated systems)
+    if len(adjustable) > 1 and len(adjustable) <= 10:
+        pair_count = 0
+        for idx1, idx2 in combinations(adjustable, 2):
+            # Check if these bonds share an atom (potential conjugation)
+            b1 = bonds[idx1]
+            b2 = bonds[idx2]
+            shared = set(b1) & set(b2)
+            
+            if shared:  # Only try pairs that share an atom
+                new_orders = bond_orders[:]
+                new_orders[idx1] = min(3.0, new_orders[idx1] + 1.0)
+                new_orders[idx2] = min(3.0, new_orders[idx2] + 1.0)
+                
+                score, fc = _score_bond_assignment(atoms, bonds, new_orders,
+                                                   valence_electrons_dict, expected_valences,
+                                                   total_charge, debug=False)
+                candidates.append((score, new_orders, fc))
+                pair_count += 1
+        
+        if debug and pair_count > 0:
+            _debug_print(f"Tried {pair_count} conjugated bond pairs", 2)
+    
+    # Sort by score and limit
+    candidates.sort(key=lambda x: x[0])
+    
+    if debug:
+        _debug_print(f"Generated {len(candidates)} total candidates", 2)
+        _debug_print(f"Best 3 scores: {[f'{c[0]:.2f}' for c in candidates[:3]]}", 2)
+    
+    return candidates[:max_candidates]
+
+def _find_kekule_structures(atoms, bonds, bond_orders, G: nx.Graph,
+                           valence_electrons_dict, expected_valences,
+                           total_charge: int,
+                           max_structures: int = 10,
+                           debug: bool = False) -> List[Tuple[float, List[float]]]:
+    """
+    Generate valid Kekulé structures for rings by trying different
+    double bond placements. Uses formal charge minimization to rank.
+    
+    Strategy:
+    1. Find all cycles (rings)
+    2. For each ring, identify "double-bondable" edges
+    3. Generate alternating double bond patterns
+    4. Score each pattern and keep best
+    
+    Returns list of (score, bond_orders)
+    """
+    if debug:
+        _debug_print("=== Searching for Kekulé structures ===", 1)
+    
+    cycles = [c for c in nx.cycle_basis(G) if len(c) in (5, 6)]
+    if not cycles:
+        return []
+    
+    # Build edge map (bond index lookup)
+    edge_to_bond_idx = {}
+    for idx, (i, j) in enumerate(bonds):
+        edge_to_bond_idx[tuple(sorted((i, j)))] = idx
+    
+    structures = []
+    
+    for ring_idx, cycle in enumerate(cycles):
+        if debug:
+            _debug_print(f"Ring {ring_idx}: {[f'{atoms[i].symbol}{i}' for i in cycle]}", 2)
+        
+        # Get ring edges
+        ring_edges = []
+        for k in range(len(cycle)):
+            i, j = cycle[k], cycle[(k+1) % len(cycle)]
+            edge_key = tuple(sorted((i, j)))
+            if edge_key in edge_to_bond_idx:
+                bond_idx = edge_to_bond_idx[edge_key]
+                si, sj = atoms[i].symbol, atoms[j].symbol
+                
+                # Check if edge can be double bond (not H, not metal, reasonable atoms)
+                if 'H' not in (si, sj) and si not in METALS and sj not in METALS:
+                    ring_edges.append((bond_idx, i, j))
+        
+        if len(ring_edges) < 3:
+            continue  # Not enough bondable edges
+        
+        # Try alternating patterns
+        # For a 6-ring: positions 0,2,4 or 1,3,5
+        # For a 5-ring: harder, try different combinations
+        
+        n_edges = len(ring_edges)
+        
+        # Generate patterns: which edges get double bonds?
+        if n_edges == 6:  # Benzene-like
+            patterns = [
+                [0, 2, 4],  # Alternating pattern 1
+                [1, 3, 5],  # Alternating pattern 2
+            ]
+        elif n_edges == 5:  # Cyclopentadiene-like
+            patterns = [
+                [0, 2],     # Two separated doubles
+                [1, 3],
+                [0, 3],
+                [1, 4],
+                [2, 4],
+            ]
+        else:
+            # Generic: try all combinations of ~n/2 double bonds
+            from itertools import combinations as comb
+            n_doubles = n_edges // 2
+            patterns = list(comb(range(n_edges), n_doubles))
+            patterns = patterns[:5]  # Limit to 5 patterns
+        
+        if debug:
+            _debug_print(f"  Trying {len(patterns)} Kekulé patterns", 2)
+        
+        # Score each pattern
+        for pattern in patterns:
+            test_orders = bond_orders[:]
+            
+            # Set double bonds according to pattern
+            for pos in pattern:
+                if pos < len(ring_edges):
+                    bond_idx, _, _ = ring_edges[pos]
+                    test_orders[bond_idx] = 2.0
+            
+            if _has_invalid_valences(atoms, bonds, test_orders):
+                continue
+
+            score, fc = _score_bond_assignment(atoms, bonds, test_orders,
+                                              valence_electrons_dict, expected_valences,
+                                              total_charge, debug=False)
+            
+            structures.append((score, test_orders))
+            
+            if debug:
+                double_bonds = [f"{atoms[ring_edges[p][1]].symbol}{ring_edges[p][1]}-{atoms[ring_edges[p][2]].symbol}{ring_edges[p][2]}" 
+                               for p in pattern if p < len(ring_edges)]
+                _debug_print(f"  Pattern {pattern}: score={score:.2f}, doubles={double_bonds}", 3)
+    
+    # Sort by score
+    structures.sort(key=lambda x: x[0])
+    
+    if debug and structures:
+        _debug_print(f"Best Kekulé structure: score={structures[0][0]:.2f}", 2)
+    
+    return structures[:max_structures]
+
+def _has_invalid_valences(atoms, bonds, bond_orders):
+    """
+    Quick check: does this assignment have any chemically impossible valences?
+    Returns True if invalid (should be rejected immediately).
+    
+    Focus on the most common violations:
+    - C > 4
+    - N > 5
+    - O > 3
+    """
+    bond_sums = [0.0] * len(atoms)
+    for (i, j), bo in zip(bonds, bond_orders):
+        bond_sums[i] += bo
+        bond_sums[j] += bo
+    
+    for idx, atom in enumerate(atoms):
+        sym = atom.symbol
+        current = bond_sums[idx]
+        
+        # Hard limits - immediate rejection
+        if sym == 'C' and current > 4.05:
+            return True
+        if sym == 'N' and current > 5.05:
+            return True
+        if sym == 'O' and current > 3.05:
+            return True
+        if sym == 'P' and current > 5.05:
+            return True
+        if sym == 'S' and current > 6.05:
+            return True
+        if sym == 'F' and current > 1.05:
+            return True
+    
+    return False
+
+
+def enhanced_adjust_valences(atoms, bonds, bond_orders,
+                            expected_valences, valence_electrons_dict,
+                            total_charge: int,
+                            max_iterations: int = 10,
+                            try_kekule: bool = True,
+                            debug: bool = None) -> Dict[str, any]:
+    """
+    Enhanced valence adjustment using:
+    1. Kekulé structure enumeration for rings (if enabled)
+    2. Formal charge minimization
+    3. Local bond order optimization with STRICT valence limits
+    
+    Returns dict with statistics
+    """
+    if debug is None:
+        debug = DEBUG_BOND_ORDER
+    
+    if debug:
+        _debug_print("=" * 60, 0)
+        _debug_print("ENHANCED VALENCE ADJUSTMENT (Kekulé-first)", 0)
+        _debug_print("=" * 60, 0)
+        _debug_print(f"Atoms: {len(atoms)}, Bonds: {len(bonds)}, Total charge: {total_charge}", 1)
+    
+    stats = {'iterations': 0, 'initial_score': 0.0, 'final_score': 0.0, 
+             'improvements': 0, 'kekule_applied': False, 'bond_order_changes': []}
+    
+    # Lock metal bonds to 1.0
+    metal_bonds = 0
+    for idx, (i, j) in enumerate(bonds):
+        if atoms[i].symbol in METALS or atoms[j].symbol in METALS:
+            if bond_orders[idx] != 1.0:
+                bond_orders[idx] = 1.0
+                metal_bonds += 1
+    
+    if debug and metal_bonds > 0:
+        _debug_print(f"Locked {metal_bonds} metal bonds to order 1.0", 1)
+    
+    # Initial score
+    initial_score, initial_fc = _score_bond_assignment(atoms, bonds, bond_orders,
+                                                       valence_electrons_dict, expected_valences,
+                                                       total_charge, debug=debug)
+    stats['initial_score'] = initial_score
+    
+    if debug:
+        _debug_print(f"Initial score: {initial_score:.2f}", 1)
+        fc_summary = [f"{atoms[i].symbol}{i}:{fc:+d}" for i, fc in enumerate(initial_fc) if fc != 0]
+        if fc_summary:
+            _debug_print(f"Initial formal charges: {', '.join(fc_summary)}", 1)
+    
+    current_score = initial_score
+    best_orders = bond_orders[:]
+    
+    # STEP 1: Try Kekulé structures for rings
+    if try_kekule:
+        G_temp = nx.Graph()
+        G_temp.add_nodes_from(range(len(atoms)))
+        G_temp.add_edges_from(bonds)
+        
+        kekule_structures = _find_kekule_structures(atoms, bonds, bond_orders, G_temp, valence_electrons_dict, expected_valences, total_charge, debug=debug)
+        
+        if kekule_structures and kekule_structures[0][0] < current_score:
+            improvement = current_score - kekule_structures[0][0]
+            current_score, new_orders = kekule_structures[0]
+            
+            changes = []
+            for idx, (old, new) in enumerate(zip(bond_orders, new_orders)):
+                if abs(old - new) > 0.01:
+                    i, j = bonds[idx]
+                    changes.append(f"{atoms[i].symbol}{i}-{atoms[j].symbol}{j}: {old:.1f}→{new:.1f}")
+            
+            bond_orders[:] = new_orders
+            best_orders = new_orders[:]
+            stats['kekule_applied'] = True
+            stats['improvements'] += 1
+            
+            if debug:
+                _debug_print(f"✓ Applied Kekulé structure (improvement: {improvement:.2f})", 1)
+                if changes:
+                    for change in changes:
+                        _debug_print(f"  {change}", 2)
+
+    # STEP 2: Enhanced local optimization with strict valence checking
+    stagnation_counter = 0
+    for iteration in range(max_iterations):
+        if debug:
+            _debug_print(f"\n--- Iteration {iteration + 1} ---", 1)
+        
+        stats['iterations'] = iteration + 1
+        pre_orders = bond_orders[:]
+        
+        adjustable = _get_adjustable_bonds(atoms, bonds, bond_orders, debug=debug)
+        if not adjustable:
+            if debug:
+                _debug_print("No adjustable bonds, stopping", 2)
+            break
+        
+        # Generate ALL candidates and pick the best VALID one
+        candidates = []
+        
+        # Try single bond increments
+        for idx in adjustable:
+            test_orders = bond_orders[:]
+            test_orders[idx] = min(3.0, test_orders[idx] + 1.0)
+            
+            # CRITICAL: Skip if violates valence limits
+            if _has_invalid_valences(atoms, bonds, test_orders):
+                continue
+            
+            score, fc = _score_bond_assignment(atoms, bonds, test_orders,
+                                              valence_electrons_dict, expected_valences,
+                                              total_charge, debug=False)
+            
+            candidates.append((score, test_orders, idx, 'single'))
+        
+        # ALSO try pairs of increments (important for conjugated systems!)
+        if len(adjustable) > 1:
+            # Try adjacent bond pairs (share an atom)
+            bond_graph = {}
+            for idx in adjustable:
+                i, j = bonds[idx]
+                if i not in bond_graph:
+                    bond_graph[i] = []
+                if j not in bond_graph:
+                    bond_graph[j] = []
+                bond_graph[i].append(idx)
+                bond_graph[j].append(idx)
+            
+            # Find pairs of adjustable bonds that share an atom
+            tried_pairs = set()
+            for atom_idx, bond_indices in bond_graph.items():
+                if len(bond_indices) >= 2:
+                    for idx1, idx2 in combinations(bond_indices, 2):
+                        pair = tuple(sorted((idx1, idx2)))
+                        if pair in tried_pairs:
+                            continue
+                        tried_pairs.add(pair)
+                        
+                        test_orders = bond_orders[:]
+                        test_orders[idx1] = min(3.0, test_orders[idx1] + 1.0)
+                        test_orders[idx2] = min(3.0, test_orders[idx2] + 1.0)
+                        
+                        # CRITICAL: Skip if violates valence limits
+                        if _has_invalid_valences(atoms, bonds, test_orders):
+                            continue
+                        
+                        score, fc = _score_bond_assignment(atoms, bonds, test_orders,
+                                                          valence_electrons_dict, expected_valences,
+                                                          total_charge, debug=False)
+                        
+                        candidates.append((score, test_orders, (idx1, idx2), 'pair'))
+        
+        if not candidates:
+            if debug:
+                _debug_print("✗ No valid candidates (all violate valence limits)", 2)
+            break
+        
+        # Sort candidates by score
+        candidates.sort(key=lambda x: x[0])
+        
+        if debug and candidates[:3]:
+            _debug_print(f"Top 3 candidate scores: {[f'{c[0]:.2f}' for c in candidates[:3]]}", 2)
+        
+        # Take the best candidate
+        best_candidate_score, best_candidate_orders, changed_bonds, change_type = candidates[0]
+        
+        if best_candidate_score < current_score - 0.001:  # Small threshold for numerical stability
+            improvement = current_score - best_candidate_score
+            current_score = best_candidate_score
+            
+            changes = []
+            for idx, (old, new) in enumerate(zip(bond_orders, best_candidate_orders)):
+                if abs(old - new) > 0.01:
+                    i, j = bonds[idx]
+                    changes.append(f"{atoms[i].symbol}{i}-{atoms[j].symbol}{j}: {old:.1f}→{new:.1f}")
+            
+            bond_orders[:] = best_candidate_orders
+            best_orders = best_candidate_orders[:]
+            stats['improvements'] += 1
+            stagnation_counter = 0  # Reset stagnation
+            
+            if debug:
+                _debug_print(f"✓ Improvement: {improvement:.2f} (new score: {current_score:.2f})", 2)
+                _debug_print(f"  Change type: {change_type}", 2)
+                if changes:
+                    for change in changes:
+                        _debug_print(f"  {change}", 3)
+        else:
+            stagnation_counter += 1
+            if debug:
+                _debug_print(f"✗ No improvement found (stagnation: {stagnation_counter})", 2)
+            
+            # Allow a few iterations of stagnation before giving up
+            if stagnation_counter >= 2:
+                if debug:
+                    _debug_print("Stopping due to stagnation", 2)
+                break
+    
+    stats['final_score'] = current_score
+    bond_orders[:] = best_orders
+    
+    if debug:
+        _debug_print(f"\n{'=' * 60}", 0)
+        _debug_print(f"SUMMARY: {stats['improvements']} improvements over {stats['iterations']} iterations", 1)
+        _debug_print(f"Kekulé applied: {stats['kekule_applied']}", 1)
+        _debug_print(f"Score: {stats['initial_score']:.2f} → {stats['final_score']:.2f} (Δ={stats['initial_score'] - stats['final_score']:.2f})", 1)
+        _debug_print(f"{'=' * 60}\n", 0)
+    
+    return stats
+
+def handle_aromatic_rings_carefully(atoms, bonds, bond_orders, G: nx.Graph,
+                                    debug: bool = None) -> int:
+    """
+    Refined aromatic detection:
+    1. Find 5/6-membered rings with conjugation potential
+    2. Check Huckel rule (4n+2 pi electrons)
+    3. Set appropriate bond orders (1.5 for true aromatic, alternating for others)
+    
+    Returns number of aromatic bonds set
+    """
+    if debug is None:
+        debug = DEBUG_BOND_ORDER
+    
+    if debug:
+        _debug_print("=" * 60, 0)
+        _debug_print("AROMATIC RING DETECTION (Hückel rule)", 0)
+        _debug_print("=" * 60, 0)
+    
+    cycles = nx.cycle_basis(G)
+    processed = 0
+    aromatic_rings = 0
+    
+    for ring_idx, cycle in enumerate(cycles):
+        if len(cycle) not in (5, 6):
+            continue
+        
+        if debug:
+            _debug_print(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {[f'{atoms[i].symbol}{i}' for i in cycle]}", 1)
+        
+        # Check if all atoms can participate in pi system
+        aromatic_atoms = {'C', 'N', 'O', 'S', 'P'}  # Potentially aromatic
+        if not all(atoms[i].symbol in aromatic_atoms for i in cycle):
+            if debug:
+                non_aromatic = [atoms[i].symbol for i in cycle if atoms[i].symbol not in aromatic_atoms]
+                _debug_print(f"✗ Contains non-aromatic atoms: {non_aromatic}", 2)
+            continue
+        
+        # Count pi electrons (simplified - assumes sp2 hybridization)
+        pi_electrons = 0
+        pi_breakdown = []
+        
+        for idx in cycle:
+            sym = atoms[idx].symbol
+            contribution = 0
+            
+            if sym == 'C':
+                contribution = 1
+                pi_breakdown.append(f"{sym}{idx}:1")
+                pi_electrons += 1
+            elif sym == 'N':
+                # Check if N+ or neutral N with lone pair
+                degree = sum(1 for _ in G.neighbors(idx))
+                if degree == 2:  # Neutral N with lone pair
+                    contribution = 2
+                    pi_breakdown.append(f"{sym}{idx}:2(LP)")
+                    pi_electrons += 2
+                elif degree == 3:  # N+ or N with 3 bonds
+                    contribution = 1
+                    pi_breakdown.append(f"{sym}{idx}:1")
+                    pi_electrons += 1
+            elif sym == 'O':
+                # O typically contributes 2 electrons (lone pair)
+                degree = sum(1 for _ in G.neighbors(idx))
+                if degree == 2:  # Two-coordinate O
+                    contribution = 2
+                    pi_breakdown.append(f"{sym}{idx}:2(LP)")
+                    pi_electrons += 2
+        
+        if debug:
+            _debug_print(f"π electrons: {pi_electrons} ({', '.join(pi_breakdown)})", 2)
+        
+        # Huckel rule: 4n+2 pi electrons
+        is_aromatic = (pi_electrons - 2) % 4 == 0 and pi_electrons >= 6
+        
+        if debug:
+            n_value = (pi_electrons - 2) / 4 if pi_electrons >= 2 else None
+            if is_aromatic:
+                _debug_print(f"✓ AROMATIC (4n+2 rule: n={n_value:.0f})", 2)
+            else:
+                _debug_print(f"✗ Not aromatic (4n+2 rule violated)", 2)
+        
+        # Set bond orders for ring edges
+        cycle_edges = [(cycle[i], cycle[(i+1) % len(cycle)]) for i in range(len(cycle))]
+        
+        bonds_changed = 0
+        for i, j in cycle_edges:
+            edge_key = tuple(sorted((i, j)))
+            for idx, (bi, bj) in enumerate(bonds):
+                if tuple(sorted((bi, bj))) == edge_key:
+                    old_order = bond_orders[idx]
+                    if is_aromatic:
+                        bond_orders[idx] = max(bond_orders[idx], 1.5)
+                        if bond_orders[idx] != old_order:
+                            bonds_changed += 1
+                            if debug:
+                                _debug_print(f"  {atoms[i].symbol}{i}-{atoms[j].symbol}{j}: {old_order:.1f}→{bond_orders[idx]:.1f}", 3)
+                    processed += 1
+                    break
+        
+        if is_aromatic:
+            aromatic_rings += 1
+    
+    if debug:
+        _debug_print(f"\n{'=' * 60}", 0)
+        _debug_print(f"SUMMARY: {aromatic_rings} aromatic rings found, {processed} bonds processed", 1)
+        _debug_print(f"{'=' * 60}\n", 0)
+    
+    return processed
+
+def convert_aromatic_to_kekule(atoms, bonds, bond_orders, debug: bool = None):
+    """
+    Post-processing: convert any remaining 1.5 bonds to proper Kekulé (1.0/2.0).
+    This is called AFTER Kekulé structure search and is a cleanup step.
+    
+    Strategy: Find connected components of 1.5 bonds and alternate them.
+    """
+    if debug is None:
+        debug = DEBUG_BOND_ORDER
+    
+    aromatic_bonds = [idx for idx, bo in enumerate(bond_orders) if abs(bo - 1.5) < 0.01]
+    
+    if not aromatic_bonds:
+        return
+    
+    if debug:
+        _debug_print("=" * 60, 0)
+        _debug_print(f"CONVERTING {len(aromatic_bonds)} AROMATIC (1.5) BONDS TO KEKULÉ", 0)
+        _debug_print("=" * 60, 0)
+    
+    # Build graph of aromatic bonds
+    G_arom = nx.Graph()
+    for idx in aromatic_bonds:
+        i, j = bonds[idx]
+        G_arom.add_edge(i, j, bond_idx=idx)
+    
+    # Process each connected component
+    for component in nx.connected_components(G_arom):
+        if len(component) < 3:
+            continue  # Too small
+        
+        # Find a cycle in this component
+        subgraph = G_arom.subgraph(component)
+        try:
+            cycle = nx.find_cycle(subgraph)
+        except nx.NetworkXNoCycle:
+            continue
+        
+        # Alternate double/single in cycle
+        for k, (i, j) in enumerate(cycle):
+            bond_idx = G_arom.edges[i, j]['bond_idx']
+            if k % 2 == 0:
+                bond_orders[bond_idx] = 2.0
+            else:
+                bond_orders[bond_idx] = 1.0
+        
+        if debug:
+            _debug_print(f"Converted cycle: {[f'{atoms[i].symbol}{i}-{atoms[j].symbol}{j}' for i,j in cycle]}", 1)
+
+
 def _compute_gasteiger(atoms: Atoms,
                        bonds: List[Tuple[int,int]],
                        bond_orders: List[float],
@@ -444,20 +1351,11 @@ def _aggregate_hydrogen_charges(G: nx.Graph):
                 agg += h_charge
         G.nodes[n]['agg_charge'] = agg
 
-def _sanitize_graph(G: nx.Graph, atoms: Atoms, expected: Dict[str, List[int]], vdw: Dict[str,float], max_iter: int = 3):
+def _sanitize_graph(G: nx.Graph, atoms: Atoms, expected: Dict[str, List[int]], vdw: Dict[str,float], valence_electrons: Dict[str, int], total_charge: int, max_iter: int = 3):
     # Re-run valence adjustment if needed
     _annotate_valences(G)
-    problems = [n for n,d in G.nodes(data=True)
-                if d['symbol'] in expected and
-                min(abs(d['valence'] - v) for v in expected[d['symbol']]) > 0.6]
-    if problems:
-        bonds = list(G.edges())
-        bond_orders = [G.edges[b]['bond_order'] for b in bonds]
-        _adjust_valences(atoms, bonds, bond_orders, expected, vdw, max_iter=max_iter)
-        for idx,(i,j) in enumerate(bonds):
-            G.edges[i,j]['bond_order'] = float(bond_orders[idx])
-        _annotate_valences(G)
     _aggregate_hydrogen_charges(G)
+    return None
 
 def _guess_multiplicity(atoms: Atoms, charge: int) -> int:
     """Multiplicity = 1 for even electrons, 2 for odd (simple heuristic)."""
@@ -559,36 +1457,62 @@ def _prune_small_rings(atoms: Atoms,
 def build_graph_cheminf(atoms: Atoms,
                         charge: int = 0,
                         multiplicity: Optional[int] = None,
-                        sanitize_iterations: int = 5) -> nx.Graph:
+                        sanitize_iterations: int = 10,
+                        debug: bool = True) -> nx.Graph:
     vdw = _get_vdw()
     expected = _get_expected_valences()
+    valence_electrons = _get_valence_electrons()
+    
     if multiplicity is None:
         multiplicity = _guess_multiplicity(atoms, charge)
+    
     bonds, bond_dists = _initial_bonds(atoms, vdw)
     bond_orders = [1.0]*len(bonds)
+    
     _prune_small_rings(atoms, bonds, bond_orders,
                        bond_dists=bond_dists,
                        expected=expected,
                        adaptive=True)
-    arom = _detect_aromatic_cycles(atoms, bonds)
-    _apply_aromatic(bonds, bond_orders, arom)
-    _adjust_valences(atoms, bonds, bond_orders, expected, vdw,
-                     multiplicity=multiplicity, bond_dists=bond_dists)
+    
+    # Enhanced valence adjustment with Kekulé
+    stats = enhanced_adjust_valences(
+        atoms, bonds, bond_orders, 
+        expected, valence_electrons, 
+        charge, 
+        max_iterations=50, 
+        try_kekule=True,
+        debug=debug
+    )
+    
+    # Convert 1.5 bonds to proper Kekulé
+    convert_aromatic_to_kekule(atoms, bonds, bond_orders, debug=debug)
+    
+    # RDKit aromatic perception
     rdkit_up = _rdkit_aromatic_refine(atoms, bonds, bond_orders)
+    
+    # Formal charges
     formal_charges = _compute_formal_charges(atoms, bonds, bond_orders, charge)
+    
+    # Gasteiger charges
     charges_raw = _compute_gasteiger(atoms, bonds, bond_orders)
     raw_sum = sum(charges_raw) if charges_raw else 0.0
     charges_adj = charges_raw[:]
     if charges_adj and abs(raw_sum - charge) > 1e-6:
         delta = (charge - raw_sum)/len(charges_adj)
         charges_adj = [c + delta for c in charges_adj]
+    
+    # Assemble graph
     G = _assemble_graph(atoms, bonds, bond_orders,
                         {'gasteiger_raw': charges_raw, 'gasteiger': charges_adj},
                         formal_charges=formal_charges,
                         bond_dists=bond_dists)
     G.graph['total_charge'] = charge
     G.graph['multiplicity'] = multiplicity
-    _sanitize_graph(G, atoms, expected, vdw, max_iter=sanitize_iterations)
+    G.graph['valence_stats'] = stats
+    
+    # Sanitize
+    _sanitize_graph(G, atoms, expected, vdw, valence_electrons, charge, max_iter=sanitize_iterations)
+    
     return G
 
 def build_graph_xtb(atoms: Atoms,
@@ -652,7 +1576,9 @@ def build_graph_xtb(atoms: Atoms,
     G.graph['total_charge'] = charge
     G.graph['multiplicity'] = multiplicity
     vdw = _get_vdw()
-    _sanitize_graph(G, atoms, expected, vdw, max_iter=sanitize_iterations)
+    valence_electrons = _get_valence_electrons()
+    _sanitize_graph(G, atoms, expected, vdw, valence_electrons, charge, max_iter=sanitize_iterations)
+
     return G
 
 def build_graph(atoms: Atoms,
