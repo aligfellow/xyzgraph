@@ -126,7 +126,7 @@ def _build_initial_graph(atoms: Atoms, vdw: Dict[str, float],
     """
     G = nx.Graph()
     pos = atoms.positions
-    
+
     # Add all nodes
     for i, atom in enumerate(atoms):
         G.add_node(i, 
@@ -166,7 +166,13 @@ def _build_initial_graph(atoms: Atoms, vdw: Dict[str, float],
                           bond_order=1.0,
                           distance=d,
                           metal_coord=has_metal)
-    
+                
+    # -- graph caching ---
+    rings = nx.cycle_basis(G)
+    G.graph['_rings'] = rings
+    G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
+    G.graph['_has_H'] = {n: any(atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
+
     return G
 
 def _valence_sum(G: nx.Graph, node: int) -> float:
@@ -325,10 +331,94 @@ def _compute_formal_charge(symbol: str, valence_electrons: int,
     L = max(0, target - B)
     return int(round(valence_electrons - L - B / 2))
 
+def _ring_conjugation_penalty(G: nx.Graph, atoms, rings, debug=False) -> float:
+    """
+    Assess conjugation and exocyclic double penalties in aromatic rings (5-6 members).
+    Returns a numeric penalty (larger = worse).
+    """
+    conjugation_penalty = 0.0
+    for ring in rings:
+        if len(ring) not in (5, 6):
+            continue
+
+        conjugatable = {'C', 'N', 'O', 'S', 'P'}
+        if not all(atoms[i].symbol in conjugatable for i in ring):
+            continue
+
+        ring_set = set(ring)
+        elevated_bonds = 0
+        exocyclic_double = 0
+
+        # --- Bonds within the ring ---
+        ring_edges = [(ring[k], ring[(k + 1) % len(ring)]) for k in range(len(ring))]
+        for i, j in ring_edges:
+            bo = G[i][j].get('bond_order', 1.0)
+            if bo > 1.3:
+                elevated_bonds += 1
+
+        # --- Exocyclic double bonds ---
+        for ring_atom in ring:
+            ring_sym = atoms[ring_atom].symbol
+            for nbr, data in G[ring_atom].items():
+                if nbr not in ring_set:
+                    bo = data.get('bond_order', 1.0)
+                    if bo >= 1.8:
+                        nbr_sym = atoms[nbr].symbol
+                        if (ring_sym == 'C' and nbr_sym != 'O') or \
+                           (ring_sym == 'N' and nbr_sym in ('C', 'P', 'S')):
+                            exocyclic_double += 1
+
+        # --- Scoring logic (unchanged) ---
+        expected_elevated = len(ring) // 2
+        if elevated_bonds >= expected_elevated - 1:
+            if exocyclic_double > 0:
+                conjugation_penalty += exocyclic_double * 12.0
+        else:
+            deficit = (expected_elevated - 1) - elevated_bonds
+            if deficit > 0:
+                conjugation_penalty += deficit * 5.0
+                if exocyclic_double > 0:
+                    conjugation_penalty += exocyclic_double * 12.0
+
+    return conjugation_penalty
+
+def _check_valence_violation(G: nx.Graph,
+                             atoms,
+                             limits: Optional[Dict[str, float]] = None,
+                             tol: float = 0.3) -> bool:
+    """
+    Quick structural sanity check for pentavalent carbon.
+    Returns True if any atom exceeds its valence limit by >tol.
+    """
+    if limits is None:
+        limits = {'C': 4}
+
+    for i in G.nodes():
+        sym = atoms[i].symbol
+        if sym in limits:
+            val = sum(G[i][j].get('bond_order', 1.0) for j in G.neighbors(i))
+            if val > limits[sym] + tol:
+                return True
+    return False
+
+def _edge_likelihood(G, atoms, expected, valence_cache, k=50):
+    scores = {}
+    for i, j, data in G.edges(data=True):
+        if data.get('metal_coord', False) or data['bond_order'] >= 3.0:
+            continue
+        si, sj = atoms[i].symbol, atoms[j].symbol
+        deficit = (max(expected.get(si, [4])) - valence_cache[i]) + (max(expected.get(sj, [4])) - valence_cache[j])
+
+        scores[(i, j)] = deficit
+    # sort descending and pick top k
+    top_edges = sorted(scores.items(), key=lambda x: -x[1])[:k]
+    return [e for e, _ in top_edges]
+
 def _score_assignment(G: nx.Graph, atoms: Atoms,
                      valence_electrons: Dict[str, int],
                      expected: Dict[str, List[int]],
-                     total_charge: int) -> Tuple[float, List[int]]:
+                     total_charge: int,
+                     rings=None) -> Tuple[float, List[int]]:
     """
     Score a bond order assignment.
     Returns (score, formal_charges) - lower is better.
@@ -336,149 +426,225 @@ def _score_assignment(G: nx.Graph, atoms: Atoms,
     EN = {'H': 2.2, 'C': 2.5, 'N': 3.0, 'O': 3.5, 'F': 4.0,
           'P': 2.2, 'S': 2.6, 'Cl': 3.2, 'Br': 3.0, 'I': 2.7}
     
-    formal_charges = []
-    penalties = {'valence': 0.0, 'en': 0.0, 'violation': 0.0}
+    if _check_valence_violation(G, atoms):
+        return 1e9, [0 for _ in G.nodes()]
     
+    # --- ring cache ---
+    if rings is None:
+        rings = G.graph.get('_rings')
+        if rings is None:
+            rings = nx.cycle_basis(G)
+            G.graph['_rings'] = rings
+
+    # -- neighbors cache ---
+    if '_neighbors' not in G.graph:
+        G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
+    neighbor_cache = G.graph['_neighbors']
+
+    # --- has_H cache ---
+    if '_has_H' not in G.graph:
+        G.graph['_has_H'] = {n: any(atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
+    has_H = G.graph['_has_H']
+
+    # --- valence cache ---
+    valence_cache = {n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)) for n in G.nodes()}
+    # --- formal charge cache (keyed by (sym, valence_sum)) ---
+    formal_cache = {}
+    def get_formal(sym, vsum):
+        key = (sym, round(vsum, 2))
+        if key not in formal_cache:
+            V = valence_electrons.get(sym, 0)
+            formal_cache[key] = _compute_formal_charge(sym, V, vsum)
+        return formal_cache[key]
+
+    penalties = {'valence': 0.0, 'en': 0.0, 'violation': 0.0, 'protonation': 0.0, 'conjugation': 0.0, 'fc': 0, 'n_charged': 0}
+                 
+    # --- RING CONJUGATION PENALTY ---
+    penalties['conjugation'] = _ring_conjugation_penalty(G, atoms, rings, debug=_DEBUG)
+
+    formal_charges = []
+
     for node in G.nodes():
         sym = atoms[node].symbol
+        vsum = valence_cache[node]
         
         if sym in METALS:
             formal_charges.append(0)
             continue
         
-        V = valence_electrons.get(sym, 0)
-        bond_sum = _valence_sum(G, node)
-        fc = _compute_formal_charge(sym, V, bond_sum)
+        fc = get_formal(sym, vsum)
         formal_charges.append(fc)
+
+        if fc != 0:
+            penalties['fc'] += abs(fc)
+            penalties['n_charged'] += 1
         
+        nb = neighbor_cache[node]
+        if has_H[node]:
+            if fc == 0:
+                for nbr in nb:
+                    if atoms[nbr].symbol != 'H':
+                        other_fc = get_formal(atoms[nbr].symbol, valence_cache[nbr])
+                        if other_fc > 0:
+                            penalties['protonation'] += 8.0 if sym in ('N', 'O') else 3.0
+            elif fc > 0 and sym in ('N', 'O', 'S'):
+                penalties['en'] -= 1.5  # expected protonation bonus
+
         # Valence error
         if sym in expected:
             allowed = expected[sym]
-            min_error = min(abs(bond_sum - v) for v in allowed)
+            min_error = min(abs(vsum - v) for v in allowed)
             penalties['valence'] += min_error ** 2
             
             # Check absolute limits
-            limits = {'C': 4, 'N': 5, 'O': 3, 'F': 1, 'S': 6, 'P': 5}
-            if sym in limits and bond_sum > limits[sym] + 0.1:
+            limits = {'C': 4, 'N': 5, 'O': 3, 'S': 6, 'P': 6}
+            if sym in limits and vsum > limits[sym] + 0.1:
                 penalties['violation'] += 1000.0
         
         # Electronegativity penalty
         en = EN.get(sym, 2.5)
-        if fc > 0:
-            penalties['en'] += fc * (en - 2.5) * 0.5
-        elif fc < 0:
-            penalties['en'] += abs(fc) * (3.5 - en) * 0.5
-    
+        if fc != 0:
+            penalties['en'] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
+            
     # Total score
-    fc_penalty = sum(abs(fc) for fc in formal_charges)
-    n_charged = sum(1 for fc in formal_charges if fc != 0)
     charge_error = abs(sum(formal_charges) - total_charge)
-    
     score = (1000.0 * penalties['violation'] +
-             10.0 * fc_penalty +
-             3.0 * n_charged +
-             5.0 * charge_error +
-             2.0 * penalties['en'] +
-             5.0 * penalties['valence'])
+        12.0 * penalties['conjugation'] +
+        8.0 * penalties['protonation'] +
+        10.0 * penalties['fc'] +
+        3.0 * penalties['n_charged'] +
+        5.0 * charge_error +
+        2.0 * penalties['en'] +
+        5.0 * penalties['valence'])
     
     return score, formal_charges
 
 def _full_valence_optimize(G: nx.Graph, atoms: Atoms,
-                          expected: Dict[str, List[int]],
-                          valence_electrons: Dict[str, int],
-                          total_charge: int,
-                          max_iter: int = 50) -> Dict[str, Any]:
+                           expected: Dict[str, List[int]],
+                           valence_electrons: Dict[str, int],
+                           total_charge: int,
+                           max_iter: int = 50) -> Dict[str, Any]:
     """
-    Full optimization with formal charge minimization.
+    Full bond order optimization with formal charge minimization and 
+    detailed debugging.
+
+    Returns a stats dict containing:
+        - iterations
+        - improvements
+        - initial_score
+        - final_score
+        - final formal_charges
     """
+    # --- Debug header ---
     if _DEBUG:
         _debug_print("=" * 60)
-        _debug_print("FULL VALENCE OPTIMIZATION")
+        _debug_print("FULL VALENCE OPTIMIZATION", 1)
         _debug_print("=" * 60)
-    
-    stats = {'iterations': 0, 'improvements': 0, 'initial_score': 0.0}
-    
-    # Lock metal bonds
+
+    # --- Precompute / cache graph info ---
+    rings = G.graph.get('_rings') or nx.cycle_basis(G)
+    G.graph['_rings'] = rings
+
+    neighbor_cache = G.graph.get('_neighbors') or {n: list(G.neighbors(n)) for n in G.nodes()}
+    G.graph['_neighbors'] = neighbor_cache
+
+    has_H = G.graph.get('_has_H') or {n: any(atoms[nbr].symbol == 'H' for nbr in G[n]) for n in G.nodes()}
+    G.graph['_has_H'] = has_H
+
+    valence_cache = {n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)) for n in G.nodes()}
+
+    # --- Lock metal bonds ---
     for i, j, data in G.edges(data=True):
         if data.get('metal_coord', False):
             data['bond_order'] = 1.0
-    
-    # Initial score
-    current_score, _ = _score_assignment(G, atoms, valence_electrons, 
-                                         expected, total_charge)
-    stats['initial_score'] = current_score
-    
+
+    # --- Initial scoring ---
+    current_score, formal_charges = _score_assignment(G, atoms, valence_electrons, expected, total_charge, rings)
+    initial_score = current_score
+
+    stats = {
+        'iterations': 0,
+        'improvements': 0,
+        'initial_score': initial_score,
+        'final_score': initial_score,
+        'final_formal_charges': formal_charges,
+    }
+
     if _DEBUG:
-        _debug_print(f"Initial score: {current_score:.2f}", 1)
-    
+        _debug_print(f"Initial score: {initial_score:.2f}", 1)
+   
     stagnation = 0
+    improved = True
     
+    # --- Optimization loop ---
     for iteration in range(max_iter):
         stats['iterations'] = iteration + 1
-        
+        best_delta = 0.0
+        best_edge = None
+
         if _DEBUG:
             _debug_print(f"\nIteration {iteration + 1}", 1)
-        
-        # Find adjustable edges
-        candidates = []
-        
-        for i, j, data in G.edges(data=True):
-            if data.get('metal_coord', False):
-                continue
-            
-            si, sj = atoms[i].symbol, atoms[j].symbol
-            if 'H' in (si, sj):
-                continue
-            
-            bo = data['bond_order']
+
+        # --- Precompute top-k candidate edges ---
+        top_edges = _edge_likelihood(G, atoms, expected, valence_cache)
+
+        # --- Evaluate top-k edges using local delta scoring ---
+        for i, j in top_edges:
+            bo = G[i][j]['bond_order']
             if bo >= 3.0:
                 continue
-            
-            # Try incrementing this bond
-            old_bo = data['bond_order']
-            data['bond_order'] = min(3.0, bo + 1.0)
-            
-            score, fc = _score_assignment(G, atoms, valence_electrons,
-                                         expected, total_charge)
-            
-            # Restore
-            data['bond_order'] = old_bo
-            
-            candidates.append((score, i, j, bo + 1.0))
-        
-        if not candidates:
-            break
-        
-        # Take best candidate
-        candidates.sort(key=lambda x: x[0])
-        best_score, best_i, best_j, new_bo = candidates[0]
-        
-        if best_score < current_score - 0.001:
-            improvement = current_score - best_score
-            current_score = best_score
-            G.edges[best_i, best_j]['bond_order'] = new_bo
+
+            # Temporarily increment bond
+            G[i][j]['bond_order'] += 1
+            valence_cache[i] += 1
+            valence_cache[j] += 1
+
+            # Compute full score
+            new_score, _ = _score_assignment(G, atoms, valence_electrons, expected, total_charge, rings)
+            delta = current_score - new_score
+
+            # Rollback
+            G[i][j]['bond_order'] -= 1
+            valence_cache[i] -= 1
+            valence_cache[j] -= 1
+
+            if delta > best_delta:
+                best_delta = delta
+                best_edge = (i, j)
+
+        # --- Apply best improvement ---
+        if best_edge and best_delta > 1e-6:
+            i, j = best_edge
+            G[i][j]['bond_order'] += 1
+            valence_cache[i] += 1
+            valence_cache[j] += 1
+            current_score, _ = _score_assignment(G, atoms, valence_electrons, expected, total_charge, rings)
+
+
             stats['improvements'] += 1
             stagnation = 0
-            
+
             if _DEBUG:
-                si, sj = atoms[best_i].symbol, atoms[best_j].symbol
-                _debug_print(f"✓ {si}{best_i}-{sj}{best_j}: "
-                           f"{new_bo-1.0:.1f}→{new_bo:.1f} "
-                           f"(Δ={improvement:.2f})", 2)
+                si, sj = atoms[i].symbol, atoms[j].symbol
+                edge_label = f"{si}{i}-{sj}{j}"
+                _debug_print(f"✓ {edge_label:<10}  Δscore = {best_delta:6.2f}  new_score = {current_score:8.2f}", 2)
+
         else:
             stagnation += 1
             if stagnation >= 2:
-                break
-    
+                break  # stop if no improvement
+
+    # --- Final scoring ---
+    final_formal_charges = _score_assignment(G, atoms, valence_electrons, expected, total_charge, rings)[1]
     stats['final_score'] = current_score
-    
+    stats['final_formal_charges'] = final_formal_charges
+
     if _DEBUG:
         _debug_print(f"\n{'=' * 60}")
         _debug_print(f"Optimized: {stats['improvements']} improvements", 1)
-        _debug_print(f"Score: {stats['initial_score']:.2f} → "
-                    f"{stats['final_score']:.2f}", 1)
+        _debug_print(f"Score: {initial_score:.2f} → {stats['final_score']:.2f}", 1)
         _debug_print("=" * 60)
-    
+
     return stats
 
 # =============================================================================
@@ -540,7 +706,7 @@ def _detect_aromatic_rings(G: nx.Graph, atoms: Atoms) -> int:
             ring_atoms = [f"{atoms[i].symbol}{i}" for i in cycle]
             _debug_print(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
         
-        # Check if all atoms can be aromatic
+        # Check if all atoms can be aromatic - just means that other atoms will be kekule structures
         aromatic_atoms = {'C', 'N', 'O', 'S', 'P'}
         if not all(atoms[i].symbol in aromatic_atoms for i in cycle):
             if _DEBUG:
@@ -571,14 +737,8 @@ def _detect_aromatic_rings(G: nx.Graph, atoms: Atoms) -> int:
                 elif degree == 3:
                     contribution = 1
                     pi_breakdown.append(f"{sym}{idx}:1")
-            elif sym == 'O':
-                # O with 2 neighbors contributes 2 (furan-like)
-                degree = sum(1 for _ in G.neighbors(idx))
-                if degree == 2:
-                    contribution = 2
-                    pi_breakdown.append(f"{sym}{idx}:2(LP)")
-            elif sym == 'S':
-                # S similar to O
+            elif sym in ('O', 'S'):
+                # O/S with 2 neighbors contributes 2 (furan-like)
                 degree = sum(1 for _ in G.neighbors(idx))
                 if degree == 2:
                     contribution = 2
@@ -614,9 +774,6 @@ def _detect_aromatic_rings(G: nx.Graph, atoms: Atoms) -> int:
                     if abs(old_order - 1.5) > 0.01:
                         bonds_set += 1
                         aromatic_count += 1
-                        if _DEBUG:
-                            _debug_print(f"  {atoms[i].symbol}{i}-{atoms[j].symbol}{j}: "
-                                       f"{old_order:.1f}→1.5", 3)
             
             if bonds_set > 0:
                 aromatic_rings += 1
