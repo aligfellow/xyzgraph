@@ -1,7 +1,8 @@
 import argparse
 from ase.io import read as read_xyz
 from .graph_builders import build_graph, set_debug
-from .ascii_renderer import graph_debug_report, graph_to_ascii
+from .ascii_renderer import graph_to_ascii
+from .utils import graph_debug_report
 from .compare import xyz2mol_compare
 
 def main():
@@ -10,33 +11,37 @@ def main():
     
     # Method and quality
     p.add_argument("--method", choices=["cheminf", "xtb"], default="cheminf",
-                   help="Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)")
+                    help="Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)")
     p.add_argument("-q", "--quick", action="store_true", default=False,
-                   help="Quick mode: fast heuristics, less accuracy")
-    
+                    help="Quick mode: fast heuristics, less accuracy")
+    p.add_argument("--max-iter", type=int, default=50,
+                    help="Maximum iterations for bond order optimization (default: 50, cheminf only)")
+    p.add_argument("--edge-per-iter", type=int, default=5,
+                    help="Number of edges to adjust per iteration (default: 10, cheminf only)")
+
     # Molecular properties
     p.add_argument("-c", "--charge", type=int, default=0,
-                   help="Total molecular charge (default: 0)")
+                    help="Total molecular charge (default: 0)")
     p.add_argument("-m", "--multiplicity", type=int, default=None,
-                   help="Spin multiplicity (auto-detected if not specified)")
+                    help="Spin multiplicity (auto-detected if not specified)")
     
     # Output control
     p.add_argument("-d", "--debug", action="store_true",
-                   help="Enable debug output (construction details + graph report)")
+                    help="Enable debug output (construction details + graph report)")
     p.add_argument("-a", "--ascii", action="store_true",
-                   help="Show 2D ASCII depiction (auto-enabled if no other output)")
+                    help="Show 2D ASCII depiction (auto-enabled if no other output)")
     p.add_argument("-as", "--ascii-scale", type=float, default=4.0,
-                   help="ASCII scaling factor (default: 4.0)")
+                    help="ASCII scaling factor (default: 4.0)")
     p.add_argument("-H", "--show-h", action="store_true",
-                   help="Include hydrogens in visualizations (hidden by default)")
+                    help="Include hydrogens in visualizations (hidden by default)")
     
     # Comparison
     p.add_argument("--compare-xyz2mol", action="store_true",
-                   help="Compare with xyz2mol output (requires xyz2mol installed)")
+                    help="Compare with xyz2mol output (uses rdkit implementation)")
     
     # xTB specific
     p.add_argument("--no-clean", action="store_true",
-                   help="Keep temporary xTB files (only for --method xtb)")
+                    help="Keep temporary xTB files (only for --method xtb)")
     
     args = p.parse_args()
     

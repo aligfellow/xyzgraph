@@ -401,7 +401,7 @@ def _check_valence_violation(G: nx.Graph,
                 return True
     return False
 
-def _edge_likelihood(G, atoms, expected, valence_cache, k=50):
+def _edge_likelihood(G, atoms, expected, valence_cache, k=5):
     scores = {}
     for i, j, data in G.edges(data=True):
         if data.get('metal_coord', False) or data['bond_order'] >= 3.0:
@@ -523,7 +523,8 @@ def _full_valence_optimize(G: nx.Graph, atoms: Atoms,
                            expected: Dict[str, List[int]],
                            valence_electrons: Dict[str, int],
                            total_charge: int,
-                           max_iter: int = 50) -> Dict[str, Any]:
+                           max_iter: int = 50,
+                           edge_per_iter: int = 10) -> Dict[str, Any]:
     """
     Full bond order optimization with formal charge minimization and 
     detailed debugging.
@@ -586,7 +587,7 @@ def _full_valence_optimize(G: nx.Graph, atoms: Atoms,
             _debug_print(f"\nIteration {iteration + 1}", 1)
 
         # --- Precompute top-k candidate edges ---
-        top_edges = _edge_likelihood(G, atoms, expected, valence_cache)
+        top_edges = _edge_likelihood(G, atoms, expected, valence_cache, k=edge_per_iter)
 
         # --- Evaluate top-k edges using local delta scoring ---
         for i, j in top_edges:
@@ -879,7 +880,9 @@ def _compute_formal_charges(G: nx.Graph, atoms: Atoms,
 def build_graph_cheminf(atoms: Atoms,
                        charge: int = 0,
                        multiplicity: Optional[int] = None,
-                       quick: bool = False) -> nx.Graph:
+                       quick: bool = False,
+                       max_iter: int = 50,
+                       edge_per_iter: int = 10) -> nx.Graph:
     """
     Build molecular graph using cheminformatics approach.
     
@@ -921,7 +924,7 @@ def build_graph_cheminf(atoms: Atoms,
         stats = _quick_valence_adjust(G, atoms, expected, vdw)
     else:
         stats = _full_valence_optimize(G, atoms, expected, 
-                                       valence_electrons, charge)
+                                       valence_electrons, charge, max_iter=max_iter, edge_per_iter=edge_per_iter)
     
     # Aromatic detection (Hückel rule)
     arom_count = _detect_aromatic_rings(G, atoms)
@@ -1091,7 +1094,7 @@ def build_graph(atoms: Atoms,
     """
     if method == 'cheminf':
         return build_graph_cheminf(atoms, charge=charge, 
-                                  multiplicity=multiplicity, quick=quick)
+                                  multiplicity=multiplicity, quick=quick, max_iter=kwargs.get('max_iter', 50),edge_per_iter=kwargs.get('edge_per_iter', 5))
     elif method == 'xtb':
         return build_graph_xtb(atoms, charge=charge,
                               multiplicity=multiplicity,

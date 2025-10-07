@@ -113,9 +113,6 @@ ascii_ref, layout = graph_to_ascii(G_ref, return_layout=True)
 ascii_alt = graph_to_ascii(G_alt, reference_layout=layout)
 ```
 
-## Build Step Log
-(Feature removed; per-step internal metrics no longer exposed.)
-
 ## xyz2mol Comparison Enhancements
 Using:
 ```

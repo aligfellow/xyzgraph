@@ -15,7 +15,6 @@ from .graph_builders import (
 
 from .ascii_renderer import (
     graph_to_ascii,
-    graph_debug_report,
 )
 
 # Eager-load caches so `from xyzgraph import VDW` returns a dict (not None).

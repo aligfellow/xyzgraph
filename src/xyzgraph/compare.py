@@ -6,6 +6,7 @@ from ase import Atoms
 
 from .ascii_renderer import graph_to_ascii
 from .graph_builders import METALS
+from .utils import graph_debug_report
 
 
 def _bond_order_from_rdkit(bond) -> float:
@@ -176,18 +177,7 @@ def xyz2mol_compare(
 
     # --- Verbose neighbor table and bonds ---
     if verbose:
-        out.append("# [idx] Sym formal val   neighbors idx(order*)")
-        for a in mol.GetAtoms():
-            i = a.GetIdx()
-            sym = a.GetSymbol()
-            f = a.GetFormalCharge()
-            nbrs = sorted(bond_map.get(i, []), key=lambda x: x[0])
-            val = sum(o for _, o, _ in nbrs)
-            nbrs_str = " ".join(f"{n}({o:.2f}{'*' if ar else ''})" for n, o, ar in nbrs) if nbrs else "-"
-            out.append(f"[{i:>2}] {sym:>2} {f:+d} {val:.2f}   {nbrs_str}")
-        out.append("")
-        out.append("# Bonds (i-j): order)")
-        for b in mol.GetBonds():
-            out.append(f"{b.GetBeginAtomIdx()}-{b.GetEndAtomIdx()}: {_bond_order_from_rdkit(b):.2f}")
+        print(graph_debug_report(Gx, include_h=ascii_include_h))
+
 
     return "\n".join(out) + "\n"
