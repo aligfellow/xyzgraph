@@ -89,7 +89,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
             arom = '*' if tuple(sorted((idx,n))) in arom_edges else ''
             nbrs.append(f"{n}({bo:.2f}{arom})")
         formal = data.get('formal_charge', 0)
-        lines.append(f"[{idx:>2}] {data.get('symbol','?'):>2}  val={full_val:.2f}  "
+        lines.append(f"[{idx:>3}] {data.get('symbol','?'):>2}  val={full_val:.2f}  "
                      f"formal={formal:+d}  chg={chg:+.3f}  agg={agg:+.3f} | " +
                      (" ".join(nbrs) if nbrs else "-"))
     # Edge summary (filtered)

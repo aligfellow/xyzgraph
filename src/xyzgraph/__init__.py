@@ -13,6 +13,8 @@ from .graph_builders import (
     METALS,
 )
 
+from .data_loader import BOHR_TO_ANGSTROM
+
 from .ascii_renderer import (
     graph_to_ascii,
 )
@@ -34,6 +36,7 @@ __all__ = [
     'get_expected_valences',
     'get_valence_electrons',
     'METALS',
+    'BOHR_TO_ANGSTROM',
     
     # Visualization
     'graph_to_ascii',

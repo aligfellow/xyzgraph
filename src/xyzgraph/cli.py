@@ -4,6 +4,7 @@ from .graph_builders import build_graph, set_debug
 from .ascii_renderer import graph_to_ascii
 from .utils import graph_debug_report
 from .compare import xyz2mol_compare
+from . import BOHR_TO_ANGSTROM
 
 def main():
     p = argparse.ArgumentParser(description="Build molecular graph from XYZ.")
@@ -17,21 +18,23 @@ def main():
     p.add_argument("--max-iter", type=int, default=50,
                     help="Maximum iterations for bond order optimization (default: 50, cheminf only)")
     p.add_argument("--edge-per-iter", type=int, default=5,
-                    help="Number of edges to adjust per iteration (default: 10, cheminf only)")
+                    help="Number of edges to adjust per iteration (default: 5, cheminf only)")
 
     # Molecular properties
     p.add_argument("-c", "--charge", type=int, default=0,
                     help="Total molecular charge (default: 0)")
     p.add_argument("-m", "--multiplicity", type=int, default=None,
                     help="Spin multiplicity (auto-detected if not specified)")
+    p.add_argument("-b", "--bohr", action="store_true", default=False,
+                    help="XYZ file provided in units bohr (default is Angstrom)")
     
     # Output control
     p.add_argument("-d", "--debug", action="store_true",
                     help="Enable debug output (construction details + graph report)")
     p.add_argument("-a", "--ascii", action="store_true",
                     help="Show 2D ASCII depiction (auto-enabled if no other output)")
-    p.add_argument("-as", "--ascii-scale", type=float, default=4.0,
-                    help="ASCII scaling factor (default: 4.0)")
+    p.add_argument("-as", "--ascii-scale", type=float, default=3.0,
+                    help="ASCII scaling factor (default: 3.0)")
     p.add_argument("-H", "--show-h", action="store_true",
                     help="Include hydrogens in visualizations (hidden by default)")
     
@@ -51,6 +54,10 @@ def main():
     
     # Read structure
     atoms = read_xyz(args.xyz)
+
+    if args.bohr:
+        atoms.positions *= BOHR_TO_ANGSTROM
+
     
     # Build graph
     G = build_graph(
