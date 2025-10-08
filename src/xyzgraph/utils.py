@@ -1,5 +1,6 @@
 import networkx as nx
 from typing import List, Optional, Dict, Any
+from .data_loader import DATA
 
 PREF_CHARGE_ORDER = ['gasteiger', 'mulliken', 'hirshfeld', 'gasteiger_raw']
 
@@ -26,11 +27,12 @@ def _visible_nodes(G: nx.Graph, include_h: bool) -> List[int]:
         # Hydrogen: inspect neighbors
         nbrs = list(G.neighbors(n))
         if not nbrs:
-            # isolated H (rare) – hide it
+            # isolated H (rare) – show (could be a problem)
+            keep.append(n)
             continue
-        # If every neighbor is carbon, hide; else keep
+        # Hide C-H protons
         if all(G.nodes[nbr].get('symbol') == 'C' for nbr in nbrs):
-            continue  # hide C–H hydrogen
+            continue  
         keep.append(n)
     return keep
 
@@ -83,7 +85,6 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
         nbrs = []
         for n in sorted(G.neighbors(idx)):
             if n not in visible:
-                # skip listing hidden H neighbor
                 continue
             bo = G.edges[idx,n].get('bond_order',1.0)
             arom = '*' if tuple(sorted((idx,n))) in arom_edges else ''

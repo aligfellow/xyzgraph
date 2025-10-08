@@ -5,7 +5,7 @@ from rdkit.Chem import rdDetermineBonds
 from ase import Atoms
 
 from .ascii_renderer import graph_to_ascii
-from .graph_builders import METALS
+from .data_loader import DATA
 from .utils import graph_debug_report
 
 
@@ -67,7 +67,7 @@ def xyz2mol_compare(
             lines.append(f"# Error: {err}")
 
         # Helpful hints for metals / coordination
-        if any(s in METALS for s in symbols):
+        if any(s in DATA.metals for s in symbols):
             lines.append("# Issue: Metal atoms detected")
             lines.append("#   RDKit bond perception has limited support for coordination complexes")
         return "\n".join(lines) + "\n"

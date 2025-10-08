@@ -2,43 +2,28 @@
 xyzgraph - Molecular graph construction from XYZ geometries
 """
 
-from .graph_builders import (
-    build_graph,
-    build_graph_cheminf,
-    build_graph_xtb,
-    set_debug,
-    get_vdw,
-    get_expected_valences,
-    get_valence_electrons,
-    METALS,
-)
+# Eagerly load data singleton
+from .data_loader import DATA, BOHR_TO_ANGSTROM
 
-from .data_loader import BOHR_TO_ANGSTROM
+# Main interfaces
+from .graph_builders import GraphBuilder
+from .analyser import MolecularAnalyzer, analyze_molecule
 
-from .ascii_renderer import (
-    graph_to_ascii,
-)
-
-# Eager-load caches so `from xyzgraph import VDW` returns a dict (not None).
-VDW = get_vdw()
-VALENCES = get_expected_valences()
-VALENCE_ELECTRONS = get_valence_electrons()
+# Utilities
+from .ascii_renderer import graph_to_ascii
+from .utils import graph_debug_report
 
 __all__ = [
-    # Main API
-    'build_graph',
-    'build_graph_cheminf',
-    'build_graph_xtb',
-    'set_debug',
-    
-    # Data accessors
-    'get_vdw',
-    'get_expected_valences',
-    'get_valence_electrons',
-    'METALS',
-    'BOHR_TO_ANGSTROM',
+    # Main interfaces
+    'MolecularAnalyzer',
+    'GraphBuilder',
+    'analyze_molecule',
     
     # Visualization
     'graph_to_ascii',
     'graph_debug_report',
+    
+    # Data access
+    'DATA',                 # Access as DATA.vdw, DATA.metals, etc.
+    'BOHR_TO_ANGSTROM',
 ]
