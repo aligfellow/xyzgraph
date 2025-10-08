@@ -1,10 +1,11 @@
-# xyzgraph molecular graph generation
+# x2g: cartesian xyz to molecular graph generation
 
 Usage (CLI):
-  xyzgraph-build molecule.xyz --method cheminf
-  xyzgraph-build molecule.xyz --method xtb --charge 0
-  xyzgraph-build molecule.xyz --method cheminf --ascii   # ASCII output
-
+```bash
+  xyzgraph molecule.xyz
+  xyzgraph molecule.xyz --method xtb --charge 0
+  xyzgraph molecule.xyz --method cheminf --ascii   # ASCII output
+```
 Features:
   - Distance based bonding heuristic (vdw \[Tkatchenko, 10.1021/acs.jctc.4c00784])
   - Iterative valence-driven bond order refinement
@@ -14,46 +15,83 @@ Features:
   - ASCII graph renderer (alignment support)
   - Optional xyz2mol comparison (diagnostic only)
 
+## Installation
+
+```bash
+pip install xyzgraph ## TO DO
+```
+or from source 
+
+```bash
+git clone https://github.com/aligfellow/xyzgraph
+cd xyzgraph
+pip install -e .
+```
+
 ## Quick CLI Usage
 
 Minimal:
-```
-xyzgraph-build molecule.xyz
+```bash
+xyzgraph molecule.xyz
 ```
 
 With method / charge / spin:
 ```
-xyzgraph-build molecule.xyz --method xtb --charge -1 --multiplicity 2
+xyzgraph molecule.xyz --method xtb --charge -1 --multiplicity 2
 ```
 
-ASCII depiction (larger, show hydrogens):
+ASCII depiction - useful inspecting the bond order assignment visually:
 ```
-xyzgraph-build molecule.xyz --ascii --ascii-scale 2.5 --show-h
+xyzgraph molecule.xyz --ascii
 ```
 
-Compare with xyz2mol (if installed):
+Compare with rdkit/xyz2mol:
 ```
-xyzgraph-build molecule.xyz --compare-xyz2mol
+xyzgraph molecule.xyz --compare-xyz2mol
 ```
 
 Key flags:
-- --method {cheminf|xtb}  (default cheminf)
-- --charge INT
-- --multiplicity INT (inferred if omitted)
-- --ascii / --ascii-scale
-- --show-h
-- --debug-graph / -dg
-- --compare-xyz2mol
-- --no-clean
+```bash
+xyzgraph -h
+usage: xyzgraph [-h] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--compare-xyz2mol] [--no-clean]
+                xyz
+
+Build molecular graph from XYZ.
+
+positional arguments:
+  xyz                   Input XYZ file
+
+options:
+  -h, --help            show this help message and exit
+  --method {cheminf,xtb}
+                        Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)
+  -q, --quick           Quick mode: fast heuristics, less accuracy
+  --max-iter MAX_ITER   Maximum iterations for bond order optimization (default: 50, cheminf only)
+  --edge-per-iter EDGE_PER_ITER
+                        Number of edges to adjust per iteration (default: 10, cheminf only)
+  -c, --charge CHARGE   Total molecular charge (default: 0)
+  -m, --multiplicity MULTIPLICITY
+                        Spin multiplicity (auto-detected if not specified)
+  -b, --bohr            XYZ file provided in units bohr (default is Angstrom)
+  -d, --debug           Enable debug output (construction details + graph report)
+  -a, --ascii           Show 2D ASCII depiction (auto-enabled if no other output)
+  -as, --ascii-scale ASCII_SCALE
+                        ASCII scaling factor (default: 3.0)
+  -H, --show-h          Include hydrogens in visualizations (hidden by default)
+  --compare-xyz2mol     Compare with xyz2mol output (uses rdkit implementation)
+  --no-clean            Keep temporary xTB files (only for --method xtb)
+```
 
 Behavior:
 - If only an XYZ filename is provided (no flags), a 2D ASCII depiction is shown by default.
-- Without --debug-graph the detailed bond/valence/charge table is suppressed.
-- --compare-xyz2mol auto-enables ASCII if neither --ascii nor -dg is set.
-- xyz2mol output honors:
-  * -dg (verbose atom neighbor listing + bond list)
+- Without -d|--debug the detailed bond/valence/charge table is suppressed.
+- --compare-xyz2mol auto-enables ASCII if neither -a|--ascii nor -d|--debug is set.
+- comparison output follows arguments:
+  * -d (verbose atom neighbor listing + bond list)
   * --ascii / --ascii-scale / --show-h (for its own ASCII block)
   * When both --compare-xyz2mol and ASCII output are active, the xyz2mol ASCII is layout-aligned to the primary graph (same atom ordering).
+
+## Cheminf vs XTB
 
 ## Python API Quick Start
 
@@ -113,9 +151,6 @@ ascii_ref, layout = graph_to_ascii(G_ref, return_layout=True)
 ascii_alt = graph_to_ascii(G_alt, reference_layout=layout)
 ```
 
-## Build Step Log
-(Feature removed; per-step internal metrics no longer exposed.)
-
 ## xyz2mol Comparison Enhancements
 Using:
 ```
@@ -154,7 +189,7 @@ Example diff section:
    - Detect simple 5/6 cycles with atoms in {C,N,O,S}; mark cycle edges → candidate aromatic (pre-seeding).
 
 4. Valence-Driven Bond Order Refinement
-   - Iterate (default up to 5):
+   - Iterate (default up to X):
        a. Compute current fractional valence per atom (sum of bond orders).
        b. Determine closest allowed valence from expected_valences.json.
        c. Compute deficit/excess; metals locked at 1.0 and skipped.
@@ -245,10 +280,24 @@ G.edges[k, l]['NCI'] = True
 ```
 These override normal bond glyphs (single/double/triple/aromatic). Only a single character is used per edge.
 
+## Performance Notes
+
+For large molecules (>50 atoms):
+- Use `--quick` mode for 10x speedup
+- Increase `--edge-per-iter` to 15-20 for faster convergence
+- Reduce `--max-iter` to 20 if acceptable quality
+```bash
+xyzgraph large.xyz --quick --edge-per-iter 20 --max-iter 20
+```
+
+## Known Limitations
+
+1. **Metal complexes**: Bond orders locked at 1.0 (no d-orbital modeling)
+2. **Zwitterions**: May not converge to expected charges
+3. **Radicals**: Requires manual multiplicity specification
+4. **Large conjugated systems**: May need >50 iterations (use `--max-iter 100`)
+
+
 ## References
 Tckatenko, Jensen (plus ref), Rdkit?, Andrew White, ascii codes?, xyz2graph code?
 
-## To Do
-- remove compare with xyz2mol?
-- supply graph and generate ascii (check working in python api)
-- allow alignment of graph based on another reference? that way I could draw two with different connectivity with the same orientations for ease of viewing?

@@ -1,71 +1,86 @@
 import argparse
 from ase.io import read as read_xyz
-from .graph_builders import build_graph
-from .ascii_renderer import graph_debug_report, graph_to_ascii
-from .compare import xyz2mol_compare
+from . import BOHR_TO_ANGSTROM
+from .analyser import MolecularAnalyzer
 
 def main():
     p = argparse.ArgumentParser(description="Build molecular graph from XYZ.")
     p.add_argument("xyz", help="Input XYZ file")
-    p.add_argument("--method", choices=["cheminf","xtb"], default="cheminf")
-    p.add_argument("--charge", type=int, default=0)
-    p.add_argument("--multiplicity", type=int, default=None)
-    p.add_argument("--no-clean", action="store_true", help="Do not remove tmp XTB folder")
-    p.add_argument("--ascii", action="store_true", help="Show 2D ASCII depiction")
-    p.add_argument("--ascii-scale", type=float, default=3,
-                   help="Scaling factor (>1 enlarges) for 2D ASCII.")
-    p.add_argument("--show-h", action="store_true",
-                   help="Include hydrogens (and C–H bonds) in outputs (hidden by default).")
+    
+    # Method and quality
+    p.add_argument("--method", choices=["cheminf", "xtb"], default="cheminf",
+                    help="Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)")
+    p.add_argument("-q", "--quick", action="store_true", default=False,
+                    help="Quick mode: fast heuristics, less accuracy")
+    p.add_argument("--max-iter", type=int, default=50,
+                    help="Maximum iterations for bond order optimization (default: 50, cheminf only)")
+    p.add_argument("--edge-per-iter", type=int, default=6,
+                    help="Number of edges to adjust per iteration (default: 6, cheminf only)")
+
+    # Molecular properties
+    p.add_argument("-c", "--charge", type=int, default=0,
+                    help="Total molecular charge (default: 0)")
+    p.add_argument("-m", "--multiplicity", type=int, default=None,
+                    help="Spin multiplicity (auto-detected if not specified)")
+    p.add_argument("-b", "--bohr", action="store_true", default=False,
+                    help="XYZ file provided in units bohr (default is Angstrom)")
+    
+    # Output control
+    p.add_argument("-d", "--debug", action="store_true",
+                    help="Enable debug output (construction details + graph report)")
+    p.add_argument("-a", "--ascii", action="store_true",
+                    help="Show 2D ASCII depiction (auto-enabled if no other output)")
+    p.add_argument("-as", "--ascii-scale", type=float, default=3.0,
+                    help="ASCII scaling factor (default: 3.0)")
+    p.add_argument("-H", "--show-h", action="store_true",
+                    help="Include hydrogens in visualizations (hidden by default)")
+    
+    # Comparison
     p.add_argument("--compare-xyz2mol", action="store_true",
-                   help="Also print xyz2mol-derived graph (if installed).")
-    p.add_argument("--debug-graph","-dg", action="store_true", default=False,
-                   help="Print detailed graph debug report (bonds / valences / charges).")
+                    help="Compare with xyz2mol output (uses rdkit implementation)")
+    
+    # xTB specific
+    p.add_argument("--no-clean", action="store_true",
+                    help="Keep temporary xTB files (only for --method xtb)")
+    
     args = p.parse_args()
-
+    
+    # Read structure
     atoms = read_xyz(args.xyz)
-    G = build_graph(atoms,
-                    method=args.method,
-                    charge=args.charge,
-                    multiplicity=args.multiplicity,
-                    clean_up=not args.no_clean)
 
-    # Determine if user supplied any visibility flags explicitly
-    user_flag = any([args.ascii, args.debug_graph, args.compare_xyz2mol])
-    auto_ascii = False
+    if args.bohr:
+        atoms.positions *= BOHR_TO_ANGSTROM
 
-    # Default: if ONLY xyz provided (no flags) -> show ASCII automatically
-    if not user_flag:
-        auto_ascii = True
+ # Create analyzer with all parameters
+    analyzer = MolecularAnalyzer(
+        atoms=atoms,
+        method=args.method,
+        charge=args.charge,
+        multiplicity=args.multiplicity,
+        quick=args.quick,
+        max_iter=args.max_iter,
+        edge_per_iter=args.edge_per_iter,
+        clean_up=not args.no_clean,
+        debug=args.debug
+    )
 
-    # If comparison requested and no debug/ascii, enable ASCII automatically
-    if args.compare_xyz2mol and not (args.debug_graph or args.ascii):
-        auto_ascii = True
-
-    ascii_active = args.ascii or auto_ascii
-
-    # Debug report only when requested
-    if args.debug_graph:
-        print(graph_debug_report(G, include_h=args.show_h))
-
-    if ascii_active:
-        if auto_ascii and not args.ascii:
-            print("# (auto-enabled ASCII output)\n")
-        print("\n# 2D ASCII depiction (scale={:.2f}, hydrogens={})\n".format(
-            args.ascii_scale, "shown" if args.show_h else "hidden"))
-        print(graph_to_ascii(G,
-                             scale=max(0.2, args.ascii_scale),
-                             include_h=args.show_h))
-
-    if args.compare_xyz2mol:
-        print("\n# xyz2mol comparison\n")
-        print(xyz2mol_compare(atoms,
-                              charge=args.charge,
-                              verbose=args.debug_graph,          # map debug to verbose
-                              ascii=ascii_active,
-                              ascii_scale=max(0.2, args.ascii_scale),
-                              ascii_include_h=args.show_h,
-                              reference_graph=G   # NEW: enable connectivity / bond order diff
-                              ).rstrip())
+    G = analyzer.build()
+    
+    # Determine what to show
+    has_explicit_output = args.debug or args.ascii or args.compare_xyz2mol
+    show_ascii = args.ascii or not has_explicit_output
+    
+    if not args.ascii and not has_explicit_output:
+        print("\n# (Auto-enabled ASCII output - use --help for more options)\n")
+    
+    # Print outputs
+    analyzer.print_summary(
+        show_report=args.debug,
+        show_ascii=show_ascii,
+        show_xyz2mol=args.compare_xyz2mol,
+        include_h=args.show_h,
+        ascii_scale=max(0.2, args.ascii_scale)
+    )
 
 if __name__ == "__main__":
     main()
