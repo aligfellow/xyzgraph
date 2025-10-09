@@ -595,7 +595,7 @@ print(ascii_art)
       \ /
        C
 ```
-Acyl isothiouronium:
+**Output example** (acyl isothiouronium):
 ```
                                              C
                                               \
