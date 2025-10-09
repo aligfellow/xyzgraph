@@ -1,7 +1,7 @@
 import json
 from importlib import resources
 from dataclasses import dataclass
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 BOHR_TO_ANGSTROM = 0.5291772105 
  
@@ -15,6 +15,8 @@ class MolecularData:
     valences: Dict[str, List[int]]
     electrons: Dict[str, int]
     metals: Set[str]
+    s2n: Dict[str, int]
+    n2s: Dict[int, str]
     
     _instance = None
     
@@ -74,12 +76,20 @@ class MolecularData:
             'Ir', 'Pt', 'Au', 'Hg', 'Al', 'Ga', 'In', 'Sn', 'Pb', 'La', 'Ce', 'Pr', 'Nd', 'Sm', 'Eu',
             'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu'
         }
-        
+
+        # Load element mappings
+        element_file = data_path / 'atom_symbols.json'
+        with element_file.open('r') as f:
+            s2n = json.load(f)
+        n2s = {v: k for k, v in s2n.items()}
+
         return cls(
             vdw_radii=vdw_radii,
             valences=expected_valences,
             electrons=valence_electrons,
-            metals=metals
+            metals=metals,
+            s2n=s2n,
+            n2s=n2s
         )
 
 

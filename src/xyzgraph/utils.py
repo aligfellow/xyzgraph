@@ -1,6 +1,6 @@
 import networkx as nx
-from typing import List, Optional, Dict, Any
-from .data_loader import DATA
+from typing import List, Optional, Dict, Any, Tuple
+from .data_loader import DATA, BOHR_TO_ANGSTROM
 
 PREF_CHARGE_ORDER = ['gasteiger', 'mulliken', 'hirshfeld', 'gasteiger_raw']
 
@@ -103,3 +103,59 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
         if i in visible and j in visible:
             lines.append(f"[{i:>{idx_width}}-{j:>{idx_width}}]: {d.get('bond_order', 1.0):>4.2f}")
     return "\n".join(lines)
+
+
+def read_xyz_file(filepath: str, bohr_units: bool = False) -> List[Tuple[str, Tuple[float, float, float]]]:
+    """
+    Read XYZ file and return list of (symbol, (x, y, z)).
+    """
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+
+    # Parse header
+    try:
+        num_atoms = int(lines[0].strip())
+    except ValueError:
+        raise ValueError(f"Invalid XYZ format: first line should be atom count")
+
+    # Skip comment line
+    atom_lines = lines[2:2+num_atoms]
+
+    atoms = []
+    for i, line in enumerate(atom_lines):
+        parts = line.strip().split()
+        if len(parts) < 4:
+            raise ValueError(f"Line {i+3}: expected at least 4 columns")
+
+        element_or_symbol = parts[0].strip()
+        try:
+            x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+        except ValueError as e:
+            raise ValueError(f"Line {i+3}: invalid coordinates") from e
+
+        # Determine symbol - if it's an atomic number, convert to symbol
+        if element_or_symbol.isdigit():
+            atomic_num = int(element_or_symbol)
+            if atomic_num in DATA.n2s:
+                symbol = DATA.n2s[atomic_num]
+            else:
+                raise ValueError(f"Line {i+3}: unknown atomic number {atomic_num}")
+        else:
+            # Assume it's already a symbol
+            symbol = element_or_symbol
+
+        if symbol not in DATA.s2n:
+            raise ValueError(f"Line {i+3}: unknown element symbol '{symbol}'")
+
+        # Convert Bohr to Angstrom if needed
+        if bohr_units:
+            x *= BOHR_TO_ANGSTROM
+            y *= BOHR_TO_ANGSTROM
+            z *= BOHR_TO_ANGSTROM
+
+        atoms.append((symbol, (x, y, z)))
+
+    if len(atoms) != num_atoms:
+        raise ValueError(f"Expected {num_atoms} atoms, found {len(atoms)}")
+
+    return atoms

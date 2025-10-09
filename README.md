@@ -53,7 +53,7 @@ pip install -e .
 ```
 
 ### Dependencies
-- **Core**: `numpy`, `networkx`, `ase`, `rdkit`
+- **Core**: `numpy`, `networkx`, `rdkit`
 - **Optional**: [xTB binary](https://github.com/grimme-lab/xtb) (for `--method xtb`)
 
 To install xTB (Linux/macOS):

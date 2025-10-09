@@ -1,7 +1,7 @@
 import argparse
-from ase.io import read as read_xyz
 from . import build_graph, graph_debug_report, graph_to_ascii
 from . import BOHR_TO_ANGSTROM, DEFAULT_PARAMS
+from .utils import read_xyz_file
 from .compare import xyz2mol_compare
 
 def main():
@@ -46,7 +46,7 @@ def main():
                     help="Include hydrogens in visualizations (hidden by default)")
     
     # Comparison
-    p.add_argument("--compareRD", action="store_true",
+    p.add_argument("--compare-rdkit", action="store_true",
                     help="Compare with xyz2mol output (uses rdkit implementation)")
     
     # xTB specific
@@ -75,13 +75,10 @@ def main():
             except ValueError:
                 p.error(f"Invalid bond in --unbond: '{unbond_str}'")
 
-    # Read structure
-    atoms = read_xyz(args.xyz)
+    # Read structure (now as list of (atomic_number, (x,y,z)))
+    atoms = read_xyz_file(args.xyz, bohr_units=args.bohr)
 
-    if args.bohr:
-        atoms.positions *= BOHR_TO_ANGSTROM
-
- # Create analyzer with all parameters
+    # Create analyzer with all parameters
     G = build_graph(
             atoms=atoms,
             method=args.method,
@@ -99,7 +96,7 @@ def main():
         )
 
     # Determine what to show
-    has_explicit_output = args.debug or args.ascii or args.compareRD
+    has_explicit_output = args.debug or args.ascii or args.compare_rdkit
     show_ascii = args.ascii or not has_explicit_output
     
     if not args.ascii and not has_explicit_output:
@@ -113,7 +110,7 @@ def main():
         print(graph_to_ascii(G, scale=max(0.2, args.ascii_scale), include_h=args.show_h))
 
 
-    if args.compareRD:
+    if args.compare_rdkit:
         print(xyz2mol_compare(
             atoms,
             charge=args.charge,
