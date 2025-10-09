@@ -30,7 +30,7 @@ def xyz2mol_compare(
     ascii: bool = False,
     ascii_scale: float = 2.0,
     ascii_include_h: bool = True,
-    reference_graph: Optional[nx.Graph] = None
+    reference_graph: Optional[nx.Graph] = None,
 ) -> str:
     """
     RDKit DetermineBonds comparison / fallback diagnostic.
@@ -38,6 +38,10 @@ def xyz2mol_compare(
     ascii=True    -> append ASCII depiction (scale, H visibility configurable).
     reference_graph -> if provided and atom counts match, ASCII can align to reference layout.
     """
+    out = []
+    out.append("\n" + "=" * 60)
+    out.append("XYZ2MOL COMPARISON")
+    out.append("=" * 60)
 
     # --- Build an XYZ block from ASE Atoms ---
     nat = len(atoms)
@@ -78,7 +82,7 @@ def xyz2mol_compare(
     except Exception:
         pass
 
-    out = [f"# RDKit DetermineBonds graph: {mol.GetNumAtoms()} atoms, {mol.GetNumBonds()} bonds (charge={charge})"]
+    out.append(f"# RDKit DetermineBonds graph: {mol.GetNumAtoms()} atoms, {mol.GetNumBonds()} bonds (charge={charge})")
 
     # --- Build a NetworkX graph for ASCII and stats ---
     Gx = nx.Graph()
@@ -177,7 +181,7 @@ def xyz2mol_compare(
 
     # --- Verbose neighbor table and bonds ---
     if verbose:
-        print(graph_debug_report(Gx, include_h=ascii_include_h))
+        out.append(graph_debug_report(Gx, include_h=ascii_include_h))
 
 
     return "\n".join(out) + "\n"

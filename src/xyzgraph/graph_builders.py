@@ -11,8 +11,11 @@ RDLogger.DisableLog('rdApp.*')  # Suppress RDKit warnings
 
 from .data_loader import DATA
 
+# Import defaults to avoid duplication
+from . import DEFAULT_PARAMS
+
 # =============================================================================
-# DESIGN PHILOSOPHY
+# DESIGN 
 # =============================================================================
 # Two modes:
 #   1. QUICK: Fast heuristic-based bond/valence assignment
@@ -36,26 +39,37 @@ class GraphBuilder:
     """
     
     def __init__(
-        self,
-        atoms: Atoms,
-        charge: int = 0,
-        multiplicity: Optional[int] = None,
-        method: str = 'cheminf',
-        quick: bool = False,
-        max_iter: int = 50,
-        edge_per_iter: int = 10,
-        clean_up: bool = True,
-        debug: bool = False
-    ):
+            self,
+            atoms: Atoms,
+            charge: int = DEFAULT_PARAMS['charge'],
+            multiplicity: Optional[int] = DEFAULT_PARAMS['multiplicity'],
+            method: str = DEFAULT_PARAMS['method'],
+            quick: bool = DEFAULT_PARAMS['quick'],
+            optimizer: str = DEFAULT_PARAMS['optimizer'],
+            max_iter: int = DEFAULT_PARAMS['max_iter'],
+            edge_per_iter: int = DEFAULT_PARAMS['edge_per_iter'],
+            beam_width: int = DEFAULT_PARAMS['beam_width'],
+            bond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['bond'],
+            unbond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['unbond'],
+            clean_up: bool = DEFAULT_PARAMS['clean_up'],
+            debug: bool = DEFAULT_PARAMS['debug']
+            ):
         self.atoms = atoms
         self.charge = charge
         self.method = method
+        self.optimizer = optimizer.lower() 
         self.quick = quick
         self.max_iter = max_iter
         self.edge_per_iter = edge_per_iter
+        self.beam_width = beam_width
+        self.bond = bond
+        self.unbond = unbond
         self.clean_up = clean_up 
         self.debug = debug
         
+        if self.optimizer not in ('greedy', 'beam', 'anneal'):
+            raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam', 'anneal'")
+
         # Auto-detect multiplicity
         if multiplicity is None:
             ne = int(np.sum(atoms.get_atomic_numbers())) - charge
@@ -160,7 +174,7 @@ class GraphBuilder:
             fc = self._compute_formal_charge_value(sym, V, bond_sum)
             formal.append(fc)
         
-        # Balance residual charge
+        # # Balance residual charge
         residual = self.charge - sum(formal)
         if residual != 0:
             bonded = [(abs(formal[i]), i) for i in range(len(self.atoms)) if self._valence_sum(G, i) > 0]
@@ -254,7 +268,7 @@ class GraphBuilder:
                 
                 # Choose threshold
                 if has_h and not has_metal:
-                    threshold = 0.45 * r_sum
+                    threshold = 0.42 * r_sum
                 elif has_h and has_metal:
                     threshold = 0.5 * r_sum
                 elif has_metal:
@@ -272,6 +286,19 @@ class GraphBuilder:
                               metal_coord=has_metal)
                     edge_count += 1
         
+        if self.bond: 
+            for i, j in self.bond:
+                if not G.has_edge(i, j):
+                    d = self._distance(pos[i], pos[j])
+                    G.add_edge(i, j, bond_order=1, distance=d)
+                    self.log(f"Added bond {i}-{j} (d={d:.3f} Å)", 2)
+
+        if self.unbond:
+            for i, j in self.unbond:
+                if G.has_edge(i, j):
+                    G.remove_edge(i, j)
+                    self.log(f"Removed bond {i}-{j}")
+
         self.log(f"Initial bonds: {edge_count}", 1)
         
         # Cache graph properties
@@ -290,7 +317,7 @@ class GraphBuilder:
         removed = 0
         max_passes = 4
         ring_prune_ratios = {3: 1.18, 4:1.22}
-        self.log(f"Pruning distorted rings (sizes: {ring_prune_ratios.keys()})", 1)
+        self.log(f"Pruning distorted rings (sizes: {list(ring_prune_ratios.keys())})", 1)
 
         for _ in range(max_passes):
             cycles = nx.cycle_basis(G) # recompute since graph may change
@@ -343,6 +370,128 @@ class GraphBuilder:
         G.graph['_rings'] = nx.cycle_basis(G)
 
         return removed
+
+    def _init_kekule_for_6rings(self, G: nx.Graph) -> int:
+        """
+        Initialize alternating single/double bonds for 6-membered aromatic rings.
+        Handles complex fused rings by validating consistency across shared edges.
+        
+        NetworkX graphs are mutable and passed by reference, so modifications to G
+        persist after this function returns.
+        
+        Strategy:
+        - Find 6-membered rings with aromatic atoms (C, N, O, S, B)
+        - Check planarity
+        - Apply simple alternating 1-2-1-2 pattern as starting point
+        - If edges are already set (from fused rings), validate consistency
+        - Optimizer will refine based on formal charges, electronegativity, etc.
+        
+        This initialization works for: benzene, pyridine, pyrimidine, furan fused to benzene,
+        thiophene fused to benzene, naphthalene, anthracene, etc.
+        
+        Parameters:
+        - G: NetworkX graph to modify in-place
+        
+        Returns: Number of rings initialized (metadata only)
+        """
+        cycles = G.graph.get('_rings') 
+        if cycles is None:
+            cycles = nx.cycle_basis(G)
+            G.graph['_rings'] = cycles
+
+        initialized_rings = 0
+        
+        # Atoms that can participate in aromatic conjugation
+        aromatic_atoms = {'C', 'N', 'O', 'S', 'B'}
+        
+        for cycle in cycles:
+            # Must be 6-membered
+            if len(cycle) != 6:
+                continue
+            
+            # Allow some heteroatoms for extended conjugation
+            if not all(self.atoms[i].symbol in aromatic_atoms for i in cycle):
+                continue
+            
+            # Check planarity (aromatic rings are planar)
+            if not self._check_planarity(cycle, G, threshold=0.15):
+                continue
+            
+            # Get ring edges and their current bond orders
+            ring_edges = [(cycle[k], cycle[(k+1) % len(cycle)]) for k in range(len(cycle))]
+            current_orders = []
+            for i, j in ring_edges:
+                if G.has_edge(i, j):
+                    current_orders.append(G.edges[i, j]['bond_order'])
+                else:
+                    current_orders.append(1.0)
+            
+            # Check for already-set edges (from previously processed fused rings)
+            set_edges = [(idx, bo) for idx, bo in enumerate(current_orders) if abs(bo - 1.0) > 0.01] # ie. not currently a single bond
+            
+            if len(set_edges) == 0:
+                # No constraints - use default pattern starting with double
+                for idx, (i, j) in enumerate(ring_edges):
+                    if G.has_edge(i, j):
+                        bond_order = 2.0 if idx % 2 == 0 else 1.0
+                        G.edges[i, j]['bond_order'] = bond_order
+                initialized_rings += 1
+                
+            elif len(set_edges) == 1:
+                # One anchor - alternate from it
+                anchor_idx, anchor_bo = set_edges[0]
+                
+                for idx, (i, j) in enumerate(ring_edges):
+                    if G.has_edge(i, j):
+                        if idx == anchor_idx:
+                            continue  # Keep anchor as is
+                        
+                        offset = (idx - anchor_idx) % 6
+                        if abs(anchor_bo - 2.0) < 0.1:
+                            bond_order = 2.0 if offset % 2 == 0 else 1.0
+                        else:
+                            bond_order = 1.0 if offset % 2 == 0 else 2.0
+                        
+                        G.edges[i, j]['bond_order'] = bond_order
+                initialized_rings += 1
+                
+            else:
+                # Multiple constraints - verify consistency before applying
+                # Use first anchor to generate expected pattern
+                anchor_idx, anchor_bo = set_edges[0]
+                
+                # Generate expected pattern based on first anchor
+                expected = []
+                for idx in range(6):
+                    offset = (idx - anchor_idx) % 6
+                    if abs(anchor_bo - 2.0) < 0.1:
+                        expected.append(2.0 if offset % 2 == 0 else 1.0)
+                    else:
+                        expected.append(1.0 if offset % 2 == 0 else 2.0)
+                
+                # Check if all set edges match expected pattern
+                consistent = True
+                for idx, bo in set_edges:
+                    if abs(expected[idx] - bo) > 0.1:
+                        consistent = False
+                        break
+                
+                if consistent:
+                    # Apply pattern to unset edges only
+                    for idx, (i, j) in enumerate(ring_edges):
+                        if G.has_edge(i, j):
+                            # Only set if currently at default (1.0)
+                            if abs(current_orders[idx] - 1.0) < 0.01:
+                                G.edges[i, j]['bond_order'] = expected[idx]
+                    initialized_rings += 1
+                else:
+                    # Conflict detected - skip this ring, let optimizer handle it
+                    pass
+        
+        if initialized_rings > 0:
+            self.log(f"Initialized {initialized_rings} 6-membered carbon rings with Kekulé pattern", 1)
+
+        return initialized_rings
 
 # =============================================================================
 # QUICK MODE: Simple heuristic valence adjustment
@@ -447,6 +596,8 @@ class GraphBuilder:
         data = G[i][j]
         if data.get('metal_coord', False):
             return False
+        if data.get('locked', False):
+            return False
         if data.get('bond_order', 1.0) >= 3.0:
             return False
         return True
@@ -480,113 +631,113 @@ class GraphBuilder:
                         self._edge_score_map[e] = self._edge_score(G, *e)
         # Return top-k edges
         items = [(s, e) for e, s in self._edge_score_map.items() if s != float('-inf')]
-        items.sort(key=lambda t: -t[0])
+        items.sort(key=lambda t: (-t[0], t[1][0], t[1][1])) # sort by score desc, then by edge
         top = [e for _, e in items[: self.edge_per_iter]]
         self.edge_scores_cache = top
         return top
 
 
-    def _score_assignment(self, G: nx.Graph, rings: List[List[int]] = None) -> Tuple[float, List[int]]:
-        """
-        Score a bond order assignment.
-        Returns (score, formal_charges) - lower is better.
-        """
-        EN = {'H': 2.2, 'C': 2.5, 'N': 3.0, 'O': 3.5, 'F': 4.0,
-            'P': 2.2, 'S': 2.6, 'Cl': 3.2, 'Br': 3.0, 'I': 2.7}
+    # def _score_assignment(self, G: nx.Graph, rings: List[List[int]] = None) -> Tuple[float, List[int]]:
+    #     """
+    #     Score a bond order assignment.
+    #     Returns (score, formal_charges) - lower is better.
+    #     """
+    #     EN = {'H': 2.2, 'C': 2.5, 'N': 3.0, 'O': 3.5, 'F': 4.0,
+    #         'P': 2.2, 'S': 2.6, 'Cl': 3.2, 'Br': 3.0, 'I': 2.7}
         
-        if self._check_valence_violation(G):
-            return 1e9, [0 for _ in G.nodes()]
+    #     if self._check_valence_violation(G):
+    #         return 1e9, [0 for _ in G.nodes()]
         
-        # --- ring cache ---
-        if rings is None:
-            rings = G.graph.get('_rings')
-            if rings is None:
-                rings = nx.cycle_basis(G)
-                G.graph['_rings'] = rings
+    #     # --- ring cache ---
+    #     if rings is None:
+    #         rings = G.graph.get('_rings')
+    #         if rings is None:
+    #             rings = nx.cycle_basis(G)
+    #             G.graph['_rings'] = rings
 
-        # -- neighbors cache ---
-        if '_neighbors' not in G.graph:
-            G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
-        neighbor_cache = G.graph['_neighbors']
+    #     # -- neighbors cache ---
+    #     if '_neighbors' not in G.graph:
+    #         G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
+    #     neighbor_cache = G.graph['_neighbors']
 
-        # --- has_H cache ---
-        if '_has_H' not in G.graph:
-            G.graph['_has_H'] = {n: any(self.atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
-        has_H = G.graph['_has_H']
+    #     # --- has_H cache ---
+    #     if '_has_H' not in G.graph:
+    #         G.graph['_has_H'] = {n: any(self.atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
+    #     has_H = G.graph['_has_H']
 
-        # --- valence cache ---
-        if not self.valence_cache:
-            self.valence_cache = {n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)) for n in G.nodes()}
-        # --- formal charge cache (keyed by (sym, valence_sum)) ---
-        formal_cache = {}
-        def get_formal(sym, vsum):
-            key = (sym, round(vsum, 2))
-            if key not in formal_cache:
-                V = DATA.electrons.get(sym, 0)
-                formal_cache[key] = self._compute_formal_charge_value(sym, V, vsum)
-            return formal_cache[key]
+    #     # --- valence cache ---
+    #     if not self.valence_cache:
+    #         self.valence_cache = {n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)) for n in G.nodes()}
+    #     # --- formal charge cache (keyed by (sym, valence_sum)) ---
+    #     formal_cache = {}
+    #     def get_formal(sym, vsum):
+    #         key = (sym, round(vsum, 2))
+    #         if key not in formal_cache:
+    #             V = DATA.electrons.get(sym, 0)
+    #             formal_cache[key] = self._compute_formal_charge_value(sym, V, vsum)
+    #         return formal_cache[key]
 
-        penalties = {'valence': 0.0, 'en': 0.0, 'violation': 0.0, 'protonation': 0.0, 'conjugation': 0.0, 'fc': 0, 'n_charged': 0}
+    #     penalties = {'valence': 0.0, 'en': 0.0, 'violation': 0.0, 'protonation': 0.0, 'conjugation': 0.0, 'fc': 0, 'n_charged': 0}
                     
-        # --- RING CONJUGATION PENALTY ---
-        penalties['conjugation'] = self._ring_conjugation_penalty(G, rings)
+    #     # --- RING CONJUGATION PENALTY ---
+    #     penalties['conjugation'] = self._ring_conjugation_penalty(G, rings)
 
-        formal_charges = []
+    #     formal_charges = []
 
-        for node in G.nodes():
-            sym = self.atoms[node].symbol
-            vsum = self.valence_cache[node]
+    #     for node in G.nodes():
+    #         sym = self.atoms[node].symbol
+    #         vsum = self.valence_cache[node]
             
-            if sym in DATA.metals:
-                formal_charges.append(0)
-                continue
+    #         if sym in DATA.metals:
+    #             formal_charges.append(0)
+    #             continue
             
-            fc = get_formal(sym, vsum)
-            formal_charges.append(fc)
+    #         fc = get_formal(sym, vsum)
+    #         formal_charges.append(fc)
 
-            if fc != 0:
-                penalties['fc'] += abs(fc)
-                penalties['n_charged'] += 1
+    #         if fc != 0:
+    #             penalties['fc'] += abs(fc)
+    #             penalties['n_charged'] += 1
             
-            nb = neighbor_cache[node]
-            if has_H[node]:
-                if fc == 0:
-                    for nbr in nb:
-                        if self.atoms[nbr].symbol != 'H':
-                            other_fc = get_formal(self.atoms[nbr].symbol, self.valence_cache[nbr])
-                            if other_fc > 0:
-                                penalties['protonation'] += 8.0 if sym in ('N', 'O') else 3.0
-                elif fc > 0 and sym in ('N', 'O', 'S'):
-                    penalties['en'] -= 1.5  # expected protonation bonus
+    #         nb = neighbor_cache[node]
+    #         if has_H[node]:
+    #             if fc == 0:
+    #                 for nbr in nb:
+    #                     if self.atoms[nbr].symbol != 'H':
+    #                         other_fc = get_formal(self.atoms[nbr].symbol, self.valence_cache[nbr])
+    #                         if other_fc > 0:
+    #                             penalties['protonation'] += 8.0 if sym in ('N', 'O') else 3.0
+    #             elif fc > 0 and sym in ('N', 'O', 'S'):
+    #                 penalties['en'] -= 1.5  # expected protonation bonus
 
-            # Valence error
-            if sym in DATA.valences:
-                allowed = DATA.valences[sym]
-                min_error = min(abs(vsum - v) for v in allowed)
-                penalties['valence'] += min_error ** 2
+    #         # Valence error
+    #         if sym in DATA.valences:
+    #             allowed = DATA.valences[sym]
+    #             min_error = min(abs(vsum - v) for v in allowed)
+    #             penalties['valence'] += min_error ** 2
                 
-                # Check absolute limits
-                limits = {'C': 4, 'N': 5, 'O': 3, 'S': 6, 'P': 6}
-                if sym in limits and vsum > limits[sym] + 0.1:
-                    penalties['violation'] += 1000.0
+    #             # Check absolute limits
+    #             limits = {'C': 4, 'N': 5, 'O': 3, 'S': 6, 'P': 6}
+    #             if sym in limits and vsum > limits[sym] + 0.1:
+    #                 penalties['violation'] += 1000.0
             
-            # Electronegativity penalty
-            en = EN.get(sym, 2.5)
-            if fc != 0:
-                penalties['en'] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
+    #         # Electronegativity penalty
+    #         en = EN.get(sym, 2.5)
+    #         if fc != 0:
+    #             penalties['en'] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
                 
-        # Total score
-        charge_error = abs(sum(formal_charges) - self.charge)
-        score = (1000.0 * penalties['violation'] +
-            12.0 * penalties['conjugation'] +
-            8.0 * penalties['protonation'] +
-            10.0 * penalties['fc'] +
-            3.0 * penalties['n_charged'] +
-            5.0 * charge_error +
-            2.0 * penalties['en'] +
-            5.0 * penalties['valence'])
+    #     # Total score
+    #     charge_error = abs(sum(formal_charges) - self.charge)
+    #     score = (1000.0 * penalties['violation'] +
+    #         12.0 * penalties['conjugation'] +
+    #         8.0 * penalties['protonation'] +
+    #         10.0 * penalties['fc'] +
+    #         3.0 * penalties['n_charged'] +
+    #         5.0 * charge_error +
+    #         2.0 * penalties['en'] +
+    #         5.0 * penalties['valence'])
         
-        return score, formal_charges
+    #     return score, formal_charges
 
     # =============================================================================
     # FULL MODE: Formal charge optimization
@@ -656,7 +807,7 @@ class GraphBuilder:
             - final_score
             - final formal_charges
         """
-        self.log("=" * 60, 0)
+        self.log(f"\n{"=" * 60}", 0)
         self.log("FULL VALENCE OPTIMIZATION", 1)
         self.log("=" * 60, 0)
 
@@ -719,45 +870,53 @@ class GraphBuilder:
                 self.edge_scores_cache = self._edge_likelihood(G, touch_nodes={i, j})
 
             # --- Evaluate top-k edges using local delta scoring ---
+            # Test both promotion (+1) and demotion (-1) for Kekulé flexibility
             for i, j in self.edge_scores_cache:
                 bo = G[i][j]['bond_order']
-                if bo >= 3.0:
-                    continue
+                
+                # Test both directions
+                for change in [+1, -1]:
+                    new_bo = bo + change
+                    
+                    # Skip invalid bond orders
+                    if new_bo < 1.0 or new_bo > 3.0:
+                        continue
+                    
+                    # Temporarily apply change
+                    G[i][j]['bond_order'] = new_bo
+                    valence_cache[i] += change
+                    valence_cache[j] += change
 
-                # Temporarily increment bond
-                G[i][j]['bond_order'] += 1
-                valence_cache[i] += 1
-                valence_cache[j] += 1
+                    # Compute full score
+                    new_score, _ = self._score_assignment(G, rings)
+                    delta = current_score - new_score
 
-                # Compute full score
-                new_score, _ = self._score_assignment(G, rings)
-                delta = current_score - new_score
+                    # Rollback
+                    G[i][j]['bond_order'] = bo
+                    valence_cache[i] -= change
+                    valence_cache[j] -= change
 
-                # Rollback
-                G[i][j]['bond_order'] -= 1
-                valence_cache[i] -= 1
-                valence_cache[j] -= 1
-
-                if delta > best_delta:
-                    best_delta = delta
-                    best_edge = (i, j)
+                    if delta > best_delta:
+                        best_delta = delta
+                        best_edge = (i, j, change)
 
             # --- Apply best improvement ---
             if best_edge and best_delta > 1e-6:
-                i, j = best_edge
-                G[i][j]['bond_order'] += 1
-                valence_cache[i] += 1
-                valence_cache[j] += 1
+                i, j, change = best_edge
+                G[i][j]['bond_order'] += change
+                valence_cache[i] += change
+                valence_cache[j] += change
                 current_score, _ = self._score_assignment(G, rings)
 
                 stats['improvements'] += 1
                 stagnation = 0
-                last_promoted_edge = best_edge
+                last_promoted_edge = (i, j)
                 self._edge_likelihood(G, touch_nodes={i, j})  # update cache
 
                 si, sj = self.atoms[i].symbol, self.atoms[j].symbol
                 edge_label = f"{si}{i}-{sj}{j}"
-                self.log(f"✓ {edge_label:<10}  Δscore = {best_delta:6.2f}  new_score = {current_score:8.2f}", 2)
+                action = "promoted" if change > 0 else "demoted"
+                self.log(f"✓ {edge_label:<10}  {action}  Δscore = {best_delta:6.2f}  new_score = {current_score:8.2f}", 2)
 
             else:
                 stagnation += 1
@@ -779,6 +938,349 @@ class GraphBuilder:
 
         return stats
 
+    def _update_valence_cache(self, G: nx.Graph, nodes: Optional[set] = None) -> None:
+        """
+        Update valence cache for specific nodes or all nodes.
+        """
+        if nodes is None:
+            # Full rebuild
+            self.valence_cache = {
+                n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n))
+                for n in G.nodes()
+            }
+        else:
+            # Incremental update
+            for n in nodes:
+                self.valence_cache[n] = sum(
+                    G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)
+                )
+
+    def _restore_graph_caches(self, G: nx.Graph) -> None:
+        """
+        Rebuild cached graph properties after modifications.
+        Called after applying bond order changes.
+        """
+        # Update cached rings
+        G.graph['_rings'] = nx.cycle_basis(G)
+        
+        # Update neighbor cache
+        G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
+        
+        # Update H-neighbor cache
+        G.graph['_has_H'] = {
+            n: any(self.atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) 
+            for n in G.nodes()
+        }
+    
+    def _copy_graph_state(self, G: nx.Graph) -> nx.Graph:
+        """
+        Create INDEPENDENT copy of graph for beam exploration.
+        """
+        G_new = nx.Graph()
+        
+        # Copy nodes with INDEPENDENT attribute dicts
+        for node, data in G.nodes(data=True):
+            G_new.add_node(
+                node,
+                symbol=data['symbol'],
+                atomic_number=data['atomic_number'],
+                position=data['position'].copy()  # numpy array copy
+            )
+        
+        # Copy edges with INDEPENDENT attribute dicts
+        for i, j, data in G.edges(data=True):
+            G_new.add_edge(
+                i, j,
+                bond_order=float(data['bond_order']),  # explicit copy
+                distance=float(data['distance']),      # explicit copy
+                metal_coord=bool(data.get('metal_coord', False))
+            )
+                
+        return G_new
+
+    def _score_assignment(self, G: nx.Graph, rings: List[List[int]] = None) -> Tuple[float, List[int]]:
+        """
+        Modified scoring that uses pre-computed valence cache.
+        
+        BEFORE: O(E) to compute all valences from scratch
+        AFTER:  O(1) to lookup pre-computed valences
+        
+        This is called inside beam search inner loop, so speedup is significant!
+        """
+        EN = {'H': 2.2, 'C': 2.5, 'N': 3.0, 'O': 3.5, 'F': 4.0,
+            'P': 2.2, 'S': 2.6, 'Cl': 3.2, 'Br': 3.0, 'I': 2.7}
+        
+        if self._check_valence_violation(G):
+            return 1e9, [0 for _ in G.nodes()]
+        
+        # Ring cache
+        if rings is None:
+            rings = G.graph.get('_rings', nx.cycle_basis(G))
+        
+        # Neighbor cache
+        neighbor_cache = G.graph.get('_neighbors', {n: list(G.neighbors(n)) for n in G.nodes()})
+        
+        # H-neighbor cache
+        has_H = G.graph.get('_has_H', {n: any(self.atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) for n in G.nodes()})
+        
+        # === KEY OPTIMIZATION: Use pre-computed valence cache ===
+        # BEFORE: self.valence_cache = {n: sum(...) for n in G.nodes()}  # O(E)
+        # AFTER:  self.valence_cache already populated!                  # O(1)
+        # No recomputation needed!
+        
+        penalties = {'valence': 0.0, 'en': 0.0, 'violation': 0.0, 
+                    'protonation': 0.0, 'conjugation': 0.0, 'fc': 0, 'n_charged': 0}
+        
+        # Conjugation penalty
+        penalties['conjugation'] = self._ring_conjugation_penalty(G, rings)
+        
+        # Formal charge cache
+        formal_cache = {}
+        def get_formal(sym, vsum):
+            key = (sym, round(vsum, 2))
+            if key not in formal_cache:
+                V = DATA.electrons.get(sym, 0)
+                formal_cache[key] = self._compute_formal_charge_value(sym, V, vsum)
+            return formal_cache[key]
+        
+        formal_charges = []
+        
+        for node in G.nodes():
+            sym = self.atoms[node].symbol
+            
+            # === USE CACHED VALENCE (no recomputation!) ===
+            vsum = self.valence_cache[node]
+            
+            if sym in DATA.metals:
+                formal_charges.append(0)
+                continue
+            
+            fc = get_formal(sym, vsum)
+            formal_charges.append(fc)
+            
+            if fc != 0:
+                penalties['fc'] += abs(fc)
+                penalties['n_charged'] += 1
+            
+            nb = neighbor_cache[node]
+            if has_H[node]:
+                if fc == 0:
+                    for nbr in nb:
+                        if self.atoms[nbr].symbol != 'H':
+                            other_fc = get_formal(self.atoms[nbr].symbol, self.valence_cache[nbr])
+                            if other_fc > 0:
+                                penalties['protonation'] += 8.0 if sym in ('N', 'O') else 3.0
+                elif fc > 0 and sym in ('N', 'O', 'S'):
+                    penalties['en'] -= 1.5
+            
+            # Valence error
+            if sym in DATA.valences:
+                allowed = DATA.valences[sym]
+                min_error = min(abs(vsum - v) for v in allowed)
+                penalties['valence'] += min_error ** 2
+                
+                limits = {'C': 4, 'N': 5, 'O': 3, 'S': 6, 'P': 6}
+                if sym in limits and vsum > limits[sym] + 0.1:
+                    penalties['violation'] += 1000.0
+            
+            # Electronegativity penalty
+            en = EN.get(sym, 2.5)
+            if fc != 0:
+                penalties['en'] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
+        
+        # Total score
+        charge_error = abs(sum(formal_charges) - self.charge)
+        score = (1000.0 * penalties['violation'] +
+                12.0 * penalties['conjugation'] +
+                8.0 * penalties['protonation'] +
+                10.0 * penalties['fc'] +
+                3.0 * penalties['n_charged'] +
+                5.0 * charge_error +
+                2.0 * penalties['en'] +
+                5.0 * penalties['valence'])
+        
+        return score, formal_charges
+
+
+    def _beam_search_optimize(self, G: nx.Graph) -> Dict[str, Any]:
+        """
+        Memory-efficient beam search with incremental valence cache updates.
+        
+        Strategy:
+        - Maintain valence cache per hypothesis (small dict, not full graph copy)
+        - When promoting edge (i,j), only update valence for nodes i and j
+        - Score calculation uses cached valences (no full recomputation)
+        
+        Memory: O(beam_width × num_nodes) for valence caches
+                vs O(beam_width × (num_nodes + num_edges)) for full graph copies
+        """
+        self.log("=" * 60, 0)
+        self.log(f"\nBEAM SEARCH OPTIMIZATION (width={self.beam_width})", 1)
+        self.log("=" * 60, 0)
+        
+        # Precompute graph info (shared across beam)
+        rings = nx.cycle_basis(G)
+        G.graph['_rings'] = rings
+        G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
+        G.graph['_has_H'] = {
+            n: any(self.atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) 
+            for n in G.nodes()
+        }
+        
+        # Lock metal bonds
+        metal_count = 0
+        for i, j, data in G.edges(data=True):
+            if data.get('metal_coord', False):
+                data['bond_order'] = 1.0
+                metal_count += 1
+        if metal_count > 0:
+            self.log(f"Locked {metal_count} metal bonds", 1)
+        
+        # Build initial valence cache (shared starting point)
+        base_valence_cache = {
+            n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n))
+            for n in G.nodes()
+        }
+        
+        # Initial scoring
+        self.valence_cache = base_valence_cache.copy()
+        current_score, formal_charges = self._score_assignment(G, rings)
+        initial_score = current_score
+        
+        self.log(f"Initial score: {initial_score:.2f}", 1)
+        
+        # Beam entry: (score, graph, valence_cache, history)
+        # valence_cache is lightweight (dict of node->float)
+        beam = [(current_score, G, base_valence_cache.copy(), [])]
+        
+        stats = {
+            'iterations': 0,
+            'improvements': 0,
+            'initial_score': initial_score,
+            'final_score': initial_score,
+            'final_formal_charges': formal_charges,
+            'beam_explored': 0
+        }
+        
+        best_ever_score = current_score
+        best_ever_graph = self._copy_graph_state(G)
+        best_ever_cache = base_valence_cache.copy()
+        
+        for iteration in range(self.max_iter):
+            stats['iterations'] = iteration + 1
+            self.log(f"\nIteration {iteration + 1}:", 1)
+            
+            candidates = []  # (new_score, new_graph, new_cache, edge, history)
+            
+            # Expand each hypothesis in beam
+            for beam_idx, (parent_score, parent_graph, parent_cache, parent_history) in enumerate(beam):
+                # self.log(f"  Expanding hypothesis {beam_idx+1}/{len(beam)} "
+                #         f"(score={parent_score:.2f})", 2)
+                
+                # Use parent's valence cache for scoring
+                self.valence_cache = parent_cache
+                
+                # Get top candidate edges
+                self._edge_score_map = None
+                top_edges = self._edge_likelihood(parent_graph, init=True)
+                                
+                changes_tried = 0
+                for i, j in top_edges:
+                    if not self._eligible_edge(parent_graph, i, j):
+                        continue
+                    
+                    # Test both promotion (+1) and demotion (-1)
+                    for change in [+1, -1]:
+                        old_bo = parent_graph[i][j]['bond_order']
+                        new_bo = old_bo + change
+                        
+                        # Skip invalid bond orders
+                        if new_bo < 1.0 or new_bo > 3.0:
+                            continue
+                        
+                        changes_tried += 1
+                        
+                        # === EFFICIENT: Copy graph structure only ===
+                        G_new = self._copy_graph_state(parent_graph)
+                        
+                        # Apply change
+                        G_new[i][j]['bond_order'] = new_bo
+                        
+                        # === EFFICIENT: Incremental valence cache update ===
+                        # Only update the two affected nodes!
+                        new_cache = parent_cache.copy()  # Shallow copy (cheap!)
+                        new_cache[i] = parent_cache[i] + change
+                        new_cache[j] = parent_cache[j] + change
+                        
+                        # Use new cache for scoring
+                        self.valence_cache = new_cache
+                        new_score, _ = self._score_assignment(G_new, rings)
+                        
+                        stats['beam_explored'] += 1
+                        
+                        # Keep if improvement
+                        delta = parent_score - new_score
+                        if delta > 0:
+                            new_history = parent_history + [(i, j, change)]
+                            candidates.append((new_score, G_new, new_cache, (i, j, change), new_history))
+                            
+                            si = self.atoms[i].symbol
+                            sj = self.atoms[j].symbol
+                            edge_label = f"{si}{i}-{sj}{j}"
+                            action = "+" if change > 0 else "-"
+                            # self.log(f"    ✓ {edge_label}{action}1: Δ={delta:6.2f} → {new_score:.2f}", 3)
+                            
+            if not candidates:
+                self.log("  No improvements found in any beam, stopping", 2)
+                break
+            
+            # Sort and keep top beam_width
+            candidates.sort(key=lambda x: x[0])
+            
+            self.log(f"  Generated {len(candidates)} candidates, keeping top {min(self.beam_width, len(candidates))}", 2)
+
+            beam = [(score, graph, cache, history) 
+                    for score, graph, cache, edge, history in candidates[:self.beam_width]]
+            
+            # Track best ever
+            best_in_beam = beam[0]
+            if best_in_beam[0] < best_ever_score:
+                improvement = best_ever_score - best_in_beam[0]
+                best_ever_score = best_in_beam[0]
+                best_ever_graph = self._copy_graph_state(best_in_beam[1])
+                best_ever_cache = best_in_beam[2].copy()
+                stats['improvements'] += 1
+                
+                # Log improvement
+                last_edge = best_in_beam[3][-1]
+                si = self.atoms[last_edge[0]].symbol
+                sj = self.atoms[last_edge[1]].symbol
+                edge_label = f"{si}{last_edge[0]}-{sj}{last_edge[1]}"
+                self.log(f"  ✓ New best: {edge_label:<10}  Δtotal = {improvement:6.2f}  score = {best_ever_score:8.2f}", 2)
+        
+        # Apply best solution
+        self.log("\nApplying best solution to graph...", 1)
+        for i, j, data in best_ever_graph.edges(data=True):
+            G[i][j]['bond_order'] = data['bond_order']
+        
+        # Restore caches
+        self._restore_graph_caches(G)
+        self.valence_cache = best_ever_cache
+        
+        # Final scoring
+        final_score, final_formal_charges = self._score_assignment(G, rings)
+        stats['final_score'] = final_score
+        stats['final_formal_charges'] = final_formal_charges
+        
+        self.log("-" * 60, 0)
+        self.log(f"Explored {stats['beam_explored']} states across {stats['iterations']} iterations", 1)
+        self.log(f"Found {stats['improvements']} improvements", 1)
+        self.log(f"Score: {initial_score:.2f} → {stats['final_score']:.2f}", 1)
+        self.log("-" * 60, 0)
+        
+        return stats
+
+
     # =============================================================================
     # RDKIT INTEGRATION
     # =============================================================================
@@ -787,9 +1289,10 @@ class GraphBuilder:
         """
         Detect aromatic rings using Hückel rule (4n+2 π electrons). 
         Only performed on 5 and 6 mem rings, with 'C', 'N', 'O', 'S', 'P' # NOTE: possible limitation
-
+            Reduces to C only for now.
+        This only sets bond orders to 1.5 for aromatic rings - kekule structure is still a valid solution.
         """
-        self.log("=" * 60, 0)
+        self.log(f"\n{"=" * 60}", 0)
         self.log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
         self.log("=" * 60, 0)
         
@@ -802,14 +1305,24 @@ class GraphBuilder:
                 continue
             
             ring_atoms = [f"{self.atoms[i].symbol}{i}" for i in cycle]
-            self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
-            
+
             # Check if all atoms can be aromatic - just means that other atoms will be kekule structures
-            aromatic_atoms = {'C', 'N', 'O', 'S', 'P'}
+            # aromatic_atoms = {'C', 'N', 'O', 'S', 'P', 'B'}
+            aromatic_atoms = {'C'}
             if not all(self.atoms[i].symbol in aromatic_atoms for i in cycle):
                 non_aromatic = [self.atoms[i].symbol for i in cycle if self.atoms[i].symbol not in aromatic_atoms]
                 self.log(f"✗ Contains non-aromatic atoms: {non_aromatic}", 2)
                 continue
+
+            is_planar = self._check_planarity(cycle, G)
+            if not is_planar:
+                self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
+                self.log("✗ Not planar, skipping aromaticity check", 2)
+                continue
+
+            self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
+            
+            
             
             # Count π electrons (simplified)
             pi_electrons = 0
@@ -873,6 +1386,28 @@ class GraphBuilder:
 
         return aromatic_count
 
+    def _check_planarity(self, cycle: List[int], G: nx.Graph, threshold: float = 0.15) -> bool:
+        """
+        Check if a ring is approximately planar.
+        """
+        if len(cycle) < 3:
+            return True
+        
+        coords = np.array([self.atoms[i].position for i in cycle])
+        
+        # Fit plane using SVD
+        centroid = coords.mean(axis=0)
+        centered = coords - centroid
+        
+        # Plane normal is smallest singular vector
+        _, _, vh = np.linalg.svd(centered)
+        normal = vh[-1]
+        
+        # Check distance of each point to plane
+        distances = np.abs(centered @ normal)
+        max_deviation = distances.max()
+        
+        return max_deviation < threshold
 
     def _rdkit_aromatic_refine(self, G: nx.Graph) -> int:
         """Use RDKit aromatic perception to refine bond orders"""
@@ -973,11 +1508,17 @@ class GraphBuilder:
         if removed > 0:
             self.log(f"Pruned {removed} distorted ring bonds", 1)
         
+        # Initialize Kekulé patterns for 6-membered carbon rings (gives optimizer a head start)
+        init_rings = self._init_kekule_for_6rings(G)
+        
         # Valence adjustment
         if self.quick:
             stats = self._quick_valence_adjust(G)
         else:
-            stats = self._full_valence_optimize(G)
+            if self.optimizer == 'greedy':
+                stats = self._full_valence_optimize(G)
+            if self.optimizer == 'beam':
+                stats = self._beam_search_optimize(G)
         
         # Aromatic detection (Hückel rule)
         arom_count = self._detect_aromatic_rings(G)
@@ -1124,17 +1665,21 @@ class GraphBuilder:
         
         return G
 
-
 def build_graph(
-    atoms: Atoms,
-    method: str = 'cheminf',
-    charge: int = 0,
-    multiplicity: Optional[int] = None,
-    quick: bool = False,
-    clean_up: bool = True,  # ← ADD THIS
-    debug: bool = False,
-    **kwargs
-) -> nx.Graph:
+            atoms: Atoms,
+            charge: int = DEFAULT_PARAMS['charge'],
+            multiplicity: Optional[int] = DEFAULT_PARAMS['multiplicity'],
+            method: str = DEFAULT_PARAMS['method'],
+            quick: bool = DEFAULT_PARAMS['quick'],
+            optimizer: str = DEFAULT_PARAMS['optimizer'],
+            max_iter: int = DEFAULT_PARAMS['max_iter'],
+            edge_per_iter: int = DEFAULT_PARAMS['edge_per_iter'],
+            beam_width: int = DEFAULT_PARAMS['beam_width'],
+            bond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['bond'],
+            unbond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['unbond'],
+            clean_up: bool = DEFAULT_PARAMS['clean_up'],
+            debug: bool = DEFAULT_PARAMS['debug']
+        ) -> nx.Graph:
     """Convenience function that wraps GraphBuilder."""
     builder = GraphBuilder(
         atoms=atoms,
@@ -1142,8 +1687,12 @@ def build_graph(
         multiplicity=multiplicity,
         method=method,
         quick=quick,
-        max_iter=kwargs.get('max_iter', 50),
-        edge_per_iter=kwargs.get('edge_per_iter', 10),
+        optimizer=optimizer,
+        max_iter=max_iter,
+        edge_per_iter=edge_per_iter,
+        beam_width=beam_width,
+        bond=bond,
+        unbond=unbond,
         clean_up=clean_up, 
         debug=debug
     )

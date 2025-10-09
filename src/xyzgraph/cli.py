@@ -1,22 +1,32 @@
 import argparse
 from ase.io import read as read_xyz
-from . import BOHR_TO_ANGSTROM
-from .analyser import MolecularAnalyzer
+from . import build_graph, graph_debug_report, graph_to_ascii
+from . import BOHR_TO_ANGSTROM, DEFAULT_PARAMS
+from .compare import xyz2mol_compare
 
 def main():
     p = argparse.ArgumentParser(description="Build molecular graph from XYZ.")
     p.add_argument("xyz", help="Input XYZ file")
     
     # Method and quality
-    p.add_argument("--method", choices=["cheminf", "xtb"], default="cheminf",
-                    help="Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)")
-    p.add_argument("-q", "--quick", action="store_true", default=False,
-                    help="Quick mode: fast heuristics, less accuracy")
-    p.add_argument("--max-iter", type=int, default=50,
-                    help="Maximum iterations for bond order optimization (default: 50, cheminf only)")
-    p.add_argument("--edge-per-iter", type=int, default=6,
-                    help="Number of edges to adjust per iteration (default: 6, cheminf only)")
+    p.add_argument("--method", choices=["cheminf", "xtb"], default=DEFAULT_PARAMS['method'],
+                    help=f"Graph construction method (default: {DEFAULT_PARAMS['method']}) (xtb requires xTB binary installed and available in PATH)")
+    p.add_argument("-q", "--quick", action="store_true", default=DEFAULT_PARAMS['quick'],
+                    help="Quick mode: fast heuristics, less accuracy (NOT recommended)")
+    p.add_argument("--max-iter", type=int, default=DEFAULT_PARAMS['max_iter'],
+                    help=f"Maximum iterations for bond order optimization (default: {DEFAULT_PARAMS['max_iter']}, cheminf only)")
+    p.add_argument("--edge-per-iter", type=int, default=DEFAULT_PARAMS['edge_per_iter'],
+                    help=f"Number of edges to adjust per iteration (default: {DEFAULT_PARAMS['edge_per_iter']}, cheminf only)")
+    p.add_argument("-o", "--optimizer", choices=["greedy", "beam"], default=DEFAULT_PARAMS['optimizer'],
+                    help=f"Optimization algorithm (default: {DEFAULT_PARAMS['optimizer']}, cheminf , BEAM recommended)")
 
+    p.add_argument("-bw", "--beam-width", type=int, default=DEFAULT_PARAMS['beam_width'],
+                    help=f"Beam width for beam search (default: {DEFAULT_PARAMS['beam_width']}). i.e. number of candidate graphs to retain per iteration")
+    p.add_argument("--bond", type=str,
+                    help="Specify atoms that must be bonded in the graph construction. Example: --bond 0,1 2,3")
+    p.add_argument("--unbond", type=str,
+                   help="Specify that two atoms indices are NOT bonded in the graph construction. Example: --unbond 0,1 1,2")
+    
     # Molecular properties
     p.add_argument("-c", "--charge", type=int, default=0,
                     help="Total molecular charge (default: 0)")
@@ -36,7 +46,7 @@ def main():
                     help="Include hydrogens in visualizations (hidden by default)")
     
     # Comparison
-    p.add_argument("--compare-xyz2mol", action="store_true",
+    p.add_argument("--compareRD", action="store_true",
                     help="Compare with xyz2mol output (uses rdkit implementation)")
     
     # xTB specific
@@ -45,6 +55,26 @@ def main():
     
     args = p.parse_args()
     
+    # Parse forced_bonds: "0,5 3,7" → [(0, 5), (3, 7)]
+    bond = None
+    if args.bond:
+        bond = []
+        for bond_str in args.bond.split():
+            try:
+                i, j = bond_str.split(',')
+                bond.append((int(i), int(j)))
+            except ValueError:
+                p.error(f"Invalid bond in --bond: '{bond_str}'")
+    unbond = None
+    if args.unbond:
+        unbond = []
+        for unbond_str in args.unbond.split():
+            try:
+                i, j = unbond_str.split(',')
+                unbond.append((int(i), int(j)))
+            except ValueError:
+                p.error(f"Invalid bond in --unbond: '{unbond_str}'")
+
     # Read structure
     atoms = read_xyz(args.xyz)
 
@@ -52,35 +82,47 @@ def main():
         atoms.positions *= BOHR_TO_ANGSTROM
 
  # Create analyzer with all parameters
-    analyzer = MolecularAnalyzer(
-        atoms=atoms,
-        method=args.method,
-        charge=args.charge,
-        multiplicity=args.multiplicity,
-        quick=args.quick,
-        max_iter=args.max_iter,
-        edge_per_iter=args.edge_per_iter,
-        clean_up=not args.no_clean,
-        debug=args.debug
-    )
+    G = build_graph(
+            atoms=atoms,
+            method=args.method,
+            charge=args.charge,
+            multiplicity=args.multiplicity,
+            quick=args.quick,
+            optimizer=args.optimizer,
+            max_iter=args.max_iter,
+            edge_per_iter=args.edge_per_iter,
+            beam_width=args.beam_width,
+            bond=bond,
+            unbond=unbond,
+            clean_up=not args.no_clean,
+            debug=args.debug
+        )
 
-    G = analyzer.build()
-    
     # Determine what to show
-    has_explicit_output = args.debug or args.ascii or args.compare_xyz2mol
+    has_explicit_output = args.debug or args.ascii or args.compareRD
     show_ascii = args.ascii or not has_explicit_output
     
     if not args.ascii and not has_explicit_output:
         print("\n# (Auto-enabled ASCII output - use --help for more options)\n")
     
-    # Print outputs
-    analyzer.print_summary(
-        show_report=args.debug,
-        show_ascii=show_ascii,
-        show_xyz2mol=args.compare_xyz2mol,
-        include_h=args.show_h,
-        ascii_scale=max(0.2, args.ascii_scale)
-    )
+    if args.debug:
+        print(graph_debug_report(G))
+
+    if show_ascii:
+        print(f"\n{'=' * 60}\n# ASCII Depiction\n{'=' * 60}")
+        print(graph_to_ascii(G, scale=max(0.2, args.ascii_scale), include_h=args.show_h))
+
+
+    if args.compareRD:
+        print(xyz2mol_compare(
+            atoms,
+            charge=args.charge,
+            verbose=args.debug,
+            ascii=show_ascii,
+            ascii_scale=args.ascii_scale,
+            ascii_include_h=args.show_h,
+            reference_graph=G if len(G) == len(atoms) else None
+        ).rstrip())
 
 if __name__ == "__main__":
     main()
