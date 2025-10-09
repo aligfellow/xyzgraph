@@ -182,26 +182,26 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │    • Reduces iterations needed for aromatic systems             │
 └────────────────────┬────────────────────────────────────────────┘
                      │
-          ┌──────────┴──────────┐
-          │                     │
-┌─────────▼──────────┐  ┌───────▼────────────────────────────────┐
-│ 4a. Quick Mode     │  │ 4b. Full Optimization                  │
-│  • Lock metal bonds│  │  • Lock metal bonds at 1.0             │
-│  • 3 iterations    │  │  • Kekulé patterns already set         │
-│  • Promote bonds   │  │  • Iterative BIDIRECTIONAL search:     │
-│    where both atoms│  │    - Test both +1 AND -1 changes       │
-│    need valence    │  │    - Allows Kekulé structure swaps     │
-│    need valence    │  │  • Score = f(valence_error,            │
-│  • Distance check  │  │             formal_charges,            │
-│    (ratio < 0.60)  │  │             electronegativity,         │
-│                    │  │             conjugation_penalty)       │
-│                    │  │  • Optimizer choice:                   │
-│                    │  │    - Greedy: best single change        │
-│                    │  │    - Beam: parallel hypotheses         │
-│                    │  │  • Cache valence sums for speed        │
-│                    │  │  • Top-k edge candidate selection      │
-└─────────┬──────────┘  └──────────┬─────────────────────────────┘
-          └────────────────────────┘
+          ┌──────────┴───────────┐
+          │                      │
+┌─────────▼──────────┐   ┌───────▼────────────────────────────────┐
+│ 4a. Quick Mode     │   │ 4b. Full Optimization                  │
+│  • Lock metal bonds│   │  • Lock metal bonds at 1.0             │
+│  • 3 iterations    │   │  • Kekulé patterns already set         │
+│  • Promote bonds   │   │  • Iterative BIDIRECTIONAL search:     │
+│    where both atoms│   │    - Test both +1 AND -1 changes       │
+│    need valence    │   │    - Allows Kekulé structure swaps     │
+│    need valence    │   │  • Score = f(valence_error,            │
+│  • Distance check  │   │             formal_charges,            │
+│    (ratio < 0.60)  │   │             electronegativity,         │
+│                    │   │             conjugation_penalty)       │
+│                    │   │  • Optimizer choice:                   │
+│                    │   │    - Beam: parallel hypotheses         │
+│                    │   │    - Greedy: best single change        │
+│                    │   │  • Cache valence sums for speed        │
+│                    │   │  • Top-k edge candidate selection      │
+└─────────┬──────────┘   └──────────┬─────────────────────────────┘
+          └─────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
 │ 5. Aromatic Detection (Hückel 4n+2)                             │
@@ -222,7 +222,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │ 7. Formal Charge Assignment                                     │
 │    • For each non-metal atom:                                   │
 │      - B = 2 × Σ(bond_orders)                                   │
-│      - L = max(0, target - B)  [target: 2 for H, 8 otherwise]  │
+│      - L = max(0, target - B)  [target: 2 for H, 8 otherwise]   │
 │      - formal = V_electrons - (L + B/2)                         │
 │    • Balance total to match system charge                       │
 │    • Metals forced to 0 (coordination not oxidation state)      │
