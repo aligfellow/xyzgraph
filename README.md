@@ -398,18 +398,6 @@ ascii_art = graph_to_ascii(G, scale=3.0, include_h=False)
 print(ascii_art)
 ```
 
-**Output example** (benzene):
-```
-       C
-      / \
-     /   \
-    C     C
-    ‖     ‖
-    C     C
-     \   /
-      \ /
-       C
-```
 **Output example** (acyl isothiouronium):
 ```
                                        C
@@ -472,21 +460,105 @@ report = graph_debug_report(G, include_h=False)
 print(report)
 ```
 
-**Output example**:
-```
-# Molecular Graph: 12 atoms, 12 bonds
-# total_charge=0  multiplicity=1  sum(gasteiger)=+0.000
-# (C–H hydrogens hidden; heteroatom-bound hydrogens shown)
-# [idx] Sym  val=.. formal=.. chg=.. agg=.. | neighbors: idx(order)
+**Full example**:
+```text
+> xyzgraph benzene_NH4-cation-pi.xyz -c 1 -a -d
 
-[  0] C  val=4.00  formal=0  chg=+0.012  agg=+0.045 | 1(1.50) 2(1.50) 5(1.00)
-[  1] C  val=4.00  formal=0  chg=-0.008  agg=-0.028 | 0(1.50) 3(1.50) 6(1.00)
-...
+============================================================
+BUILDING GRAPH (CHEMINF, FULL MODE)
+Atoms: 17, Charge: 1, Multiplicity: 1
+============================================================
 
-# Bonds (i-j: order)
+  Added 17 atoms
+  Initial bonds: 16
+  Found 1 rings
+  Initial bonds: 16
+  Pruning distorted rings (sizes: [3, 4])
+  Initialized 1 6-membered carbon rings with Kekulé pattern
+============================================================
+  
+BEAM SEARCH OPTIMIZATION (width=3)
+============================================================
+  Initial score: 15.50
+  
+Iteration 1:
+      No improvements found in any beam, stopping
+  
+Applying best solution to graph...
+------------------------------------------------------------
+  Explored 13 states across 1 iterations
+  Found 0 improvements
+  Score: 15.50 → 15.50
+------------------------------------------------------------
+
+============================================================
+AROMATIC RING DETECTION (Hückel 4n+2)
+============================================================
+  
+Ring 1 (6-membered): ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
+    π electrons: 6 (C0:1, C1:1, C2:1, C3:1, C4:1, C5:1)
+    ✓ AROMATIC (4n+2 rule: n=1)
+
+------------------------------------------------------------
+  SUMMARY: 1 aromatic rings, 6 bonds set to 1.5
+------------------------------------------------------------
+
+    Gasteiger charge calculation failed: Explicit valence for atom # 12 N, 4, is greater than permitted
+
+============================================================
+GRAPH CONSTRUCTION COMPLETE
+============================================================
+
+# Molecular Graph: 17 atoms, 16 bonds
+# total_charge=1  multiplicity=1  sum(gasteiger)=+1.000  sum(gasteiger_raw)=+0.000
+# (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)
+# [idx] Sym  val=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)
+[  0]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 1(1.50*) 5(1.50*)
+[  1]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 0(1.50*) 2(1.50*)
+[  2]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 1(1.50*) 3(1.50*)
+[  3]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 2(1.50*) 4(1.50*)
+[  4]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 3(1.50*) 5(1.50*)
+[  5]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 0(1.50*) 4(1.50*)
+[ 12]  N  val=4.00  formal=+1  chg=+0.059  agg=+0.294 | 13(1.00) 14(1.00) 15(1.00) 16(1.00)
+[ 13]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
+[ 14]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
+[ 15]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
+[ 16]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
+
+# Bonds (i-j: order) (filtered)
 [ 0- 1]: 1.50
-[ 0- 2]: 1.50
-...
+[ 0- 5]: 1.50
+[ 1- 2]: 1.50
+[ 2- 3]: 1.50
+[ 3- 4]: 1.50
+[ 4- 5]: 1.50
+[12-13]: 1.00
+[12-14]: 1.00
+[12-15]: 1.00
+[12-16]: 1.00
+
+============================================================
+# ASCII Depiction
+============================================================
+         -C-------------------C-
+      ---                       ----
+  ----                              ----
+C-                                      -C
+  \\                                 ///
+    \\\                            //
+       \\                       ///
+         \C-------------------C/
+
+
+                    H
+                    |
+                    |
+                    |
+H-------------------N--------------------H
+                    |
+                    |
+                    |
+                    H
 ```
 
 ---
