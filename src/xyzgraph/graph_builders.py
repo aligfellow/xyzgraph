@@ -2,30 +2,13 @@ import os
 import numpy as np
 import networkx as nx
 from typing import List, Tuple, Dict, Any, Optional
-from itertools import combinations
 from rdkit import Chem
 from rdkit import RDLogger
-RDLogger.DisableLog('rdApp.*')  # Suppress RDKit warnings
+RDLogger.DisableLog('rdApp.*')  # Try to suppress RDKit warnings
 
 from .data_loader import DATA
-
-# Import defaults to avoid duplication
 from . import DEFAULT_PARAMS
-
-# =============================================================================
-# DESIGN 
-# =============================================================================
-# Two modes:
-#   1. QUICK: Fast heuristic-based bond/valence assignment
-#   2. FULL:  Comprehensive Kekulé search + formal charge optimization
-#
-# Core approach:
-#   - Work directly with NetworkX graph throughout (no intermediate lists)
-#   - Distance-based initial bonding with metal-aware thresholds
-#   - Optional valence refinement with formal charge minimization
-#   - RDKit aromatic perception + Gasteiger charges
-# =============================================================================
-
+from .utils import read_xyz_file
 
 # =============================================================================
 # GRAPH-BASED BOND CONSTRUCTION CLASS
@@ -94,7 +77,7 @@ class GraphBuilder:
         self._edge_score_map = None
     
     def log(self, msg: str, level: int = 0):
-        """Log message with indentation if debug enabled"""
+        """Log message"""
         if self.debug:
             indent = "  " * level
             line = f"{indent}{msg}"
@@ -379,25 +362,14 @@ class GraphBuilder:
     def _init_kekule_for_6rings(self, G: nx.Graph) -> int:
         """
         Initialize alternating single/double bonds for 6-membered aromatic rings.
-        Handles complex fused rings by validating consistency across shared edges.
-
-        NetworkX graphs are mutable and passed by reference, so modifications to G
-        persist after this function returns.
-
-        Strategy:
-        - Find 6-membered rings with aromatic atoms (C, N, O, S, B)
-        - Check planarity
-        - Apply simple alternating 1-2-1-2 pattern as starting point
-        - If edges are already set (from fused rings), validate consistency
-        - Optimizer will refine based on formal charges, electronegativity, etc.
-
-        This initialization works for: benzene, pyridine, pyrimidine, furan fused to benzene,
-        thiophene fused to benzene, naphthalene, anthracene, etc.
+            - Find 6-membered rings with aromatic atoms (C, N, O, S, B)
+            - Check planarity
+            - Apply simple alternating 1-2-1-2 pattern as starting point
+            - If edges are already set (from fused rings), validate consistency
+            - Optimizer will refine based on formal charges, electronegativity, etc.
 
         Parameters:
         - G: NetworkX graph to modify in-place
-
-        Returns: Number of rings initialized (metadata only)
         """
         cycles = G.graph.get('_rings')
         if cycles is None:
@@ -569,24 +541,8 @@ class GraphBuilder:
 
         return stats
 
-    # def _edge_likelihood(self, G: nx.Graph):
-    #     """Get top-k edges most likely to benefit from promotion"""
-    #     scores = {}
-    #     for i, j, data in G.edges(data=True):
-    #         if data.get('metal_coord', False) or data['bond_order'] >= 3.0:
-    #             continue
-    #         si, sj = self.atoms[i].symbol, self.atoms[j].symbol
-    #         deficit_i = max(DATA.valences.get(si, [4])) - self.valence_cache[i]
-    #         deficit_j = max(DATA.valences.get(sj, [4])) - self.valence_cache[j]
-    #         scores[(i, j)] = deficit_i + deficit_j
-
-    #     # sort descending and pick top k
-    #     top_edges = sorted(scores.items(), key=lambda x: -x[1])[:self.edge_per_iter]
-    #     return [e for e, _ in top_edges]
-
-
     def _edge_score(self, G: nx.Graph, i: int, j: int) -> float:
-        """Replicates your deficit scoring in a single place."""
+        """Check scoring of edge."""
         if not self._eligible_edge(G, i, j):
             return float('-inf')
         si, sj = G.nodes[i]['symbol'], G.nodes[j]['symbol']
@@ -607,16 +563,14 @@ class GraphBuilder:
             return False
         return True
 
-
     def _ekey(self, i: int, j: int) -> tuple[int, int]:
         return (i, j) if i < j else (j, i)
-
 
     def _edge_likelihood(self, G: nx.Graph, *, init: bool = False, touch_nodes: Optional[set] = None):
         """
         Cache-aware candidate selection:
         - init=True: build score map for all edges once
-        - touch_nodes={u,v}: update only edges incident to these nodes
+        - touch_nodes={u,v}: update edges belonging to these nodes
         - return current top-k edges as a list [(i,j), ...]
         """
         # Build / refresh full score map
@@ -640,109 +594,6 @@ class GraphBuilder:
         top = [e for _, e in items[: self.edge_per_iter]]
         self.edge_scores_cache = top
         return top
-
-
-    # def _score_assignment(self, G: nx.Graph, rings: List[List[int]] = None) -> Tuple[float, List[int]]:
-    #     """
-    #     Score a bond order assignment.
-    #     Returns (score, formal_charges) - lower is better.
-    #     """
-    #     EN = {'H': 2.2, 'C': 2.5, 'N': 3.0, 'O': 3.5, 'F': 4.0,
-    #         'P': 2.2, 'S': 2.6, 'Cl': 3.2, 'Br': 3.0, 'I': 2.7}
-        
-    #     if self._check_valence_violation(G):
-    #         return 1e9, [0 for _ in G.nodes()]
-        
-    #     # --- ring cache ---
-    #     if rings is None:
-    #         rings = G.graph.get('_rings')
-    #         if rings is None:
-    #             rings = nx.cycle_basis(G)
-    #             G.graph['_rings'] = rings
-
-    #     # -- neighbors cache ---
-    #     if '_neighbors' not in G.graph:
-    #         G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
-    #     neighbor_cache = G.graph['_neighbors']
-
-    #     # --- has_H cache ---
-    #     if '_has_H' not in G.graph:
-    #         G.graph['_has_H'] = {n: any(self.atoms[nbr].symbol == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
-    #     has_H = G.graph['_has_H']
-
-    #     # --- valence cache ---
-    #     if not self.valence_cache:
-    #         self.valence_cache = {n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)) for n in G.nodes()}
-    #     # --- formal charge cache (keyed by (sym, valence_sum)) ---
-    #     formal_cache = {}
-    #     def get_formal(sym, vsum):
-    #         key = (sym, round(vsum, 2))
-    #         if key not in formal_cache:
-    #             V = DATA.electrons.get(sym, 0)
-    #             formal_cache[key] = self._compute_formal_charge_value(sym, V, vsum)
-    #         return formal_cache[key]
-
-    #     penalties = {'valence': 0.0, 'en': 0.0, 'violation': 0.0, 'protonation': 0.0, 'conjugation': 0.0, 'fc': 0, 'n_charged': 0}
-                    
-    #     # --- RING CONJUGATION PENALTY ---
-    #     penalties['conjugation'] = self._ring_conjugation_penalty(G, rings)
-
-    #     formal_charges = []
-
-    #     for node in G.nodes():
-    #         sym = self.atoms[node].symbol
-    #         vsum = self.valence_cache[node]
-            
-    #         if sym in DATA.metals:
-    #             formal_charges.append(0)
-    #             continue
-            
-    #         fc = get_formal(sym, vsum)
-    #         formal_charges.append(fc)
-
-    #         if fc != 0:
-    #             penalties['fc'] += abs(fc)
-    #             penalties['n_charged'] += 1
-            
-    #         nb = neighbor_cache[node]
-    #         if has_H[node]:
-    #             if fc == 0:
-    #                 for nbr in nb:
-    #                     if self.atoms[nbr].symbol != 'H':
-    #                         other_fc = get_formal(self.atoms[nbr].symbol, self.valence_cache[nbr])
-    #                         if other_fc > 0:
-    #                             penalties['protonation'] += 8.0 if sym in ('N', 'O') else 3.0
-    #             elif fc > 0 and sym in ('N', 'O', 'S'):
-    #                 penalties['en'] -= 1.5  # expected protonation bonus
-
-    #         # Valence error
-    #         if sym in DATA.valences:
-    #             allowed = DATA.valences[sym]
-    #             min_error = min(abs(vsum - v) for v in allowed)
-    #             penalties['valence'] += min_error ** 2
-                
-    #             # Check absolute limits
-    #             limits = {'C': 4, 'N': 5, 'O': 3, 'S': 6, 'P': 6}
-    #             if sym in limits and vsum > limits[sym] + 0.1:
-    #                 penalties['violation'] += 1000.0
-            
-    #         # Electronegativity penalty
-    #         en = EN.get(sym, 2.5)
-    #         if fc != 0:
-    #             penalties['en'] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
-                
-    #     # Total score
-    #     charge_error = abs(sum(formal_charges) - self.charge)
-    #     score = (1000.0 * penalties['violation'] +
-    #         12.0 * penalties['conjugation'] +
-    #         8.0 * penalties['protonation'] +
-    #         10.0 * penalties['fc'] +
-    #         3.0 * penalties['n_charged'] +
-    #         5.0 * charge_error +
-    #         2.0 * penalties['en'] +
-    #         5.0 * penalties['valence'])
-        
-    #     return score, formal_charges
 
     # =============================================================================
     # FULL MODE: Formal charge optimization
@@ -798,7 +649,6 @@ class GraphBuilder:
                         conjugation_penalty += exocyclic_double * 12.0
 
         return conjugation_penalty
-
 
     def _full_valence_optimize(self, G: nx.Graph) -> Dict[str, Any]:
         """
@@ -1005,12 +855,7 @@ class GraphBuilder:
 
     def _score_assignment(self, G: nx.Graph, rings: List[List[int]] = None) -> Tuple[float, List[int]]:
         """
-        Modified scoring that uses pre-computed valence cache.
-        
-        BEFORE: O(E) to compute all valences from scratch
-        AFTER:  O(1) to lookup pre-computed valences
-        
-        This is called inside beam search inner loop, so speedup is significant!
+        Scoring that uses pre-computed valence cache.
         """
         EN = {'H': 2.2, 'C': 2.5, 'N': 3.0, 'O': 3.5, 'F': 4.0,
             'P': 2.2, 'S': 2.6, 'Cl': 3.2, 'Br': 3.0, 'I': 2.7}
@@ -1027,11 +872,6 @@ class GraphBuilder:
         
         # H-neighbor cache
         has_H = G.graph.get('_has_H', {n: any(G.nodes[nbr]['symbol'] == 'H' for nbr in G.neighbors(n)) for n in G.nodes()})
-        
-        # === KEY OPTIMIZATION: Use pre-computed valence cache ===
-        # BEFORE: self.valence_cache = {n: sum(...) for n in G.nodes()}  # O(E)
-        # AFTER:  self.valence_cache already populated!                  # O(1)
-        # No recomputation needed!
         
         penalties = {'valence': 0.0, 'en': 0.0, 'violation': 0.0, 
                     'protonation': 0.0, 'conjugation': 0.0, 'fc': 0, 'n_charged': 0}
@@ -1053,7 +893,6 @@ class GraphBuilder:
         for node in G.nodes():
             sym = G.nodes[node]['symbol']
 
-            # === USE CACHED VALENCE (no recomputation!) ===
             vsum = self.valence_cache[node]
             
             if sym in DATA.metals:
@@ -1112,12 +951,9 @@ class GraphBuilder:
         Memory-efficient beam search with incremental valence cache updates.
         
         Strategy:
-        - Maintain valence cache per hypothesis (small dict, not full graph copy)
-        - When promoting edge (i,j), only update valence for nodes i and j
-        - Score calculation uses cached valences (no full recomputation)
-        
-        Memory: O(beam_width × num_nodes) for valence caches
-                vs O(beam_width × (num_nodes + num_edges)) for full graph copies
+        - Maintain valence cache per hypothesis (small dict)
+        - When promoting edge (i,j), update valence for nodes i and j
+        - Score calculation uses cached valences
         """
         self.log("=" * 60, 0)
         self.log(f"\nBEAM SEARCH OPTIMIZATION (width={self.beam_width})", 1)
@@ -1153,9 +989,7 @@ class GraphBuilder:
         initial_score = current_score
         
         self.log(f"Initial score: {initial_score:.2f}", 1)
-        
-        # Beam entry: (score, graph, valence_cache, history)
-        # valence_cache is lightweight (dict of node->float)
+
         beam = [(current_score, G, base_valence_cache.copy(), [])]
         
         stats = {
@@ -1175,14 +1009,11 @@ class GraphBuilder:
             stats['iterations'] = iteration + 1
             self.log(f"\nIteration {iteration + 1}:", 1)
             
-            candidates = []  # (new_score, new_graph, new_cache, edge, history)
+            candidates = [] 
             
             # Expand each hypothesis in beam
             for beam_idx, (parent_score, parent_graph, parent_cache, parent_history) in enumerate(beam):
-                # self.log(f"  Expanding hypothesis {beam_idx+1}/{len(beam)} "
-                #         f"(score={parent_score:.2f})", 2)
                 
-                # Use parent's valence cache for scoring
                 self.valence_cache = parent_cache
                 
                 # Get top candidate edges
@@ -1205,15 +1036,13 @@ class GraphBuilder:
                         
                         changes_tried += 1
                         
-                        # === EFFICIENT: Copy graph structure only ===
                         G_new = self._copy_graph_state(parent_graph)
                         
                         # Apply change
                         G_new[i][j]['bond_order'] = new_bo
                         
-                        # === EFFICIENT: Incremental valence cache update ===
-                        # Only update the two affected nodes!
-                        new_cache = parent_cache.copy()  # Shallow copy (cheap!)
+                        # Update the two affected nodes
+                        new_cache = parent_cache.copy()
                         new_cache[i] = parent_cache[i] + change
                         new_cache[j] = parent_cache[j] + change
                         
@@ -1228,12 +1057,6 @@ class GraphBuilder:
                         if delta > 0:
                             new_history = parent_history + [(i, j, change)]
                             candidates.append((new_score, G_new, new_cache, (i, j, change), new_history))
-                            
-                            si = G.nodes[i]['symbol']
-                            sj = G.nodes[j]['symbol']
-                            edge_label = f"{si}{i}-{sj}{j}"
-                            action = "+" if change > 0 else "-"
-                            # self.log(f"    ✓ {edge_label}{action}1: Δ={delta:6.2f} → {new_score:.2f}", 3)
                             
             if not candidates:
                 self.log("  No improvements found in any beam, stopping", 2)
@@ -1287,7 +1110,7 @@ class GraphBuilder:
 
 
     # =============================================================================
-    # RDKIT INTEGRATION
+    # AROMATIC DETECTION
     # =============================================================================
 
     def _detect_aromatic_rings(self, G: nx.Graph) -> int:
@@ -1326,8 +1149,6 @@ class GraphBuilder:
                 continue
 
             self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
-            
-            
             
             # Count π electrons (simplified)
             pi_electrons = 0
@@ -1414,38 +1235,6 @@ class GraphBuilder:
         
         return max_deviation < threshold
 
-    def _rdkit_aromatic_refine(self, G: nx.Graph) -> int:
-        """Use RDKit aromatic perception to refine bond orders"""
-        upgrades = 0
-        
-        try:
-            rw = Chem.RWMol()
-            for atom in self.atoms:
-                rw.AddAtom(Chem.Atom(atom.symbol))
-            
-            for i, j in G.edges():
-                rw.AddBond(int(i), int(j), Chem.BondType.SINGLE)
-            
-            mol = rw.GetMol()
-            Chem.SanitizeMol(mol)
-            
-            aromatic_pairs = {tuple(sorted((b.GetBeginAtomIdx(), b.GetEndAtomIdx()))) for b in mol.GetBonds() if b.GetIsAromatic()}
-            
-            for i, j, data in G.edges(data=True):
-                if tuple(sorted((i, j))) in aromatic_pairs:
-                    old_order = data['bond_order']
-                    data['bond_order'] = 1.5
-                    if abs(old_order - 1.5) > 0.01:
-                        upgrades += 1
-        
-            if upgrades > 0:
-                self.log(f"RDKit upgraded {upgrades} bonds to aromatic", 2)
-
-        except Exception:
-            pass
-        
-        return upgrades
-
     def _compute_gasteiger_charges(self, G: nx.Graph) -> List[float]:
         """Compute Gasteiger charges using RDKit"""
         try:
@@ -1527,9 +1316,6 @@ class GraphBuilder:
         
         # Aromatic detection (Hückel rule)
         arom_count = self._detect_aromatic_rings(G)
-        
-        # RDKit aromatic refinement
-        # rdkit_arom = self._rdkit_aromatic_refine(G)
         
         # Compute charges
         gasteiger_raw = self._compute_gasteiger_charges(G)
