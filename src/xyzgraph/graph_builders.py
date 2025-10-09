@@ -1450,8 +1450,8 @@ class GraphBuilder:
         """Compute Gasteiger charges using RDKit"""
         try:
             rw = Chem.RWMol()
-            for atom in self.atoms:
-                rw.AddAtom(Chem.Atom(atom.symbol))
+            for i in G.nodes():
+                rw.AddAtom(Chem.Atom(G.nodes[i]['symbol']))
             
             for i, j, data in G.edges(data=True):
                 bo = data['bond_order']
