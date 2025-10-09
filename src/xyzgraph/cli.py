@@ -1,8 +1,6 @@
 import argparse
-from . import build_graph, graph_debug_report, graph_to_ascii
+from . import build_graph, graph_debug_report, graph_to_ascii, read_xyz_file, xyz2mol_compare
 from . import BOHR_TO_ANGSTROM, DEFAULT_PARAMS
-from .utils import read_xyz_file
-from .compare import xyz2mol_compare
 
 def main():
     p = argparse.ArgumentParser(description="Build molecular graph from XYZ.")

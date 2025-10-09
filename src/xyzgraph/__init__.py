@@ -26,7 +26,8 @@ from .graph_builders import GraphBuilder, build_graph
 
 # Utilities
 from .ascii_renderer import graph_to_ascii
-from .utils import graph_debug_report
+from .utils import graph_debug_report, read_xyz_file
+from .compare import xyz2mol_compare
 
 __all__ = [
     # Main interfaces
@@ -37,6 +38,10 @@ __all__ = [
     'graph_to_ascii',
     'graph_debug_report',
     
+    # Utilities
+    'read_xyz_file',
+    'xyz2mol_compare',
+
     # Configuration
     'DEFAULT_PARAMS',
     
