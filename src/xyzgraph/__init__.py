@@ -26,7 +26,7 @@ from .graph_builders import GraphBuilder, build_graph
 
 # Utilities
 from .ascii_renderer import graph_to_ascii
-from .utils import graph_debug_report, read_xyz_file
+from .utils import graph_debug_report, read_xyz_file, read_xyz_frames, read_xyz_iter
 from .compare import xyz2mol_compare
 
 __all__ = [
@@ -40,6 +40,8 @@ __all__ = [
     
     # Utilities
     'read_xyz_file',
+    'read_xyz_iter',
+    'read_xyz_frames',
     'xyz2mol_compare',
 
     # Configuration
