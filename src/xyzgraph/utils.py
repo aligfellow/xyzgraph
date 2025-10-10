@@ -1,6 +1,80 @@
 import networkx as nx
-from typing import List, Optional, Dict, Any, Tuple
-from .data_loader import DATA, BOHR_TO_ANGSTROM
+from typing import List, Optional, Tuple, Iterator
+from . import DATA, BOHR_TO_ANGSTROM
+
+Atoms = List[Tuple[str, Tuple[float, float, float]]]
+
+def read_xyz_iter(path: str, bohr_units: bool = False) -> Iterator[Atoms]:
+    """
+    Stream frames from an xyz or multi-xyz file as atom tuples.
+    Each item is [(symbol, (x, y, z)), ...] with coordinates in Å.
+    """
+    scale = BOHR_TO_ANGSTROM if bohr_units else 1.0
+    with open(path, "r") as fh:
+        while True:
+            line = fh.readline()
+            if not line:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                natoms = int(line)
+            except ValueError:
+                # Not a valid frame start; skip until next plausible header
+                continue
+            # comment line (energy, title, etc.)
+            _ = fh.readline()
+            atoms: Atoms = []
+            for _ in range(natoms):
+                coord = fh.readline()
+                if not coord:
+                    atoms = []
+                    break
+                parts = coord.split()
+                if len(parts) < 4:
+                    atoms = []
+                    break
+                sym = parts[0]
+                x, y, z = map(float, parts[1:4])
+                atoms.append((sym, (x * scale, y * scale, z * scale)))
+                if atoms:
+                    yield atoms
+
+def read_xyz_frames(path: str,
+                    bohr_units: bool = False,
+                    *,
+                    start: int = 0,
+                    stop: Optional[int] = None,
+                    stride: int = 1,
+                    pick: Optional[list[int]] = None) -> List[Atoms]:
+    """
+    Collect frames from an XYZ file using slicing or explicit indices.
+    - start/stop/stride: 0-based slicing on detected frames.
+    - pick: explicit 1-based frame numbers (overrides slicing if provided).
+    """
+    frames: List[Atoms] = []
+    if pick:
+        want = set(max(1, i) for i in pick)
+        idx1 = 0
+        for atoms in read_xyz_iter(path, bohr_units=bohr_units):
+            idx1 += 1
+            if idx1 in want:
+                frames.append(atoms)
+        return frames
+
+    end = stop if stop is not None else float("inf")
+    idx0 = -1
+    for atoms in read_xyz_iter(path, bohr_units=bohr_units):
+        idx0 += 1
+        if idx0 < start:
+            continue
+        if (idx0 - start) % max(1, stride) != 0:
+            continue
+        if idx0 >= end:
+            break
+        frames.append(atoms)
+    return frames
 
 PREF_CHARGE_ORDER = ['gasteiger', 'mulliken', 'hirshfeld', 'gasteiger_raw']
 
