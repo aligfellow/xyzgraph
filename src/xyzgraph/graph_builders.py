@@ -662,7 +662,7 @@ class GraphBuilder:
             - final_score
             - final formal_charges
         """
-        self.log(f"\n{"=" * 60}", 0)
+        self.log(f"\n{'=' * 60}", 0)
         self.log("FULL VALENCE OPTIMIZATION", 1)
         self.log("=" * 60, 0)
 
@@ -1120,7 +1120,7 @@ class GraphBuilder:
             Reduces to C only for now.
         This only sets bond orders to 1.5 for aromatic rings - kekule structure is still a valid solution.
         """
-        self.log(f"\n{"=" * 60}", 0)
+        self.log(f"\n{'=' * 60}", 0)
         self.log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
         self.log("=" * 60, 0)
         
