@@ -252,7 +252,7 @@ class GraphBuilder:
                 has_h = 'H' in (si, sj)
 
                 d = self._distance(pos[i], pos[j])
-                r_sum = self.data.vdw_radii.get(si, 2.0) + self.data.vdw_radii.get(sj, 2.0)
+                r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
 
                 # Choose threshold
                 if has_h and not has_metal:
@@ -523,7 +523,7 @@ class GraphBuilder:
                 di, dj = deficits[i], deficits[j]
 
                 # Check geometry
-                dist_ratio = data['distance'] / (DATA.vdw_radii.get(si, 2.0) + DATA.vdw_radii.get(sj, 2.0))
+                dist_ratio = data['distance'] / (DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0))
                 if dist_ratio > 0.60:
                     continue
 
