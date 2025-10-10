@@ -11,7 +11,7 @@ class MolecularData:
     Singleton container for molecular reference data.
     Loaded once on import and accessible globally.
     """
-    vdw_radii: Dict[str, float]
+    vdw: Dict[str, float]
     valences: Dict[str, List[int]]
     electrons: Dict[str, int]
     metals: Set[str]
@@ -84,7 +84,7 @@ class MolecularData:
         n2s = {v: k for k, v in s2n.items()}
 
         return cls(
-            vdw_radii=vdw_radii,
+            vdw=vdw_radii,
             valences=expected_valences,
             electrons=valence_electrons,
             metals=metals,

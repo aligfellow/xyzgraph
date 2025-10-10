@@ -252,7 +252,7 @@ class GraphBuilder:
                 has_h = 'H' in (si, sj)
 
                 d = self._distance(pos[i], pos[j])
-                r_sum = self.data.vdw_radii.get(si, 2.0) + self.data.vdw_radii.get(sj, 2.0)
+                r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
 
                 # Choose threshold
                 if has_h and not has_metal:
@@ -662,7 +662,7 @@ class GraphBuilder:
             - final_score
             - final formal_charges
         """
-        self.log(f"\n{"=" * 60}", 0)
+        self.log(f"\n{'=' * 60}", 0)
         self.log("FULL VALENCE OPTIMIZATION", 1)
         self.log("=" * 60, 0)
 
@@ -1120,7 +1120,7 @@ class GraphBuilder:
             Reduces to C only for now.
         This only sets bond orders to 1.5 for aromatic rings - kekule structure is still a valid solution.
         """
-        self.log(f"\n{"=" * 60}", 0)
+        self.log(f"\n{'=' * 60}", 0)
         self.log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
         self.log("=" * 60, 0)
         
