@@ -2,7 +2,7 @@ import networkx as nx
 from typing import List, Optional, Dict, Any, Tuple
 from .data_loader import DATA, BOHR_TO_ANGSTROM
 
-PREF_CHARGE_ORDER = ['gasteiger', 'mulliken', 'hirshfeld', 'gasteiger_raw']
+PREF_CHARGE_ORDER = ['gasteiger', 'mulliken', 'gasteiger_raw']
 
 def _pick_charge(d):
     for k in PREF_CHARGE_ORDER:
@@ -159,3 +159,13 @@ def read_xyz_file(filepath: str, bohr_units: bool = False) -> List[Tuple[str, Tu
         raise ValueError(f"Expected {num_atoms} atoms, found {len(atoms)}")
 
     return atoms
+
+def _parse_pairs(arg_value: str):
+    """
+    Parse '--bond "i,j a,b"' or '--unbond "i,j a,b"' into [(i,j), (a,b)].
+    """
+    pairs = []
+    for pair_str in arg_value.split():
+        i_str, j_str = pair_str.split(",")
+        pairs.append((int(i_str), int(j_str)))
+    return pairs

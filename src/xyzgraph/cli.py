@@ -1,6 +1,15 @@
 import argparse
-from . import build_graph, graph_debug_report, graph_to_ascii, read_xyz_file, xyz2mol_compare
-from . import BOHR_TO_ANGSTROM, DEFAULT_PARAMS
+from . import (
+    build_graph,
+    graph_debug_report,
+    graph_to_ascii,
+    read_xyz_file,
+    xyz2mol_compare,
+    DEFAULT_PARAMS,
+    BOHR_TO_ANGSTROM,
+)
+
+from .utils import _parse_pairs
 
 def main():
     p = argparse.ArgumentParser(description="Build molecular graph from XYZ.")
@@ -54,24 +63,8 @@ def main():
     args = p.parse_args()
     
     # Parse forced_bonds: "0,5 3,7" → [(0, 5), (3, 7)]
-    bond = None
-    if args.bond:
-        bond = []
-        for bond_str in args.bond.split():
-            try:
-                i, j = bond_str.split(',')
-                bond.append((int(i), int(j)))
-            except ValueError:
-                p.error(f"Invalid bond in --bond: '{bond_str}'")
-    unbond = None
-    if args.unbond:
-        unbond = []
-        for unbond_str in args.unbond.split():
-            try:
-                i, j = unbond_str.split(',')
-                unbond.append((int(i), int(j)))
-            except ValueError:
-                p.error(f"Invalid bond in --unbond: '{unbond_str}'")
+    bond = _parse_pairs(args.bond) if args.bond else None
+    unbond = _parse_pairs(args.unbond) if args.unbond else None
 
     # Read structure (now as list of (atomic_number, (x,y,z)))
     atoms = read_xyz_file(args.xyz, bohr_units=args.bohr)
