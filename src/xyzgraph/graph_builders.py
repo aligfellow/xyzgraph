@@ -34,7 +34,8 @@ class GraphBuilder:
             bond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['bond'],
             unbond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['unbond'],
             clean_up: bool = DEFAULT_PARAMS['clean_up'],
-            debug: bool = DEFAULT_PARAMS['debug']
+            debug: bool = DEFAULT_PARAMS['debug'],
+            threshold_factor: float = DEFAULT_PARAMS['threshold_factor']
             ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
         self.charge = charge
@@ -58,6 +59,8 @@ class GraphBuilder:
             self.multiplicity = 1 if total_electrons % 2 == 0 else 2
         else:
             self.multiplicity = multiplicity
+
+        self.threshold_factor = threshold_factor
 
         # Reference to global data
         self.data = DATA
@@ -254,15 +257,15 @@ class GraphBuilder:
                 d = self._distance(pos[i], pos[j])
                 r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
 
-                # Choose threshold
+                # Choose threshold (scaled by threshold_factor)
                 if has_h and not has_metal:
-                    threshold = 0.42 * r_sum
+                    threshold = 0.42 * r_sum * self.threshold_factor
                 elif has_h and has_metal:
-                    threshold = 0.5 * r_sum
+                    threshold = 0.5 * r_sum * self.threshold_factor
                 elif has_metal:
-                    threshold = 0.65 * r_sum
+                    threshold = 0.65 * r_sum * self.threshold_factor
                 else:
-                    threshold = 0.55 * r_sum
+                    threshold = 0.55 * r_sum * self.threshold_factor
 
                 if d < threshold:
                     if has_metal and not self._should_bond_metal(si, sj):
@@ -1474,7 +1477,8 @@ def build_graph(
             bond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['bond'],
             unbond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['unbond'],
             clean_up: bool = DEFAULT_PARAMS['clean_up'],
-            debug: bool = DEFAULT_PARAMS['debug']
+            debug: bool = DEFAULT_PARAMS['debug'],
+            threshold_factor: float = DEFAULT_PARAMS['threshold_factor']
         ) -> nx.Graph:
     """Convenience function that wraps GraphBuilder.
 
@@ -1497,6 +1501,7 @@ def build_graph(
         bond=bond,
         unbond=unbond,
         clean_up=clean_up,
-        debug=debug
+        debug=debug,
+        threshold_factor=threshold_factor
     )
     return builder.build()

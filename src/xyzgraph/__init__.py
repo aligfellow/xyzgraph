@@ -19,6 +19,7 @@ DEFAULT_PARAMS = {
     'unbond': None,
     'clean_up': True,
     'debug': False,
+    'threshold_factor': 1.0,
 }
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)

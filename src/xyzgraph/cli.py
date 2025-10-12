@@ -22,6 +22,9 @@ def main():
                     help="Quick mode: fast heuristics, less accuracy (NOT recommended)")
     p.add_argument("--max-iter", type=int, default=DEFAULT_PARAMS['max_iter'],
                     help=f"Maximum iterations for bond order optimization (default: {DEFAULT_PARAMS['max_iter']}, cheminf only)")
+
+    p.add_argument("-t", "--threshold", type=float, default=1.0,
+                    help="Scaling factor for bond detection thresholds (default: 1.0)")
     p.add_argument("--edge-per-iter", type=int, default=DEFAULT_PARAMS['edge_per_iter'],
                     help=f"Number of edges to adjust per iteration (default: {DEFAULT_PARAMS['edge_per_iter']}, cheminf only)")
     p.add_argument("-o", "--optimizer", choices=["greedy", "beam"], default=DEFAULT_PARAMS['optimizer'],
@@ -83,7 +86,8 @@ def main():
             bond=bond,
             unbond=unbond,
             clean_up=not args.no_clean,
-            debug=args.debug
+            debug=args.debug,
+            threshold_factor=args.threshold
         )
 
     # Determine what to show
