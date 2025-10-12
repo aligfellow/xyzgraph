@@ -329,21 +329,24 @@ options:
                         Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)
   -q, --quick           Quick mode: fast heuristics, less accuracy (NOT recommended)
   --max-iter MAX_ITER   Maximum iterations for bond order optimization (default: 50, cheminf only)
+  -t THRESHOLD, --threshold THRESHOLD
+                        Scaling factor for bond detection thresholds (default: 1.0)
   --edge-per-iter EDGE_PER_ITER
                         Number of edges to adjust per iteration (default: 10, cheminf only)
-  -o, --optimizer {greedy,beam}
+  -o {greedy,beam}, --optimizer {greedy,beam}
                         Optimization algorithm (default: beam, cheminf , BEAM recommended)
-  -bw, --beam-width BEAM_WIDTH
+  -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
                         Beam width for beam search (default: 3). i.e. number of candidate graphs to retain per iteration
   --bond BOND           Specify atoms that must be bonded in the graph construction. Example: --bond 0,1 2,3
   --unbond UNBOND       Specify that two atoms indices are NOT bonded in the graph construction. Example: --unbond 0,1 1,2
-  -c, --charge CHARGE   Total molecular charge (default: 0)
-  -m, --multiplicity MULTIPLICITY
+  -c CHARGE, --charge CHARGE
+                        Total molecular charge (default: 0)
+  -m MULTIPLICITY, --multiplicity MULTIPLICITY
                         Spin multiplicity (auto-detected if not specified)
   -b, --bohr            XYZ file provided in units bohr (default is Angstrom)
   -d, --debug           Enable debug output (construction details + graph report)
   -a, --ascii           Show 2D ASCII depiction (auto-enabled if no other output)
-  -as, --ascii-scale ASCII_SCALE
+  -as ASCII_SCALE, --ascii-scale ASCII_SCALE
                         ASCII scaling factor (default: 3.0)
   -H, --show-h          Include hydrogens in visualizations (hidden by default)
   --compare-rdkit       Compare with xyz2mol output (uses rdkit implementation)
