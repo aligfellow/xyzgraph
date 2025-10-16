@@ -577,9 +577,7 @@ H-------------------N--------------------H
 1. **Metal Complexes**
    - Bond orders locked at 1.0 (no d-orbital chemistry)
    - Formal charges set to 0 (coordination, not oxidation state)
-   - Metal-metal bonds *not* supported
-   - **Future**:  
-      - Metal-metal bonds
+   - Metal-metal bonds *partially* supported (single bond allowed)
 
 2. **Radicals & Open-Shell Systems**
    - Should solve a valence structure
