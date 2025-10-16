@@ -32,7 +32,7 @@
   - `--quick`: Fast (crude) valence adjustment
   - Full optimization with valence and charge minimisation
      - `--optimizer`:  
-      **beam**: optimization across multiple paths (slightly slower)  
+      **beam**: optimization across multiple paths (slightly slower, default)  
       **greedy**: iterative valence adjustment
 - **Aromatic detection**: Hückel 4n+2 rule for 6-membered rings
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB) partial charges
@@ -297,16 +297,16 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ### Optimizer Algorithms (cheminf full mode only)
 
-**Beam Search Optimizer** (`--optimizer beam`, default `--beam-width 3`):
+**Beam Search Optimizer** (`--optimizer beam` default, `--beam-width 3` default):
 - Explores multiple optimization paths in parallel
-- Maintains top-k hypotheses at each iteration
+- Maintains top-k hypotheses at each iteration (of top candidates)
 - Bidirectional: tests both +1 and -1 bond orders for each hypothesis
 - More robust against local minima
 - Slower, but better convergence
 - Best for robust bonding assignment across periodic table
 
-**Greedy Optimizer** (`--optimizer greedy`, default in code):
-- Tests all candidate edges, picks single best change per iteration
+**Greedy Optimizer** (`--optimizer greedy`):
+- Tests all top candidate edges, picks single best change per iteration
 - Bidirectional: tests both +1 and -1 bond order changes
 - Fast and effective for most molecules
 - Can get stuck in local minima (*e.g.* alpha, beta unsaturated systems)
@@ -383,7 +383,7 @@ G_full = build_graph(
       atoms='molecule.xyz',
       charge=0,
       max_iter=50,              # maximum iterations (normally converged <20)
-      edge_per_iter=6,
+      edge_per_iter=6,          # default 10
       bond=[(0,1)],             # ensure a bond between 0 and 1
       debug=True
    )
