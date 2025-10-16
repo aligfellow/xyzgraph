@@ -2,6 +2,8 @@
 
 **xyzgraph** is a Python toolkit for building molecular graphs (bond connectivity, bond orders, formal charges, and partial charges) directly from 3D atomic coordinates in XYZ format. It provides both **cheminformatics-based** and **quantum chemistry-based** (xTB) workflows.
 
+[![PyPI Downloads](https://static.pepy.tech/badge/xyzgraph)](https://pepy.tech/projects/xyzgraph)
+
 ---
 
 ## Table of Contents
@@ -41,16 +43,18 @@
 
 ## Installation
 
-### From PyPI - *coming soon (maybe)*
+### From PyPI 
 ```bash
 pip install xyzgraph
 ```
 
 ### From Source
 ```bash
-git clone https://github.com/aligfellow/xyzgraph
+git clone https://github.com/aligfellow/xyzgraph.git
 cd xyzgraph
 pip install .
+# or simply
+pip install git+https://github.com/aligfellow/xyzgraph.git
 ```
 
 ### Dependencies
