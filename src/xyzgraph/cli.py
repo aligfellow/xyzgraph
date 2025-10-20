@@ -64,6 +64,8 @@ def main():
                     help="Keep temporary xTB files (only for --method xtb)")
     
     # Advanced bond detection thresholds (VDW radii multipliers)
+    p.add_argument("--threshold-h-h", type=float, default=DEFAULT_PARAMS['threshold_h_h'],
+                    help=f"ADVANCED: vdW threshold for H-H bonds (default: {DEFAULT_PARAMS['threshold_h_h']})")
     p.add_argument("--threshold-h-nonmetal", type=float, default=DEFAULT_PARAMS['threshold_h_nonmetal'],
                     help=f"ADVANCED: vdW threshold for H-nonmetal bonds (default: {DEFAULT_PARAMS['threshold_h_nonmetal']})")
     p.add_argument("--threshold-h-metal", type=float, default=DEFAULT_PARAMS['threshold_h_metal'],
@@ -98,6 +100,7 @@ def main():
             clean_up=not args.no_clean,
             debug=args.debug,
             threshold=args.threshold,
+            threshold_h_h=args.threshold_h_h,
             threshold_h_nonmetal=args.threshold_h_nonmetal,
             threshold_h_metal=args.threshold_h_metal,
             threshold_metal_ligand=args.threshold_metal_ligand,
