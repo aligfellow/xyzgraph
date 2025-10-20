@@ -152,7 +152,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │    • Apply scaled VDW thresholds:                               │
 |      - H-H: 0.40 × (r₁ + r₂)                                    │
 │      - H-nonmetal: 0.42 × (r₁ + r₂)                             │
-│      - H-metal: 0.50 × (r₁ + r₂)                                │
+│      - H-metal: 0.45 × (r₁ + r₂)                                │
 │      - Nonmetal-nonmetal: 0.55 × (r₁ + r₂)                      │
 │      - Metal-ligand: 0.65 × (r₁ + r₂)                           │
 │    • Create graph with single bonds (order = 1.0)               │
@@ -660,7 +660,7 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 |---------------|-------------------|----------------|
 | H-H | 0.40 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
-| H-metal | 0.50 × (r₁ + r₂) | `threshold_h_metal` |
+| H-metal | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
 | Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
 
