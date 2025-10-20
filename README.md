@@ -150,6 +150,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │ 2. Initial Bond Graph (Distance-Based)                          │
 │    • Compute pairwise distances                                 │
 │    • Apply scaled VDW thresholds:                               │
+|      - H-H: 0.40 × (r₁ + r₂)                                    │
 │      - H-nonmetal: 0.42 × (r₁ + r₂)                             │
 │      - H-metal: 0.50 × (r₁ + r₂)                                │
 │      - Nonmetal-nonmetal: 0.55 × (r₁ + r₂)                      │
