@@ -22,6 +22,7 @@ DEFAULT_PARAMS = {
     'threshold': 1.0,
     
     # Advanced bonding thresholds:
+    'threshold_h_h': 0.4,
     'threshold_h_nonmetal': 0.42,
     'threshold_h_metal': 0.5,
     'threshold_metal_ligand': 0.65,

@@ -36,6 +36,7 @@ class GraphBuilder:
             clean_up: bool = DEFAULT_PARAMS['clean_up'],
             debug: bool = DEFAULT_PARAMS['debug'],
             threshold: float = DEFAULT_PARAMS['threshold'],
+            threshold_h_h: float = DEFAULT_PARAMS['threshold_h_h'],
             threshold_h_nonmetal: float = DEFAULT_PARAMS['threshold_h_nonmetal'],
             threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
             threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
@@ -54,8 +55,8 @@ class GraphBuilder:
         self.clean_up = clean_up
         self.debug = debug
 
-        if self.optimizer not in ('greedy', 'beam', 'anneal'):
-            raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam', 'anneal'")
+        if self.optimizer not in ('greedy', 'beam'):
+            raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam'")
 
         # Auto-detect multiplicity
         if multiplicity is None:
@@ -65,6 +66,7 @@ class GraphBuilder:
             self.multiplicity = multiplicity
 
         self.threshold = threshold
+        self.threshold_h_h = threshold_h_h
         self.threshold_h_nonmetal = threshold_h_nonmetal
         self.threshold_h_metal = threshold_h_metal
         self.threshold_metal_ligand = threshold_metal_ligand
@@ -266,12 +268,19 @@ class GraphBuilder:
                 r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
 
                 # Choose threshold (scaled by threshold)
-                if has_h and not has_metal:
-                    threshold = self.threshold_h_nonmetal * r_sum * self.threshold
+                # Check H-H bonds first
+                if si == 'H' and sj == 'H':
+                    threshold = self.threshold_h_h * r_sum * self.threshold
+                # Then H-metal bonds
                 elif has_h and has_metal:
                     threshold = self.threshold_h_metal * r_sum * self.threshold
+                # Then H-nonmetal bonds
+                elif has_h and not has_metal:
+                    threshold = self.threshold_h_nonmetal * r_sum * self.threshold
+                # Then metal-ligand bonds
                 elif has_metal:
                     threshold = self.threshold_metal_ligand * r_sum * self.threshold
+                # Finally nonmetal-nonmetal bonds
                 else:
                     threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
 
@@ -1487,6 +1496,7 @@ def build_graph(
             clean_up: bool = DEFAULT_PARAMS['clean_up'],
             debug: bool = DEFAULT_PARAMS['debug'],
             threshold: float = DEFAULT_PARAMS['threshold'],
+            threshold_h_h: float = DEFAULT_PARAMS['threshold_h_h'],
             threshold_h_nonmetal: float = DEFAULT_PARAMS['threshold_h_nonmetal'],
             threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
             threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
@@ -1515,6 +1525,7 @@ def build_graph(
         clean_up=clean_up,
         debug=debug,
         threshold=threshold,
+        threshold_h_h=threshold_h_h,
         threshold_h_nonmetal=threshold_h_nonmetal,
         threshold_h_metal=threshold_h_metal,
         threshold_metal_ligand=threshold_metal_ligand,
