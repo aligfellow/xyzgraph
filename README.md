@@ -31,7 +31,7 @@
 - **Cheminformatics modes**:
   - `--quick`: Fast (crude) valence adjustment
   - Full optimization with valence and charge minimisation
-     - `--optimizer`:  
+    - `--optimizer`:  
       **beam**: optimization across multiple paths (slightly slower, default)  
       **greedy**: iterative valence adjustment
 - **Aromatic detection**: Hückel 4n+2 rule for 6-membered rings
@@ -43,12 +43,14 @@
 
 ## Installation
 
-### From PyPI 
+### From PyPI
+
 ```bash
 pip install xyzgraph
 ```
 
 ### From Source
+
 ```bash
 git clone https://github.com/aligfellow/xyzgraph.git
 cd xyzgraph
@@ -58,10 +60,12 @@ pip install git+https://github.com/aligfellow/xyzgraph.git
 ```
 
 ### Dependencies
+
 - **Core**: `numpy`, `networkx`, `rdkit`
 - **Optional**: [xTB binary](https://github.com/grimme-lab/xtb) (for `--method xtb`)
 
 To install xTB (Linux/macOS) see [here](https://github.com/grimme-lab/xtb):
+
 ```bash
 conda install -c conda-forge xtb # or download from GitHub releases
 ```
@@ -73,28 +77,33 @@ conda install -c conda-forge xtb # or download from GitHub releases
 ### CLI Examples
 
 **Minimal usage** (auto-displays ASCII depiction):
+
 ```bash
 xyzgraph molecule.xyz
 ```
 
 **Specify charge and method**:
+
 ```bash
 xyzgraph molecule.xyz --method xtb --charge -1 --multiplicity 2
 ```
 
 **Detailed debug output**:
+
 ```bash
 xyzgraph molecule.xyz --debug
 ```
 
 **Compare with RDKit**:
+
 ```bash
 xyzgraph molecule.xyz --compare-rdkit
 ```
 
-### Python API
+### Python Example
 
 **Basic usage**:
+
 ```python
 from xyzgraph import build_graph, graph_to_ascii, read_xyz_file
 
@@ -281,16 +290,19 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 ### When to Use Each Method
 
 **Use `--method cheminf` (default)**:
+
 - Most use cases
 - No xTB installation available
 - Batch processing structures
 
 **Use `--method cheminf --quick`**:
+
 - Extremely large molecules
 - Initial rapid screening
 - When approximate bond orders suffice
 
 **Use `--method xtb`**:
+
 - Validation of cheminf results
 - Unusual electronic structures
 - Low confidence in bonding structure
@@ -298,6 +310,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 ### Optimizer Algorithms (cheminf full mode only)
 
 **Beam Search Optimizer** (`--optimizer beam` default, `--beam-width 3` default):
+
 - Explores multiple optimization paths in parallel
 - Maintains top-k hypotheses at each iteration (of top candidates)
 - Bidirectional: tests both +1 and -1 bond orders for each hypothesis
@@ -306,6 +319,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 - Best for robust bonding assignment across periodic table
 
 **Greedy Optimizer** (`--optimizer greedy`):
+
 - Tests all top candidate edges, picks single best change per iteration
 - Bidirectional: tests both +1 and -1 bond order changes
 - Fast and effective for most molecules
@@ -316,6 +330,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 ## CLI Reference
 
 ### Command Syntax
+
 ```bash
 > xyzgraph -h
 usage: xyzgraph [-h] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH] [--bond BOND]
@@ -334,7 +349,7 @@ options:
   -q, --quick           Quick mode: fast heuristics, less accuracy (NOT recommended)
   --max-iter MAX_ITER   Maximum iterations for bond order optimization (default: 50, cheminf only)
   -t THRESHOLD, --threshold THRESHOLD
-                        Scaling factor for bond detection thresholds (default: 1.0)
+                        vdW Scaling factor for bond detection thresholds (default: 1.0)
   --edge-per-iter EDGE_PER_ITER
                         Number of edges to adjust per iteration (default: 10, cheminf only)
   -o {greedy,beam}, --optimizer {greedy,beam}
@@ -355,9 +370,19 @@ options:
   -H, --show-h          Include hydrogens in visualizations (hidden by default)
   --compare-rdkit       Compare with xyz2mol output (uses rdkit implementation)
   --no-clean            Keep temporary xTB files (only for --method xtb)
+  --threshold-h-nonmetal THRESHOLD_H_NONMETAL
+                        ADVANCED: vdW threshold for H-nonmetal bonds (default: 0.42)
+  --threshold-h-metal THRESHOLD_H_METAL
+                        ADVANCED: vdW threshold for H-metal bonds (default: 0.5)
+  --threshold-metal-ligand THRESHOLD_METAL_LIGAND
+                        ADVANCED: vdW threshold for metal-ligand bonds (default: 0.65)
+  --threshold-nonmetal THRESHOLD_NONMETAL
+                        ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: 0.55)
+
 ```
 
 **Method comparison**:
+
 ```bash
 xyzgraph molecule.xyz --debug > cheminf.txt
 xyzgraph molecule.xyz --method xtb --debug > xtb.txt
@@ -365,6 +390,7 @@ diff cheminf.txt xtb.txt
 ```
 
 **Validate against RDKit**:
+
 ```bash
 xyzgraph molecule.xyz --compare-xyz2mol
 ```
@@ -406,7 +432,8 @@ print(ascii_art)
 ```
 
 **Output example** (acyl isothiouronium):
-```
+
+```text
                                        C
                                         \
                                         \
@@ -431,6 +458,7 @@ print(ascii_art)
 ```
 
 **Features**:
+
 - Single bonds: `-`, `|`, `/`, `\`
 - Double bonds: `=`, `‖` (parallel lines)
 - Triple bonds: `#`
@@ -468,6 +496,7 @@ print(report)
 ```
 
 **Full example**:
+
 ```text
 > xyzgraph benzene_NH4-cation-pi.xyz -c 1 -a -d
 
@@ -581,7 +610,7 @@ H-------------------N--------------------H
 
 2. **Radicals & Open-Shell Systems**
    - Should solve a valence structure
-   - Not explicity dealt with currently 
+   - Not explicity dealt with currently
    - *May* behave, *may* be unreliable
 
 3. **Zwitterions**
@@ -591,7 +620,7 @@ H-------------------N--------------------H
 4. **Large Conjugated Systems**
    - May need many iterations for convergence (better with kekule initialised rings)
    - Conjugation penalty heuristic (not full π-MO analysis)
-   
+
 5. **Charged Aromatics**
    - Hückel electron counting simplified (doesn't account for ionic charge)
    - Should still solve with valence/charge optimisation
@@ -607,18 +636,57 @@ xyzgraph molecule.xyz --compare-rdkit --debug
 ```
 
 **Output includes**:
+
 - Layout-aligned ASCII depictions
 - Edge differences (bonds only in one method)
 - Bond order differences (Δ ≥ 0.25)
 
 **Example**:
-```
+
+```text
 # Bond differences: only_in_native=1   only_in_rdkit=0   bond_order_diffs=2
 #   only_in_native: 4-7
 #   bond_order_diffs (Δ≥0.25):
 #     1-2   native=1.50   rdkit=1.00   Δ=+0.50
 #     2-3   native=2.00   rdkit=1.50   Δ=+0.50
 ```
+
+## Bond Detection Thresholds
+
+xyzgraph uses distance-based bond detection with thresholds derived from van der Waals (vdW) radii by Charry and Tkatchenko [[1]](https://doi.org/10.1021/acs.jctc.4c00784). By default, these thresholds are calibrated for different atom pair types:
+
+| Atom Pair Type | Default Threshold | Parameter Name |
+|---------------|-------------------|----------------|
+| H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
+| H-metal | 0.50 × (r₁ + r₂) | `threshold_h_metal` |
+| Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
+| Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
+
+Where r₁ and r₂ are the VDW radii of the two atoms.
+
+### Modification (Not Recommended)
+
+**Global Scaling**:  
+
+- The `--threshold` (or `threshold` in Python) parameter provides a simple way to globally scale **all** thresholds.  
+- This is safer than modifying individual thresholds.  
+- e.g. `--threshold 1.1`  
+  - threshold_h_nonmetal × (r₁ + r₂) × **1.1**  
+
+**Individual Scaling**:
+
+These parameters are exposed for users who need to:
+
+- Handle unusual bonding situations not covered by defaults  
+- Specifically wish to obtain dense connectivity  
+- Fine-tune bond detection for specific molecular systems  
+- Debug or validate bond detection behavior  
+
+Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly in python within `build_graph(threshold_h_nonmetal=0.5)`
+
+> [!WARNING]  
+> Modifying these thresholds is **not recommended** unless you have a specific reason and understand the implications  
+> Changing values can produce *chemically invalid structures*
 
 ---
 

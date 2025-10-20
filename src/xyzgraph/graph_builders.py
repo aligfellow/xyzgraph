@@ -35,7 +35,11 @@ class GraphBuilder:
             unbond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['unbond'],
             clean_up: bool = DEFAULT_PARAMS['clean_up'],
             debug: bool = DEFAULT_PARAMS['debug'],
-            threshold_factor: float = DEFAULT_PARAMS['threshold_factor']
+            threshold: float = DEFAULT_PARAMS['threshold'],
+            threshold_h_nonmetal: float = DEFAULT_PARAMS['threshold_h_nonmetal'],
+            threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
+            threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
+            threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal']
             ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
         self.charge = charge
@@ -60,7 +64,11 @@ class GraphBuilder:
         else:
             self.multiplicity = multiplicity
 
-        self.threshold_factor = threshold_factor
+        self.threshold = threshold
+        self.threshold_h_nonmetal = threshold_h_nonmetal
+        self.threshold_h_metal = threshold_h_metal
+        self.threshold_metal_ligand = threshold_metal_ligand
+        self.threshold_nonmetal_nonmetal = threshold_nonmetal_nonmetal
 
         # Reference to global data
         self.data = DATA
@@ -257,15 +265,15 @@ class GraphBuilder:
                 d = self._distance(pos[i], pos[j])
                 r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
 
-                # Choose threshold (scaled by threshold_factor)
+                # Choose threshold (scaled by threshold)
                 if has_h and not has_metal:
-                    threshold = 0.42 * r_sum * self.threshold_factor
+                    threshold = self.threshold_h_nonmetal * r_sum * self.threshold
                 elif has_h and has_metal:
-                    threshold = 0.5 * r_sum * self.threshold_factor
+                    threshold = self.threshold_h_metal * r_sum * self.threshold
                 elif has_metal:
-                    threshold = 0.65 * r_sum * self.threshold_factor
+                    threshold = self.threshold_metal_ligand * r_sum * self.threshold
                 else:
-                    threshold = 0.55 * r_sum * self.threshold_factor
+                    threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
 
                 if d < threshold:
                     if has_metal and not self._should_bond_metal(si, sj):
@@ -1307,7 +1315,7 @@ class GraphBuilder:
         
         # Initialize Kekulé patterns for 6-membered carbon rings (gives optimizer a head start)
         init_rings = self._init_kekule_for_6rings(G)
-        
+        stats = None
         # Valence adjustment
         if self.quick:
             stats = self._quick_valence_adjust(G)
@@ -1478,7 +1486,11 @@ def build_graph(
             unbond: Optional[List[Tuple[int, int]]] = DEFAULT_PARAMS['unbond'],
             clean_up: bool = DEFAULT_PARAMS['clean_up'],
             debug: bool = DEFAULT_PARAMS['debug'],
-            threshold_factor: float = DEFAULT_PARAMS['threshold_factor']
+            threshold: float = DEFAULT_PARAMS['threshold'],
+            threshold_h_nonmetal: float = DEFAULT_PARAMS['threshold_h_nonmetal'],
+            threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
+            threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
+            threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal']
         ) -> nx.Graph:
     """Convenience function that wraps GraphBuilder.
 
@@ -1502,6 +1514,10 @@ def build_graph(
         unbond=unbond,
         clean_up=clean_up,
         debug=debug,
-        threshold_factor=threshold_factor
+        threshold=threshold,
+        threshold_h_nonmetal=threshold_h_nonmetal,
+        threshold_h_metal=threshold_h_metal,
+        threshold_metal_ligand=threshold_metal_ligand,
+        threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal
     )
     return builder.build()
