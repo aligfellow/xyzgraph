@@ -19,7 +19,13 @@ DEFAULT_PARAMS = {
     'unbond': None,
     'clean_up': True,
     'debug': False,
-    'threshold_factor': 1.0,
+    'threshold': 1.0,
+    
+    # Advanced bonding thresholds:
+    'threshold_h_nonmetal': 0.42,
+    'threshold_h_metal': 0.5,
+    'threshold_metal_ligand': 0.65,
+    'threshold_nonmetal_nonmetal': 0.55,
 }
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)

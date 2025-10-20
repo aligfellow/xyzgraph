@@ -63,6 +63,16 @@ def main():
     p.add_argument("--no-clean", action="store_true",
                     help="Keep temporary xTB files (only for --method xtb)")
     
+    # Advanced bond detection thresholds (VDW radii multipliers)
+    p.add_argument("--threshold-h-nonmetal", type=float, default=DEFAULT_PARAMS['threshold_h_nonmetal'],
+                    help=f"ADVANCED: vdW threshold for H-nonmetal bonds (default: {DEFAULT_PARAMS['threshold_h_nonmetal']})")
+    p.add_argument("--threshold-h-metal", type=float, default=DEFAULT_PARAMS['threshold_h_metal'],
+                    help=f"ADVANCED: vdW threshold for H-metal bonds (default: {DEFAULT_PARAMS['threshold_h_metal']})")
+    p.add_argument("--threshold-metal-ligand", type=float, default=DEFAULT_PARAMS['threshold_metal_ligand'],
+                    help=f"ADVANCED: vdW threshold for metal-ligand bonds (default: {DEFAULT_PARAMS['threshold_metal_ligand']})")
+    p.add_argument("--threshold-nonmetal", type=float, default=DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
+                    help=f"ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: {DEFAULT_PARAMS['threshold_nonmetal_nonmetal']})")
+    
     args = p.parse_args()
     
     # Parse forced_bonds: "0,5 3,7" → [(0, 5), (3, 7)]
@@ -87,7 +97,11 @@ def main():
             unbond=unbond,
             clean_up=not args.no_clean,
             debug=args.debug,
-            threshold_factor=args.threshold
+            threshold=args.threshold,
+            threshold_h_nonmetal=args.threshold_h_nonmetal,
+            threshold_h_metal=args.threshold_h_metal,
+            threshold_metal_ligand=args.threshold_metal_ligand,
+            threshold_nonmetal_nonmetal=args.threshold_nonmetal
         )
 
     # Determine what to show
