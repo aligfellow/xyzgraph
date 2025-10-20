@@ -657,7 +657,7 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 
 | Atom Pair Type | Default Threshold | Parameter Name |
 |---------------|-------------------|----------------|
-| H-H | 0.4 × (r₁ + r₂) | `threshold_h_h` |
+| H-H | 0.40 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
 | H-metal | 0.50 × (r₁ + r₂) | `threshold_h_metal` |
 | Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
