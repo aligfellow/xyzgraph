@@ -108,6 +108,232 @@ class GraphBuilder:
     @staticmethod
     def _distance(a: np.ndarray, b: np.ndarray) -> float:
         return float(np.linalg.norm(a - b))
+    
+    def _calculate_angle(self, atom1: int, center: int, atom2: int, G: nx.Graph) -> float:
+        """
+        Calculate angle (in degrees) between three atoms: atom1-center-atom2
+        """
+        pos1 = np.array(G.nodes[atom1]['position'])
+        pos_center = np.array(G.nodes[center]['position'])
+        pos2 = np.array(G.nodes[atom2]['position'])
+        
+        v1 = pos1 - pos_center
+        v2 = pos2 - pos_center
+        
+        # Normalize vectors
+        v1_norm = np.linalg.norm(v1)
+        v2_norm = np.linalg.norm(v2)
+        
+        if v1_norm < 1e-10 or v2_norm < 1e-10:
+            return 0.0
+        
+        v1 = v1 / v1_norm
+        v2 = v2 / v2_norm
+        
+        # Calculate angle
+        cos_angle = np.clip(np.dot(v1, v2), -1.0, 1.0)
+        angle = np.arccos(cos_angle) * 180.0 / np.pi
+        
+        return angle
+    
+    def _ring_angle_sum(self, ring: List[int], G: nx.Graph) -> float:
+        """
+        Calculate sum of internal angles in a ring
+        """
+        angle_sum = 0.0
+        n = len(ring)
+        
+        for i in range(n):
+            prev = ring[(i - 1) % n]
+            curr = ring[i]
+            next = ring[(i + 1) % n]
+            angle = self._calculate_angle(prev, curr, next, G)
+            angle_sum += angle
+        
+        return angle_sum
+    
+    def _validate_bond_geometry(self, G: nx.Graph, i: int, j: int, distance: float, confidence: float) -> bool:
+        """
+        Check if adding bond i-j creates geometrically valid configuration.
+        Used for low-confidence (long) bonds from extended thresholds.
+        
+        Parameters:
+        - confidence: bond confidence score (0.0 = at threshold, 1.0 = very short)
+                     Used to set adaptive thresholds for diagonal detection
+        
+        Returns True if bond should be added, False if it's spurious.
+        """
+        
+        # If neither atom has neighbors yet, bond is valid
+        if G.degree(i) == 0 and G.degree(j) == 0:
+            return True
+        
+        # Get symbols to check for metals
+        sym_i = G.nodes[i]['symbol']
+        sym_j = G.nodes[j]['symbol']
+        is_metal_i = sym_i in self.data.metals
+        is_metal_j = sym_j in self.data.metals
+        has_metal = is_metal_i or is_metal_j  # Bond involves metal at either end
+        
+        # Check angles at atom i with existing neighbors
+        for existing_neighbor in G.neighbors(i):
+            angle = self._calculate_angle(existing_neighbor, i, j, G)
+            
+            # Variable acute angle threshold: metals more lenient (15°) vs non-metals (30°)
+            # This allows η² coordination (~20-30°) while rejecting spurious long bonds (~1-5°)
+            acute_threshold = 15.0 if has_metal else 30.0
+            
+            if angle < acute_threshold:
+                self.log(f"  Rejected bond {i}-{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{i}", 3)
+                return False
+            
+            # Nearly collinear - check if spurious or valid geometry
+            if angle > 160.0:
+                # If bond involves metal (at either end), be lenient with collinearity
+                if has_metal:
+                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{i}, but involves metal ({sym_i}-{sym_j}) - allowing", 3)
+                    continue
+                
+                # For non-metal bonds: distinguish same direction (spurious) vs opposite (trans/linear)
+                if G.degree(i) >= 2:
+                    # Calculate direction vectors
+                    pos_i = np.array(G.nodes[i]['position'])
+                    pos_existing = np.array(G.nodes[existing_neighbor]['position'])
+                    pos_new = np.array(G.nodes[j]['position'])
+                    
+                    v_existing = pos_existing - pos_i
+                    v_new = pos_new - pos_i
+                    
+                    # Normalize
+                    v_existing = v_existing / np.linalg.norm(v_existing)
+                    v_new = v_new / np.linalg.norm(v_new)
+                    
+                    # Dot product: +1 = same direction, -1 = opposite
+                    dot_product = np.dot(v_existing, v_new)
+                    
+                    # Same direction (bond behind another) - spurious
+                    if dot_product > 0.9:
+                        self.log(f"  Rejected bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{i}", 3)
+                        return False
+                    # Opposite direction (trans/linear) - valid
+                    elif dot_product < -0.9:
+                        self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{i} - valid trans/linear", 3)
+                        continue
+                    # Not truly collinear - allow
+                    else:
+                        continue
+        
+        # Check angles at atom j with existing neighbors (symmetric check)
+        for existing_neighbor in G.neighbors(j):
+            angle = self._calculate_angle(existing_neighbor, j, i, G)
+            
+            # Variable acute angle threshold: metals more lenient (15°) vs non-metals (30°)
+            acute_threshold = 15.0 if has_metal else 30.0
+            
+            if angle < acute_threshold:
+                self.log(f"  Rejected bond {i}-{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{j}", 3)
+                return False
+            
+            # Nearly collinear - check if spurious or valid geometry
+            if angle > 160.0:
+                # If bond involves metal, be lenient
+                if has_metal:
+                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, but involves metal ({sym_i}-{sym_j}) - allowing", 3)
+                    continue
+                
+                # For non-metal bonds: check direction
+                if G.degree(j) >= 2:
+                    pos_j = np.array(G.nodes[j]['position'])
+                    pos_existing = np.array(G.nodes[existing_neighbor]['position'])
+                    pos_new = np.array(G.nodes[i]['position'])
+                    
+                    v_existing = pos_existing - pos_j
+                    v_new = pos_new - pos_j
+                    
+                    v_existing = v_existing / np.linalg.norm(v_existing)
+                    v_new = v_new / np.linalg.norm(v_new)
+                    
+                    dot_product = np.dot(v_existing, v_new)
+                    
+                    if dot_product > 0.9:
+                        self.log(f"  Rejected bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{j}", 3)
+                        return False
+                    elif dot_product < -0.9:
+                        self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{j} - valid trans/linear", 3)
+                        continue
+                    else:
+                        continue
+        
+        # Check for diagonal bonds across existing rings (creates spurious 3-rings)
+        # If i and j share a common neighbor, they form a triangle - check if it's reasonable
+        common_neighbors = set(G.neighbors(i)) & set(G.neighbors(j))
+        
+        if common_neighbors:
+            # Check each potential 3-ring formed via common neighbor
+            for k in common_neighbors:
+                # Distances: i-k, k-j, i-j (new bond)
+                d_ik = G[i][k]['distance']
+                d_kj = G[k][j]['distance']
+                d_ij = distance  # The bond we're trying to add
+                
+                # Triangle inequality: sum of two sides must be > third side
+                # If violated significantly, this is a diagonal bond across a larger structure
+                if d_ij > (d_ik + d_kj) * 0.65:  # Diagonal is nearly as long as going around
+                    # This suggests i and j are across from each other, not adjacent
+                    # Check if this would be a spurious diagonal bond
+                    
+                    # Calculate how much longer the diagonal is vs the path
+                    path_length = d_ik + d_kj
+                    ratio = d_ij / path_length
+                    
+                    # Confidence-based diagonal threshold (continuous interpolation)
+                    # Geometric basis: √2/2 ≈ 0.707 is theoretical diagonal ratio for square
+                    # Low confidence (0.0) → strict threshold (0.65)
+                    # High confidence (0.7) → lenient threshold (0.75)
+                    max_conf_for_interp = 0.7
+                    diagonal_threshold = 0.65 + min(confidence, max_conf_for_interp) * (0.75 - 0.65) / max_conf_for_interp
+                    
+                    if ratio > diagonal_threshold:
+                        if has_metal:
+                            # Metal coordination can form apparent "diagonals" (η², bridging, clusters)
+                            self.log(f"  Bond {i}-{j}: diagonal across 3-ring via {k}, metal bond ({sym_i}-{sym_j}) - allowing", 3)
+                            continue  # Skip rejection for metals
+                        else:
+                            self.log(f"  Rejected bond {i}-{j}: diagonal bond across 3-ring via {k} (d={d_ij:.2f} vs path={path_length:.2f}, ratio={ratio:.2f}, threshold={diagonal_threshold:.2f})", 3)
+                            return False
+        
+        # Early return for metal bonds - skip expensive ring validation
+        # Metal coordination has flexible geometries (e.g., ferrocene, octahedral)
+        if has_metal:
+            return True
+        
+        # Only validate rings for non-metal bonds
+        # Check if this would create a geometrically impossible ring
+        G.add_edge(i, j, bond_order=1.0, distance=distance)
+        
+        ring_valid = True
+        try:
+            rings = nx.cycle_basis(G)
+            for ring in rings:
+                # Only check small rings that contain this new edge
+                if i in ring and j in ring and len(ring) <= 5:
+                    # Check if ring angles are reasonable
+                    angle_sum = self._ring_angle_sum(ring, G)
+                    expected = (len(ring) - 2) * 180.0
+                    
+                    # Allow generous tolerance for non-planar rings
+                    if abs(angle_sum - expected) > 45.0:
+                        self.log(f"  Rejected bond {i}-{j}: creates impossible {len(ring)}-ring (angle sum {angle_sum:.1f}° vs expected {expected:.1f}°)", 3)
+                        ring_valid = False
+                        break
+        except Exception as e:
+            # Ring detection failed, assume OK
+            pass
+        
+        # Remove temporary edge
+        G.remove_edge(i, j)
+        
+        return ring_valid
 
     def _should_bond_metal(self, sym_i: str, sym_j: str) -> bool:
         """
@@ -238,7 +464,11 @@ class GraphBuilder:
     # =========================================================================
 
     def _build_initial_graph(self) -> nx.Graph:
-        """Build initial graph with distance-based bonds"""
+        """
+        Build initial graph with confidence-based bond construction.
+        High-confidence (short) bonds are added directly.
+        Low-confidence (long) bonds undergo geometric validation.
+        """
         G = nx.Graph()
 
         pos = np.array(self.positions)
@@ -252,8 +482,9 @@ class GraphBuilder:
 
         self.log(f"Added {len(self.atoms)} atoms", 1)
 
-        # Add edges based on distance
-        edge_count = 0
+        # Collect all potential bonds with confidence scores
+        potential_bonds = []
+        
         for i in range(len(self.atoms)):
             si = self.symbols[i]
             is_metal_i = si in self.data.metals
@@ -268,46 +499,76 @@ class GraphBuilder:
                 r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
 
                 # Choose threshold (scaled by threshold)
-                # Check H-H bonds first
                 if si == 'H' and sj == 'H':
                     threshold = self.threshold_h_h * r_sum * self.threshold
-                # Then H-metal bonds
                 elif has_h and has_metal:
                     threshold = self.threshold_h_metal * r_sum * self.threshold
-                # Then H-nonmetal bonds
                 elif has_h and not has_metal:
                     threshold = self.threshold_h_nonmetal * r_sum * self.threshold
-                # Then metal-ligand bonds
                 elif has_metal:
-                    threshold = self.threshold_metal_ligand * r_sum * self.threshold
-                # Finally nonmetal-nonmetal bonds
+                    threshold = self.threshold_metal_ligand * r_sum  #* self.threshold
                 else:
                     threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
 
                 if d < threshold:
-                    if has_metal and not self._should_bond_metal(si, sj):
-                        continue
+                    # Calculate confidence: 1.0 (very short) to 0.0 (at threshold)
+                    confidence = 1.0 - (d / threshold)
+                    potential_bonds.append((confidence, i, j, d, has_metal))
 
+        # Sort by confidence (most confident bonds first)
+        potential_bonds.sort(reverse=True, key=lambda x: x[0])
+        
+        self.log(f"Found {len(potential_bonds)} potential bonds, sorting by confidence", 1)
+        
+        # Add bonds with geometric validation for low-confidence bonds
+        edge_count = 0
+        rejected_count = 0
+        
+        for confidence, i, j, d, has_metal in potential_bonds:
+            si, sj = self.symbols[i], self.symbols[j]
+            
+            # Check metal bonding rules
+            if has_metal and not self._should_bond_metal(si, sj):
+                rejected_count += 1
+                continue
+            
+            # High confidence bonds: add directly without geometric validation
+            # (short bonds relative to threshold are unlikely to be spurious)
+            if confidence > 0.4:
+                G.add_edge(i, j,
+                          bond_order=1.0,
+                          distance=d,
+                          metal_coord=has_metal)
+                edge_count += 1
+            
+            # Low confidence bonds: validate geometry with confidence-aware thresholds
+            else:
+                self.log(f"  Geometrically validating low-conf bond {i}-{j}: conf={confidence:.2f}, d={d:.2f}", 3)
+                if self._validate_bond_geometry(G, i, j, d, confidence):
                     G.add_edge(i, j,
                               bond_order=1.0,
                               distance=d,
                               metal_coord=has_metal)
                     edge_count += 1
+                    self.log(f"  ✓ Added low-conf bond {i}-{j}", 3)
+                else:
+                    rejected_count += 1
 
+        # Handle user-specified bonds
         if self.bond:
             for i, j in self.bond:
                 if not G.has_edge(i, j):
                     d = self._distance(pos[i], pos[j])
                     G.add_edge(i, j, bond_order=1, distance=d)
-                    self.log(f"Added bond {i}-{j} (d={d:.3f} Å)", 2)
+                    self.log(f"Added user-specified bond {i}-{j} (d={d:.3f} Å)", 2)
 
         if self.unbond:
             for i, j in self.unbond:
                 if G.has_edge(i, j):
                     G.remove_edge(i, j)
-                    self.log(f"Removed bond {i}-{j}")
+                    self.log(f"Removed user-specified bond {i}-{j}", 2)
 
-        self.log(f"Initial bonds: {edge_count}", 1)
+        self.log(f"Initial bonds: {edge_count} added, {rejected_count} rejected by geometry validation", 1)
 
         # Cache graph properties
         rings = nx.cycle_basis(G)
@@ -1312,15 +1573,10 @@ class GraphBuilder:
             total_electrons = sum(self.atomic_numbers) - self.charge
             self.multiplicity = 1 if total_electrons % 2 == 0 else 2
         
-        # Build initial graph
+        # Build initial graph (with inline geometric validation)
         G = self._build_initial_graph()
         
         self.log(f"Initial bonds: {G.number_of_edges()}", 1)
-        
-        # Prune distorted rings
-        removed = self._prune_distorted_rings(G)
-        if removed > 0:
-            self.log(f"Pruned {removed} distorted ring bonds", 1)
         
         # Initialize Kekulé patterns for 6-membered carbon rings (gives optimizer a head start)
         init_rings = self._init_kekule_for_6rings(G)
