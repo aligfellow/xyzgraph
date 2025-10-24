@@ -70,18 +70,29 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
         lines.append("# " + "  ".join(meta))
     if not include_h:
         lines.append("# (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)")
-    lines.append("# [idx] Sym  val=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)")
+    lines.append("# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)")
+    lines.append("# (val = organic valence excluding metal bonds; metal = metal coordination bonds)")
     arom_edges = {tuple(sorted((i,j))) for i,j,d in G.edges(data=True)
                   if 1.4 < d.get('bond_order',1.0) < 1.6}
     visible = set(_visible_nodes(G, include_h))
     for idx,data in G.nodes(data=True):
         if idx not in visible:
             continue
-        # full valence (all neighbors, including hidden hydrogens)
-        full_val = data.get('valence', sum(G.edges[idx,n].get('bond_order',1.0) for n in G.neighbors(idx)))
+        # Calculate organic valence (excluding metal bonds) and metal valence separately
+        organic_val = 0.0
+        metal_val = 0.0
+        for n in G.neighbors(idx):
+            bo = G.edges[idx,n].get('bond_order',1.0)
+            if G.nodes[n]['symbol'] in DATA.metals:
+                metal_val += bo
+            else:
+                organic_val += bo
+        
         chg = _pick_charge(data)
         agg = data.get('agg_charge', chg)
         formal = data.get('formal_charge', 0)
+        # Format formal charge: " 0" for zero, "+1"/"-1" for non-zero
+        formal_str = f"{formal} " if formal == 0 else f"{formal:+d}"
         nbrs = []
         for n in sorted(G.neighbors(idx)):
             if n not in visible:
@@ -89,9 +100,8 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
             bo = G.edges[idx,n].get('bond_order',1.0)
             arom = '*' if tuple(sorted((idx,n))) in arom_edges else ''
             nbrs.append(f"{n}({bo:.2f}{arom})")
-        formal = data.get('formal_charge', 0)
-        lines.append(f"[{idx:>3}] {data.get('symbol','?'):>2}  val={full_val:.2f}  "
-                     f"formal={formal:+d}  chg={chg:+.3f}  agg={agg:+.3f} | " +
+        lines.append(f"[{idx:>3}] {data.get('symbol','?'):>2}  val={organic_val:.2f}  metal={metal_val:.2f}  "
+                     f"formal={formal_str}  chg={chg:+.3f}  agg={agg:+.3f} | " +
                      (" ".join(nbrs) if nbrs else "-"))
     # Edge summary (filtered)
     lines.append("")
@@ -102,6 +112,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
     for i,j,d in sorted(G.edges(data=True)):
         if i in visible and j in visible:
             lines.append(f"[{i:>{idx_width}}-{j:>{idx_width}}]: {d.get('bond_order', 1.0):>4.2f}")
+    
     return "\n".join(lines)
 
 

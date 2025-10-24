@@ -14,7 +14,7 @@ DEFAULT_PARAMS = {
     'optimizer': 'beam',
     'max_iter': 50,
     'edge_per_iter': 10,
-    'beam_width': 3,
+    'beam_width': 5,
     'bond': None,
     'unbond': None,
     'clean_up': True,
