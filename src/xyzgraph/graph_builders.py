@@ -191,7 +191,7 @@ class GraphBuilder:
             if angle > 160.0:
                 # If bond involves metal (at either end), be lenient with collinearity
                 if has_metal:
-                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{i}, but involves metal ({sym_i}-{sym_j}) - allowing", 3)
+                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{i}, but involves metal ({sym_i}-{sym_j}) - allowed", 3)
                     continue
                 
                 # For non-metal bonds: distinguish same direction (spurious) vs opposite (trans/linear)
@@ -238,7 +238,7 @@ class GraphBuilder:
             if angle > 160.0:
                 # If bond involves metal, be lenient
                 if has_metal:
-                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, but involves metal ({sym_i}-{sym_j}) - allowing", 3)
+                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, but involves metal ({sym_i}-{sym_j}) - allowed", 3)
                     continue
                 
                 # For non-metal bonds: check direction
@@ -296,7 +296,7 @@ class GraphBuilder:
                     if ratio > diagonal_threshold:
                         if has_metal:
                             # Metal coordination can form apparent "diagonals" (η², bridging, clusters)
-                            self.log(f"  Bond {i}-{j}: diagonal across 3-ring via {k}, metal bond ({sym_i}-{sym_j}) - allowing", 3)
+                            self.log(f"  Bond {i}-{j}: diagonal across 3-ring via {k}, metal bond ({sym_i}-{sym_j}) - allowed", 3)
                             continue  # Skip rejection for metals
                         else:
                             self.log(f"  Rejected bond {i}-{j}: diagonal bond across 3-ring via {k} (d={d_ij:.2f} vs path={path_length:.2f}, ratio={ratio:.2f}, threshold={diagonal_threshold:.2f})", 3)
@@ -384,6 +384,10 @@ class GraphBuilder:
         """Compute formal charges for all atoms and balance to total charge"""
         formal = []
 
+        self.log("\n" + "=" * 60, 0)
+        self.log("FORMAL CHARGE CALCULATION", 0)
+        self.log("=" * 60, 0)
+
         for node in G.nodes():
             sym = G.nodes[node]['symbol']
 
@@ -396,22 +400,135 @@ class GraphBuilder:
                 formal.append(0)
                 continue
 
-            bond_sum = self._valence_sum(G, node)
+            # Exclude metal bonds from ligand valence for formal charge calculation
+            # Metal-ligand bonds are coordinative/dative
+            bond_sum = sum(
+                G.edges[node, nbr].get('bond_order', 1.0) 
+                for nbr in G.neighbors(node)
+                if G.nodes[nbr]['symbol'] not in DATA.metals  # Exclude metal bonds
+            )
             fc = self._compute_formal_charge_value(sym, V, bond_sum)
             formal.append(fc)
 
-        # # Balance residual charge
-        residual = self.charge - sum(formal)
-        if residual != 0:
-            bonded = [(abs(formal[i]), i) for i in range(len(self.atoms)) if self._valence_sum(G, i) > 0]
-            bonded.sort(reverse=True)
+        # Check if system has metals
+        has_metals = any(G.nodes[i]['symbol'] in DATA.metals for i in G.nodes())
+        
+        # Log initial formal charges
+        initial_sum = sum(formal)
+        self.log(f"\nInitial formal charges (before balancing):", 2)
+        self.log(f"  Sum: {initial_sum:+d} (target: {self.charge:+d})", 3)
+        
+        if has_metals:
+            # Show metal coordination summary
+            self.log(f"\n  Metal coordination summary:", 3)
+            
+            # Compute ligand classification inline
+            ligand_classification = self._classify_metal_ligands(G)
+            
+            for metal_idx, ox_state in sorted(ligand_classification['metal_ox_states'].items()):
+                metal_sym = G.nodes[metal_idx]['symbol']
+                coord_num = len(list(G.neighbors(metal_idx)))
+                
+                # Get ligands for this metal
+                metal_dative = [entry for entry in ligand_classification['dative_bonds'] if entry[0] == metal_idx]
+                metal_ionic = [entry for entry in ligand_classification['ionic_bonds'] if entry[0] == metal_idx]
+                
+                self.log(f"\n[{metal_idx:>3}] {metal_sym}  oxidation_state={ox_state:+d}  coordination={coord_num}", 4)
+                
+                # Sort and display charged ligands first
+                if metal_ionic:
+                    sorted_ionic = sorted(metal_ionic, key=lambda x: x[2])
+                    for entry in sorted_ionic:
+                        m, donor, chg, ligand_type = entry if len(entry) == 4 else (*entry, 'unknown')
+                        d_sym = G.nodes[donor]['symbol']
+                        charge_str = f"{chg:+d}" if chg != 0 else " 0"
+                        self.log(f"  • {ligand_type:>6} ({charge_str})  [donor: {d_sym}{donor}]", 4)
+                
+                # Display neutral ligands
+                if metal_dative:
+                    for entry in metal_dative:
+                        m, donor, ligand_type = entry if len(entry) == 3 else (*entry, 'unknown')
+                        d_sym = G.nodes[donor]['symbol']
+                        self.log(f"  • {ligand_type:>6} ( 0)  [donor: {d_sym}{donor}]", 4)
+        else:
+            # No metals - show traditional formal charge list
+            charged_atoms = [(i, formal[i]) for i in range(len(formal)) if formal[i] != 0]
+            if charged_atoms:
+                self.log(f"  Charged atoms:", 3)
+                for i, fc in charged_atoms:
+                    sym = G.nodes[i]['symbol']
+                    self.log(f"    {sym}{i}: {fc:+d}", 4)
+            else:
+                self.log(f"  (no charged atoms)", 3)
 
+        # Balance residual charge with priority-based distribution
+        residual = self.charge - sum(formal)
+        
+        # Check if system has metals - if so, skip redistribution
+        # (residual represents metal oxidation states, ligand charges are already correct)
+        has_metals = any(G.nodes[i]['symbol'] in DATA.metals for i in G.nodes())
+        
+        if residual != 0 and not has_metals:
+            self.log(f"\nResidual charge distribution needed:", 2)
+            self.log(f"  Residual: {residual:+d}", 3)
+            
+            candidates = []
+            for i in range(len(self.atoms)):
+                if self._valence_sum(G, i) == 0:
+                    continue
+                
+                sym = G.nodes[i]['symbol']
+                if sym in DATA.metals:
+                    continue
+                
+                # Skip atoms bonded to metals (their charge is balanced by metal coordination)
+                # This preserves ligand charges: Cp⁻, CO, etc.
+                bonded_to_metal = any(
+                    G.nodes[nbr]['symbol'] in DATA.metals
+                    for nbr in G.neighbors(i)
+                )
+                if bonded_to_metal:
+                    continue
+                
+                score = 0
+                
+                # Priority: heteroatoms (more electronegative, better charge bearers)
+                if sym in ('O', 'N', 'S', 'Cl', 'Br', 'I', 'F', 'P'):
+                    score += 5
+                
+                # Lower priority: already charged (can accumulate more charge)
+                if abs(formal[i]) > 0:
+                    score += 2
+                
+                candidates.append((score, i))
+            
+            candidates.sort(reverse=True, key=lambda x: x[0])
+            
+            self.log(f"  Top candidates (showing first 10):", 3)
+            for score, idx in candidates[:10]:
+                sym = G.nodes[idx]['symbol']
+                current_fc = formal[idx]
+                self.log(f"    {sym}{idx}: score={score}, current_fc={current_fc:+d}", 4)
+            
+            # Distribute charge
             sign = 1 if residual > 0 else -1
-            for _, idx in bonded:
+            distributed_to = []
+            for _, idx in candidates:
                 if residual == 0:
                     break
                 formal[idx] += sign
                 residual -= sign
+                distributed_to.append((G.nodes[idx]['symbol'], idx, formal[idx]))
+            
+            self.log(f"  Distributed to {len(distributed_to)} atoms:", 3)
+            for sym, idx, new_fc in distributed_to:
+                self.log(f"    {sym}{idx}: {new_fc:+d}", 4)
+        elif residual != 0 and has_metals:
+            self.log(f"\nMetal complex detected: skipping residual distribution", 2)
+            self.log(f"  Residual: {residual:+d} (represents metal oxidation states)", 3)
+            self.log(f"  Ligand charges are chemically correct as-is", 3)
+        else:
+            self.log(f"\nNo residual charge distribution needed (sum matches target)", 2)
 
         return formal
     
@@ -425,7 +542,12 @@ class GraphBuilder:
         for i in G.nodes():
             sym = G.nodes[i]['symbol']
             if sym in limits:
-                val = sum(G[i][j].get('bond_order', 1.0) for j in G.neighbors(i))
+                # Exclude metal bonds from valence (like formal charge calculation)
+                val = sum(
+                    G[i][j].get('bond_order', 1.0) 
+                    for j in G.neighbors(i)
+                    if G.nodes[j]['symbol'] not in DATA.metals
+                )
                 if val > limits[sym] + tol:
                     return True
         return False
@@ -543,14 +665,12 @@ class GraphBuilder:
             
             # Low confidence bonds: validate geometry with confidence-aware thresholds
             else:
-                self.log(f"  Geometrically validating low-conf bond {i}-{j}: conf={confidence:.2f}, d={d:.2f}", 3)
                 if self._validate_bond_geometry(G, i, j, d, confidence):
                     G.add_edge(i, j,
                               bond_order=1.0,
                               distance=d,
                               metal_coord=has_metal)
                     edge_count += 1
-                    self.log(f"  ✓ Added low-conf bond {i}-{j}", 3)
                 else:
                     rejected_count += 1
 
@@ -571,82 +691,59 @@ class GraphBuilder:
         self.log(f"Initial bonds: {edge_count} added, {rejected_count} rejected by geometry validation", 1)
 
         # Cache graph properties
-        rings = nx.cycle_basis(G)
+        # Exclude metals from cycle detection to find true organic rings (e.g., Cp, pyridine)
+        # Metal-containing rings (C-M-C) clutter the cycle basis
+        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]['symbol'] not in DATA.metals]
+        G_no_metals = G.subgraph(non_metal_nodes).copy()
+        rings = nx.cycle_basis(G_no_metals)
+        
         G.graph['_rings'] = rings
         G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
         G.graph['_has_H'] = {n: any(G.nodes[nbr]['symbol'] == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
 
-        self.log(f"Found {len(rings)} rings", 1)
+        self.log(f"Found {len(rings)} rings (excluding metal-containing cycles)", 1)
 
         return G
 
-    def _prune_distorted_rings(self, G: nx.Graph) -> int:
-        """Remove geometrically distorted small rings"""
-
-        removed = 0
-        max_passes = 4
-        ring_prune_ratios = {3: 1.18, 4:1.22}
-        self.log(f"Pruning distorted rings (sizes: {list(ring_prune_ratios.keys())})", 1)
-
-        for _ in range(max_passes):
-            cycles = nx.cycle_basis(G) # recompute since graph may change
-            if not cycles:
-                break
-
-            pruned_this_pass = False
-
-            for cycle in cycles:
-                if len(cycle) not in ring_prune_ratios.keys():
-                    continue
-
-                # Skip metal-containing cycles
-                if any(G.nodes[i]['symbol'] in DATA.metals for i in cycle):
-                    continue
-
-                # Get cycle edges and distances
-                cycle_edges = [(cycle[k], cycle[(k+1) % len(cycle)]) for k in range(len(cycle))]
-
-                distances = []
-                for i, j in cycle_edges:
-                    if G.has_edge(i, j):
-                        distances.append(G.edges[i, j]['distance'])
-
-                if len(distances) != len(cycle):
-                    continue
-
-                dmin, dmax = min(distances), max(distances)
-                if dmin < 1e-6:
-                    continue
-
-                # Choose threshold
-                threshold = ring_prune_ratios[len(cycle)]
-
-                if dmax / dmin > threshold:
-                    # Remove longest edge
-                    worst_idx = distances.index(dmax)
-                    i, j = cycle_edges[worst_idx]
-                    if G.has_edge(i, j):
-                        G.remove_edge(i, j)
-                        removed += 1
-                        pruned_this_pass = True
-                        self.log(f"  Removed edge {i}-{j} in {len(cycle)}-ring", 2)
-                        break # One edge per pass
-
-            if not pruned_this_pass:
-                break
-
-        # Update cached rings after pruning
-        G.graph['_rings'] = nx.cycle_basis(G)
-
-        return removed
-
-    def _init_kekule_for_6rings(self, G: nx.Graph) -> int:
+    def _estimate_pi_electrons(self, G: nx.Graph, cycle: List[int]) -> int:
         """
-        Initialize alternating single/double bonds for 6-membered aromatic rings.
-            - Find 6-membered rings with aromatic atoms (C, N, O, S, B)
+        Estimate π electrons using metal-bonding as hint.
+        
+        Heuristic: 5-membered C-ring bonded to metal → likely Cp⁻ → π=6
+        """
+        pi_electrons = 0
+        bonded_to_metal = any(
+            any(G.nodes[nbr]['symbol'] in DATA.metals for nbr in G.neighbors(c))
+            for c in cycle
+        )
+        
+        for idx in cycle:
+            sym = G.nodes[idx]['symbol']
+            if sym == 'C':
+                pi_electrons += 1
+            elif sym == 'N':
+                # Use TOTAL degree, not in-ring degree
+                # N with 2 bonds total = pyrrole-like → 2 π electrons (lone pair in π system)
+                # N with 3 bonds total = pyridine-like → 1 π electron (lone pair NOT in π system)
+                degree = sum(1 for _ in G.neighbors(idx))
+                pi_electrons += 2 if degree == 2 else 1
+            elif sym in ('O', 'S'):
+                pi_electrons += 2
+        
+        # 5-ring bonded to metal with 5 π electrons → assume Cp⁻ (6 total)
+        if len(cycle) == 5 and bonded_to_metal and pi_electrons == 5:
+            pi_electrons += 1
+        
+        return pi_electrons
+
+    def _init_kekule_for_aromatic_rings(self, G: nx.Graph) -> int:
+        """
+        Initialize alternating single/double bonds for 5 and 6-membered aromatic rings.
+            - Find 5/6-membered rings with aromatic atoms (C, N, O, S, B)
             - Check planarity
-            - Apply simple alternating 1-2-1-2 pattern as starting point
-            - If edges are already set (from fused rings), validate consistency
+            - Estimate π electrons (use metal-bonding as hint)
+            - Check Hückel rule (4n+2)
+            - Apply alternating pattern as starting point
             - Optimizer will refine based on formal charges, electronegativity, etc.
 
         Parameters:
@@ -661,18 +758,71 @@ class GraphBuilder:
 
         # Atoms that can participate in aromatic conjugation
         aromatic_atoms = {'C', 'N', 'O', 'S', 'B'}
+        
+        self.log("\n" + "=" * 60, 0)
+        self.log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
+        self.log("=" * 60, 0)
 
-        for cycle in cycles:
-            # Must be 6-membered
-            if len(cycle) != 6:
+        for ring_idx, cycle in enumerate(cycles):
+            # Must be 5 or 6-membered
+            if len(cycle) not in (5, 6):
                 continue
+
+            ring_atoms = [f"{G.nodes[i]['symbol']}{i}" for i in cycle]
+            self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 2)
 
             # Allow some heteroatoms for extended conjugation
             if not all(G.nodes[i]['symbol'] in aromatic_atoms for i in cycle):
+                self.log("✗ Contains non-aromatic atoms", 3)
                 continue
 
             # Check planarity (aromatic rings are planar)
             if not self._check_planarity(cycle, G, threshold=0.15):
+                self.log("✗ Not planar", 3)
+                continue
+            
+            # Check that all carbons are sp2 (3-coordinate), not sp3 (4-valent)
+            # sp3 carbons cannot participate in aromatic π systems
+            has_sp3_carbon = False
+            for idx in cycle:
+                sym = G.nodes[idx]['symbol']
+                if sym == 'C':
+                    # Count total degree (all bonds, including outside ring)
+                    degree = sum(1 for _ in G.neighbors(idx))
+                    if degree >= 4:  # sp3 or higher coordination
+                        self.log(f"✗ Contains non-sp2 carbon {sym}{idx}", 3)
+                        has_sp3_carbon = True
+                        break
+            
+            if has_sp3_carbon:
+                continue
+            
+            # For 5-membered C-rings: Check if it's a Cp-like ring (all C bonded to same metal)
+            if len(cycle) == 5 and all(G.nodes[i]['symbol'] == 'C' for i in cycle):
+                # Check if all carbons bond to the same metal
+                metal_neighbors = {}
+                for c in cycle:
+                    for nbr in G.neighbors(c):
+                        if G.nodes[nbr]['symbol'] in DATA.metals:
+                            if nbr not in metal_neighbors:
+                                metal_neighbors[nbr] = []
+                            metal_neighbors[nbr].append(c)
+                
+                # Cp-like ring: all 5 carbons bonded to the SAME metal
+                is_cp_like = any(len(carbons) == 5 for carbons in metal_neighbors.values())
+                
+                if is_cp_like:
+                    metal_idx = [m for m, carbons in metal_neighbors.items() if len(carbons) == 5][0]
+                    metal_sym = G.nodes[metal_idx]['symbol']
+                    self.log(f"✓ Detected Cp-like ring (all 5 C bonded to {metal_sym}{metal_idx})", 3)
+            
+            # Estimate π electrons (use metal-bonding as hint)
+            pi_electrons = self._estimate_pi_electrons(G, cycle)
+            self.log(f"π electrons estimate: {pi_electrons}", 3)
+            
+            # Check Hückel rule (n=1,2 most common: π=6,10)
+            if pi_electrons not in (6, 10):
+                self.log(f"✗ Hückel rule violated (π={pi_electrons}, need 6 or 10)", 3)
                 continue
 
             # Get ring edges and their current bond orders
@@ -685,14 +835,22 @@ class GraphBuilder:
                     current_orders.append(1.0)
 
             # Check for already-set edges (from previously processed fused rings)
-            set_edges = [(idx, bo) for idx, bo in enumerate(current_orders) if abs(bo - 1.0) > 0.01] # ie. not currently a single bond
+            set_edges = [(idx, bo) for idx, bo in enumerate(current_orders) if abs(bo - 1.0) > 0.01]
 
             if len(set_edges) == 0:
-                # No constraints - use default pattern starting with double
-                for idx, (i, j) in enumerate(ring_edges):
-                    if G.has_edge(i, j):
-                        bond_order = 2.0 if idx % 2 == 0 else 1.0
-                        G.edges[i, j]['bond_order'] = bond_order
+                # No constraints - apply pattern based on ring size
+                if len(cycle) == 6:
+                    # 6-ring: 1-2-1-2-1-2
+                    for idx, (i, j) in enumerate(ring_edges):
+                        if G.has_edge(i, j):
+                            bond_order = 2.0 if idx % 2 == 0 else 1.0
+                            G.edges[i, j]['bond_order'] = bond_order
+                elif len(cycle) == 5:
+                    # 5-ring: 2-1-2-1-1
+                    pattern = [2.0, 1.0, 2.0, 1.0, 1.0]
+                    for idx, (i, j) in enumerate(ring_edges):
+                        if G.has_edge(i, j):
+                            G.edges[i, j]['bond_order'] = pattern[idx]
                 initialized_rings += 1
 
             elif len(set_edges) == 1:
@@ -704,7 +862,7 @@ class GraphBuilder:
                         if idx == anchor_idx:
                             continue  # Keep anchor as is
 
-                        offset = (idx - anchor_idx) % 6
+                        offset = (idx - anchor_idx) % len(cycle)
                         if abs(anchor_bo - 2.0) < 0.1:
                             bond_order = 2.0 if offset % 2 == 0 else 1.0
                         else:
@@ -720,8 +878,8 @@ class GraphBuilder:
 
                 # Generate expected pattern based on first anchor
                 expected = []
-                for idx in range(6):
-                    offset = (idx - anchor_idx) % 6
+                for idx in range(len(cycle)):
+                    offset = (idx - anchor_idx) % len(cycle)
                     if abs(anchor_bo - 2.0) < 0.1:
                         expected.append(2.0 if offset % 2 == 0 else 1.0)
                     else:
@@ -744,10 +902,11 @@ class GraphBuilder:
                     initialized_rings += 1
                 else:
                     # Conflict detected - skip this ring, let optimizer handle it
-                    pass
+                    self.log("✗ Conflict in existing bond orders", 3)
 
-        if initialized_rings > 0:
-            self.log(f"Initialized {initialized_rings} 6-membered carbon rings with Kekulé pattern", 1)
+        self.log("\n" + "-" * 60, 1)
+        self.log(f"SUMMARY: Initialized {initialized_rings} ring(s) with Kekulé pattern", 1)
+        self.log("-" * 60 + "\n", 1)
 
         return initialized_rings
 
@@ -844,7 +1003,7 @@ class GraphBuilder:
             return False
         return True
 
-    def _ekey(self, i: int, j: int) -> tuple[int, int]:
+    def _ekey(self, i: int, j: int) -> Tuple[int, int]:
         return (i, j) if i < j else (j, i)
 
     def _edge_likelihood(self, G: nx.Graph, *, init: bool = False, touch_nodes: Optional[set] = None):
@@ -910,9 +1069,14 @@ class GraphBuilder:
                 ring_sym = G.nodes[ring_atom]['symbol']
                 for nbr, data in G[ring_atom].items():
                     if nbr not in ring_set:
+                        nbr_sym = G.nodes[nbr]['symbol']
+                        
+                        # Skip metal bonds - they don't disrupt aromatic π system
+                        if nbr_sym in DATA.metals:
+                            continue
+                        
                         bo = data.get('bond_order', 1.0)
                         if bo >= 1.8:
-                            nbr_sym = G.nodes[nbr]['symbol']
                             if (ring_sym == 'C' and nbr_sym != 'O') or \
                             (ring_sym == 'N' and nbr_sym in ('C', 'P', 'S')):
                                 exocyclic_double += 1
@@ -957,7 +1121,15 @@ class GraphBuilder:
         has_H = G.graph.get('_has_H') or {n: any(G.nodes[nbr]['symbol'] == 'H' for nbr in G[n]) for n in G.nodes()}
         G.graph['_has_H'] = has_H
 
-        valence_cache = {n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)) for n in G.nodes()}
+        # Build valence cache excluding metal bonds (coordination bonds don't count)
+        valence_cache = {
+            n: sum(
+                G[n][nbr].get('bond_order', 1.0) 
+                for nbr in G.neighbors(n)
+                if G.nodes[nbr]['symbol'] not in DATA.metals
+            ) 
+            for n in G.nodes()
+        }
         self.valence_cache = valence_cache
 
         # --- Lock metal bonds ---
@@ -1077,18 +1249,25 @@ class GraphBuilder:
     def _update_valence_cache(self, G: nx.Graph, nodes: Optional[set] = None) -> None:
         """
         Update valence cache for specific nodes or all nodes.
+        Excludes metal bonds to match behavior in optimization methods.
         """
         if nodes is None:
-            # Full rebuild
+            # Full rebuild (excluding metal bonds)
             self.valence_cache = {
-                n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n))
+                n: sum(
+                    G[n][nbr].get('bond_order', 1.0) 
+                    for nbr in G.neighbors(n)
+                    if G.nodes[nbr]['symbol'] not in DATA.metals
+                )
                 for n in G.nodes()
             }
         else:
-            # Incremental update
+            # Incremental update (excluding metal bonds)
             for n in nodes:
                 self.valence_cache[n] = sum(
-                    G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n)
+                    G[n][nbr].get('bond_order', 1.0) 
+                    for nbr in G.neighbors(n)
+                    if G.nodes[nbr]['symbol'] not in DATA.metals
                 )
 
     def _restore_graph_caches(self, G: nx.Graph) -> None:
@@ -1096,8 +1275,6 @@ class GraphBuilder:
         Rebuild cached graph properties after modifications.
         Called after applying bond order changes.
         """
-        # Update cached rings
-        G.graph['_rings'] = nx.cycle_basis(G)
         
         # Update neighbor cache
         G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
@@ -1219,8 +1396,8 @@ class GraphBuilder:
                 12.0 * penalties['conjugation'] +
                 8.0 * penalties['protonation'] +
                 10.0 * penalties['fc'] +
-                3.0 * penalties['n_charged'] +
-                5.0 * charge_error +
+                10.0 * penalties['n_charged'] +
+                10.0 * charge_error +
                 2.0 * penalties['en'] +
                 5.0 * penalties['valence'])
         
@@ -1236,13 +1413,12 @@ class GraphBuilder:
         - When promoting edge (i,j), update valence for nodes i and j
         - Score calculation uses cached valences
         """
-        self.log("=" * 60, 0)
-        self.log(f"\nBEAM SEARCH OPTIMIZATION (width={self.beam_width})", 1)
+        self.log(f"\n{'=' * 60}", 0)
+        self.log(f"BEAM SEARCH OPTIMIZATION (width={self.beam_width})", 0)
         self.log("=" * 60, 0)
         
-        # Precompute graph info (shared across beam)
-        rings = nx.cycle_basis(G)
-        G.graph['_rings'] = rings
+        # Use cached graph info (don't recompute - preserves metal-free rings)
+        rings = G.graph.get('_rings', nx.cycle_basis(G))
         G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
         G.graph['_has_H'] = {
             n: any(G.nodes[nbr]['symbol'] == 'H' for nbr in G.neighbors(n)) 
@@ -1258,9 +1434,13 @@ class GraphBuilder:
         if metal_count > 0:
             self.log(f"Locked {metal_count} metal bonds", 1)
         
-        # Build initial valence cache (shared starting point)
+        # Build initial valence cache excluding metal bonds (shared starting point)
         base_valence_cache = {
-            n: sum(G[n][nbr].get('bond_order', 1.0) for nbr in G.neighbors(n))
+            n: sum(
+                G[n][nbr].get('bond_order', 1.0) 
+                for nbr in G.neighbors(n)
+                if G.nodes[nbr]['symbol'] not in DATA.metals
+            )
             for n in G.nodes()
         }
         
@@ -1405,7 +1585,8 @@ class GraphBuilder:
         self.log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
         self.log("=" * 60, 0)
         
-        cycles = nx.cycle_basis(G)
+        # Use cached cycles (metal-free) instead of recalculating
+        cycles = G.graph.get('_rings', [])
         aromatic_count = 0
         aromatic_rings = 0
         
@@ -1415,9 +1596,8 @@ class GraphBuilder:
             
             ring_atoms = [f"{G.nodes[i]['symbol']}{i}" for i in cycle]
 
-            # Check if all atoms can be aromatic - just means that other atoms will be kekule structures
-            # aromatic_atoms = {'C', 'N', 'O', 'S', 'P', 'B'}
-            aromatic_atoms = {'C'}
+            aromatic_atoms = {'C', 'N', 'O', 'S', 'B'}
+
             if not all(G.nodes[i]['symbol'] in aromatic_atoms for i in cycle):
                 non_aromatic = [G.nodes[i]['symbol'] for i in cycle if G.nodes[i]['symbol'] not in aromatic_atoms]
                 self.log(f"✗ Contains non-aromatic atoms: {non_aromatic}", 2)
@@ -1437,12 +1617,26 @@ class GraphBuilder:
             
             for idx in cycle:
                 sym = G.nodes[idx]['symbol']
+                fc = G.nodes[idx].get('formal_charge', 0)
                 contribution = 0
                 
                 if sym == 'C':
-                    # sp2 carbon contributes 1 π electron
+                    # sp2 carbon base contribution: 1 π electron
                     contribution = 1
-                    pi_breakdown.append(f"{sym}{idx}:1")
+                    # Negative charge adds to π system (e.g., Cp⁻)
+                    if fc < 0:
+                        contribution += abs(fc)
+                        pi_breakdown.append(f"{sym}{idx}:1+{abs(fc)}(charge)")
+                    # Positive charge removes from π system (e.g., tropylium⁺)
+                    elif fc > 0:
+                        contribution = max(0, 1 - fc)
+                        pi_breakdown.append(f"{sym}{idx}:{contribution}")
+                    else:
+                        pi_breakdown.append(f"{sym}{idx}:1")
+                elif sym == 'B':
+                    # B with 3 bonds: empty p-orbital participates but contributes 0 π electrons
+                    contribution = 0
+                    pi_breakdown.append(f"{sym}{idx}:0(empty_p)")
                 elif sym == 'N':
                     # N with 2 neighbors (pyrrole-like) contributes 2
                     # N with 3 neighbors (pyridine-like) contributes 1
@@ -1516,6 +1710,131 @@ class GraphBuilder:
         
         return max_deviation < threshold
 
+    def _get_ligand_unit_info(self, G: nx.Graph, metal_idx: int, start_atom: int) -> Tuple[int, str]:
+        """
+        Get charge and identity for a ligand unit by following linear chain from start_atom.
+        
+        Returns: (charge, ligand_id)
+        Handles: CO, CN⁻, SCN⁻, NO, monatomic ligands
+        Limitation: Won't traverse rings (like Cp) but those handled separately
+        """
+        symbols = [G.nodes[start_atom]['symbol']]
+        charge = G.nodes[start_atom].get('formal_charge', 0)
+        current = start_atom
+        prev = metal_idx
+        
+        # Follow linear chain
+        while True:
+            neighbors = [n for n in G.neighbors(current)
+                        if n != prev and G.nodes[n]['symbol'] not in DATA.metals]
+            if len(neighbors) != 1:
+                break  # Not linear or branch point
+            next_atom = neighbors[0]
+            symbols.append(G.nodes[next_atom]['symbol'])
+            charge += G.nodes[next_atom].get('formal_charge', 0)
+            prev, current = current, next_atom
+        
+        # Identify common ligands
+        ligand_formula = ''.join(symbols)
+        if ligand_formula == 'CO':
+            ligand_id = 'CO'
+        elif ligand_formula == 'CN':
+            ligand_id = 'CN' if charge < 0 else 'CN'
+        elif ligand_formula == 'NO':
+            ligand_id = 'NO'
+        elif ligand_formula in ('SCN', 'NCS'):
+            ligand_id = 'SCN'
+        elif len(symbols) == 1:
+            ligand_id = symbols[0]
+        else:
+            ligand_id = ligand_formula
+        
+        return charge, ligand_id
+    
+    def _classify_metal_ligands(self, G: nx.Graph) -> Dict[str, Any]:
+        """
+        Infer ligand types and metal oxidation state from formal charges.
+        Handles: monatomic (H⁻, Cl⁻), linear chains (CO, CN⁻), rings (Cp⁻).
+        
+        Returns classification dict with:
+        - dative_bonds: [(metal, representative_atom, ligand_type)] neutral ligands
+        - ionic_bonds: [(metal, representative_atom, charge, ligand_type)] charged ligands
+        - metal_ox_states: {metal_idx: oxidation_state}
+        """
+        classification = {
+            'dative_bonds': [],
+            'ionic_bonds': [],
+            'metal_ox_states': {}
+        }
+        
+        # Get rings (metal-free)
+        rings = G.graph.get('_rings', [])
+        
+        for metal_idx in G.nodes():
+            if G.nodes[metal_idx]['symbol'] not in DATA.metals:
+                continue
+            
+            ligand_charge_sum = 0
+            processed_atoms = set()  # Track atoms already assigned to ligands
+            
+            # First pass: detect ring-based ligands (Cp⁻)
+            metal_bonded_atoms = [n for n in G.neighbors(metal_idx) 
+                                 if G.nodes[n]['symbol'] not in DATA.metals]
+            
+            for ring in rings:
+                # Check if entire ring bonds to this metal
+                ring_set = set(ring)
+                bonded_ring_atoms = [a for a in metal_bonded_atoms if a in ring_set]
+                
+                if len(bonded_ring_atoms) >= len(ring) / 2:  # At least half the ring bonded
+                    # Sum charges for entire ring
+                    ring_charge = sum(G.nodes[a].get('formal_charge', 0) for a in ring)
+                    ligand_charge_sum += ring_charge
+                    
+                    # Mark as processed
+                    processed_atoms.update(bonded_ring_atoms)
+                    
+                    # Use first atom as representative
+                    rep_atom = bonded_ring_atoms[0]
+                    ligand_type = f"{len(ring)}-ring"
+                    
+                    if ring_charge == 0:
+                        classification['dative_bonds'].append((metal_idx, rep_atom, ligand_type))
+                    else:
+                        classification['ionic_bonds'].append((metal_idx, rep_atom, ring_charge, ligand_type))
+            
+            # Second pass: handle remaining ligands
+            for donor_atom in metal_bonded_atoms:
+                if donor_atom in processed_atoms:
+                    continue
+                
+                donor_sym = G.nodes[donor_atom]['symbol']
+                
+                # Check if monatomic (H, halides)
+                non_metal_neighbors = [n for n in G.neighbors(donor_atom) 
+                                      if G.nodes[n]['symbol'] not in DATA.metals]
+                
+                if len(non_metal_neighbors) == 0:
+                    # Monatomic ligand (H⁻, Cl⁻, etc.)
+                    ligand_charge = G.nodes[donor_atom].get('formal_charge', 0)
+                    ligand_type = f"{donor_sym}"
+                else:
+                    # Linear chain ligand (CO, CN⁻, etc.)
+                    ligand_charge, ligand_type = self._get_ligand_unit_info(G, metal_idx, donor_atom)
+                
+                ligand_charge_sum += ligand_charge
+                
+                if ligand_charge == 0:
+                    classification['dative_bonds'].append((metal_idx, donor_atom, ligand_type))
+                else:
+                    classification['ionic_bonds'].append((metal_idx, donor_atom, ligand_charge, ligand_type))
+            
+            # Infer oxidation state: opposite of ligand charge sum
+            ox_state = -ligand_charge_sum
+            classification['metal_ox_states'][metal_idx] = ox_state
+        
+        return classification
+
     def _compute_gasteiger_charges(self, G: nx.Graph) -> List[float]:
         """Compute Gasteiger charges using RDKit"""
         try:
@@ -1578,8 +1897,8 @@ class GraphBuilder:
         
         self.log(f"Initial bonds: {G.number_of_edges()}", 1)
         
-        # Initialize Kekulé patterns for 6-membered carbon rings (gives optimizer a head start)
-        init_rings = self._init_kekule_for_6rings(G)
+        # Initialize Kekulé patterns for aromatic rings (gives optimizer a head start)
+        init_rings = self._init_kekule_for_aromatic_rings(G)
         stats = None
         # Valence adjustment
         if self.quick:
@@ -1590,7 +1909,14 @@ class GraphBuilder:
             if self.optimizer == 'beam':
                 stats = self._beam_search_optimize(G)
         
-        # Aromatic detection (Hückel rule)
+        # Compute formal charges BEFORE aromatic detection
+        formal_charges = self._compute_formal_charges(G)
+        
+        # Store formal charges in nodes for aromatic detection to use
+        for i, fc in enumerate(formal_charges):
+            G.nodes[i]['formal_charge'] = fc
+        
+        # Aromatic detection (Hückel rule) - now can use formal charges
         arom_count = self._detect_aromatic_rings(G)
         
         # Compute charges
@@ -1599,7 +1925,9 @@ class GraphBuilder:
         delta = (self.charge - raw_sum) / len(self.atoms) if self.atoms else 0.0
         gasteiger_adj = [c + delta for c in gasteiger_raw]
         
-        formal_charges = self._compute_formal_charges(G)
+        # Classify metal-ligand bonds
+        ligand_classification = self._classify_metal_ligands(G)
+        G.graph['ligand_classification'] = ligand_classification
         
         # Annotate graph
         for node in G.nodes():
