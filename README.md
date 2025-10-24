@@ -149,12 +149,22 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 ┌────────────────────▼────────────────────────────────────────────┐
 │ 2. Initial Bond Graph (Distance-Based)                          │
 │    • Compute pairwise distances                                 │
-│    • Apply scaled VDW thresholds:                               │
-|      - H-H: 0.40 × (r₁ + r₂)                                    │
-│      - H-nonmetal: 0.42 × (r₁ + r₂)                             │
-│      - H-metal: 0.45 × (r₁ + r₂)                                │
-│      - Nonmetal-nonmetal: 0.55 × (r₁ + r₂)                      │
-│      - Metal-ligand: 0.65 × (r₁ + r₂)                           │
+│    • Apply scaled VDW thresholds (default --threshold 1.0):     │
+|      - H-H: 0.38 × (r₁ + r₂) × threshold                        │
+│      - H-nonmetal: 0.42 × (r₁ + r₂) × threshold                 │
+│      - H-metal: 0.48 × (r₁ + r₂) × threshold                    │
+│      - Nonmetal-nonmetal: 0.55 × (r₁ + r₂) × threshold          │
+│      - Metal-ligand: 0.6 × (r₁ + r₂) (unscaled by threshold)    │
+│    • Bonds sorted by confidence: 1.0 (short) to 0.0 (at thresh) │
+│    • High confidence (>0.4): added directly                     │
+│    • Low confidence (≤0.4): geometric validation applied        │
+│                                                                 │
+│    Geometric Validation (for elongated/TS bonds):               │
+│    • Acute angle check: 15° (metals) / 30° (non-metals)         │
+│    • Collinearity check: distinguishes trans vs spurious        │
+│    • Diagonal check: preventing false 3-ring formation          │
+│    → Allows TS bonds with --threshold 1.2-1.3 (≥1.35 unstable)  │
+│                                                                 │
 │    • Create graph with single bonds (order = 1.0)               │
 └────────────────────┬────────────────────────────────────────────┘
                      │
@@ -658,10 +668,10 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 
 | Atom Pair Type | Default Threshold | Parameter Name |
 |---------------|-------------------|----------------|
-| H-H | 0.40 × (r₁ + r₂) | `threshold_h_h` |
+| H-H | 0.38 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
-| H-metal | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
-| Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
+| H-metal | 0.48 × (r₁ + r₂) | `threshold_h_metal` |
+| Metal-ligand | 0.6 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
 
 Where r₁ and r₂ are the VDW radii of the two atoms.
