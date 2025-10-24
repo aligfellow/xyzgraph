@@ -369,7 +369,7 @@ options:
   -o {greedy,beam}, --optimizer {greedy,beam}
                         Optimization algorithm (default: beam, cheminf , BEAM recommended)
   -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
-                        Beam width for beam search (default: 3). i.e. number of candidate graphs to retain per iteration
+                        Beam width for beam search (default: 5). i.e. number of candidate graphs to retain per iteration
   --bond BOND           Specify atoms that must be bonded in the graph construction. Example: --bond 0,1 2,3
   --unbond UNBOND       Specify that two atoms indices are NOT bonded in the graph construction. Example: --unbond 0,1 1,2
   -c CHARGE, --charge CHARGE
@@ -619,24 +619,24 @@ H-------------------N--------------------H
 
 1. **Metal Complexes**
    - Bond orders locked at 1.0 (no d-orbital chemistry)
-   - Formal charges set to 0 (coordination, not oxidation state)
    - Metal-metal bonds *partially* supported (single bond allowed)
+   - Can deal with **both** ionic *and* neutral ligands
 
 2. **Radicals & Open-Shell Systems**
-   - Should solve a valence structure
+   - Unlikely to appropriately solve a valence structure
    - Not explicity dealt with currently
    - *May* behave, *may* be unreliable
 
 3. **Zwitterions**
    - Formal charge and valence analysis does identify `-[N+](=O)(-[O-])` bonding and formal charge pattern
+   - This is performed **without pattern matching**
    - *May* not always be fully robust
 
 4. **Large Conjugated Systems**
-   - May need many iterations for convergence (better with kekule initialised rings)
-   - Conjugation penalty heuristic (not full π-MO analysis)
+   - May need many iterations for convergence (kekule initialised rings)
 
 5. **Charged Aromatics**
-   - Hückel electron counting simplified (doesn't account for ionic charge)
+   - Hückel electron counting is simplistic
    - Should still solve with valence/charge optimisation
 
 ---
@@ -959,30 +959,9 @@ GRAPH CONSTRUCTION COMPLETE
 [  0]  O  val=2.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 1(2.00)
 [  1]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 0(2.00) 2(1.00) 5(1.00)
 [  5]  N  val=3.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 1(1.00) 6(1.00) 19(1.00)
-[ 13]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 6(1.00) 14(1.00) 17(1.00)
-[ 14]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 13(1.00) 15(1.00) 16(1.00)
 [ 18]  N  val=4.00  metal=0.00  formal=+1  chg=+0.019  agg=+0.019 | 17(1.00) 19(2.00) 26(1.00)
 [ 19]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 5(1.00) 18(2.00) 20(1.00)
 [ 20]  S  val=2.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 19(1.00) 21(1.00)
-[ 21]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 20(1.00) 22(1.50*) 26(1.50*)
-[ 26]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 18(1.00) 21(1.50*) 25(1.50*)
-
-# Bonds (i-j: order) (filtered)
-[ 0- 1]: 2.00
-[ 1- 2]: 1.00
-[ 1- 5]: 1.00
-[ 2- 3]: 2.00
-[ 3- 4]: 1.00
-[ 5- 6]: 1.00
-[ 5-19]: 1.00
-[ 6- 7]: 1.00
-[ 6-13]: 1.00
-[ 7- 8]: 1.50
-[ 7-12]: 1.50
-[ 8- 9]: 1.50
-[ 9-10]: 1.50
-[10-11]: 1.50
-[11-12]: 1.50
 ```
 
 **ASCII Depiction:**
