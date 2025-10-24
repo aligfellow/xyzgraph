@@ -175,14 +175,16 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 3.5 Kekulé Initialization for Aromatic Rings                    │
-│    • Find 6-membered planar rings with C/N/O/S/B                │
-│    • Initialize alternating bond orders: 2-1-2-1-2-1            │
+│ 3.5 Kekulé Initialization for Conjugated Rings                  │
+│    • Find 5/6-membered planar rings with C/N/O/S/B/P/Se         │
+│    • Initialize alternating bond orders (5-ring: 2-1-2-1-1,     │
+│      6-ring: 2-1-2-1-2-1)                                       │
 │    • Handle fused rings (naphthalene, anthracene):              │
 │      - Detecting shared edges from previous rings               │
 │      - Validated across extended ring system                    │
 │    • Gives optimizer excellent starting point                   │
-│    • Reduces iterations needed for aromatic systems             │
+│    • Reduces iterations needed for conjugated systems           │
+│    • Broader atom set than aromatic detection (P, Se included)  │
 └────────────────────┬────────────────────────────────────────────┘
                      │
           ┌──────────┴─────────────┐
@@ -207,10 +209,11 @@ xyzgraph offers two distinct pathways for molecular graph construction:
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
 │ 5. Aromatic Detection (Hückel 4n+2)                             │
-│    • Find 5/6-membered rings with C/N/O/S/P                     │
+│    • Find 5/6-membered rings with C/N/O/S/B                     │
 │    • Count π electrons (sp² carbons → 1e, N/O/S LP → 2e)        │
 │    • Apply Hückel rule: 4n+2 π electrons                        │
 │    • Set aromatic bonds to 1.5                                  │
+│    • Other heteroatoms (e.g. P, Se) use Kekulé structures       │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
@@ -661,6 +664,311 @@ xyzgraph molecule.xyz --compare-rdkit --debug
 #     1-2   native=1.50   rdkit=1.00   Δ=+0.50
 #     2-3   native=2.00   rdkit=1.50   Δ=+0.50
 ```
+
+---
+
+## Examples
+
+This section demonstrates xyzgraph's capabilities on real molecular systems, showcasing Kekulé initialization, aromatic detection, metal coordination analysis, and formal charge assignment.
+
+### Example 1: Metal Complex (Ferrocene-Manganese Hydride)
+
+This example demonstrates xyzgraph's handling of organometallic complexes with multiple ligand types.
+
+**System:** [(η⁵-Cp)₂Fe][Mn(H)(CO)₂(PNN)] - Ferrocene cation with manganese hydride complex  
+**File:** `examples/mnh.xyz` (77 atoms)
+
+**Command:**
+```bash
+xyzgraph examples/mnh.xyz --ascii --debug
+```
+
+**Key Features:**
+- Detection of Cp⁻ (cyclopentadienyl) rings coordinated to Fe
+- Metal coordination summary (Fe²⁺, Mn¹⁺) with ligand classification
+- Hydride ligand (H⁻) recognition
+- Carbonyl (CO) ligands with triple-bonded oxygen
+- Aromatic Cp rings with charge contribution to π system
+
+**Output (truncated):**
+
+```text
+KEKULE INITIALIZATION FOR AROMATIC RINGS
+    
+Ring 1 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
+      ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
+      π electrons estimate: 6
+    
+Ring 2 (6-membered): ['C37', 'C39', 'C41', 'C43', 'C45', 'C36']
+      π electrons estimate: 6
+    
+Ring 3 (6-membered): ['C34', 'C32', 'C30', 'C28', 'C26', 'C25']
+      π electrons estimate: 6
+    
+Ring 4 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
+      π electrons estimate: 6
+    
+Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
+      ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
+      π electrons estimate: 6
+  
+------------------------------------------------------------
+  SUMMARY: Initialized 5 ring(s) with Kekulé pattern
+------------------------------------------------------------
+
+BEAM SEARCH OPTIMIZATION (width=5)
+  Locked 16 metal bonds
+  Initial score: 456.70
+  
+Iteration 1:
+      Generated 2 candidates, keeping top 2
+      ✓ New best: O3-C64      Δtotal =  81.00  score =   375.70
+  
+Iteration 2:
+      Generated 4 candidates, keeping top 4
+      ✓ New best: O4-C65      Δtotal =  81.00  score =   294.70
+  
+Iteration 3:
+      Generated 6 candidates, keeping top 5
+      ✓ New best: O3-C64      Δtotal =  20.00  score =   274.70
+  
+Iteration 4:
+      Generated 5 candidates, keeping top 5
+      ✓ New best: O4-C65      Δtotal =  20.00  score =   254.70
+  
+Iteration 5:
+      No improvements found in any beam, stopping
+  
+------------------------------------------------------------
+  Explored 181 states across 5 iterations
+  Found 4 improvements
+  Score: 456.70 → 254.70
+------------------------------------------------------------
+
+FORMAL CHARGE CALCULATION
+    
+Initial formal charges:
+        Sum: -3 (target: +0)
+      
+  Metal coordination summary:
+        
+[  0] Fe  oxidation_state=+2  coordination=10
+          • 5-ring (-1)  [donor: C13]
+          • 5-ring (-1)  [donor: C19]
+        
+[  1] Mn  oxidation_state=+1  coordination=6
+          •      H (-1)  [donor: H67]
+          •     CO ( 0)  [donor: C64]
+          •     CO ( 0)  [donor: C65]
+          •      N ( 0)  [donor: N6]
+          •      P ( 0)  [donor: P2]
+          •      N ( 0)  [donor: N5]
+    
+Metal complex detected: 
+        Residual: +3 (represents metal oxidation states)
+
+AROMATIC RING DETECTION (Hückel 4n+2)
+  
+Ring 1 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
+    π electrons: 6 (C7:1, C13:1, C11:1, C9:1, C8:1+1(charge))
+    ✓ AROMATIC (4n+2 rule: n=1)
+  
+Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
+    π electrons: 6 (C15:1, C17:1, C19:1, C21:1, C23:1+1(charge))
+    ✓ AROMATIC (4n+2 rule: n=1)
+
+------------------------------------------------------------
+  SUMMARY: 5 aromatic rings, 28 bonds set to 1.5
+------------------------------------------------------------
+
+# Selected atoms from molecular graph:
+[  0] Fe  val=10.00  metal=0.00  formal=0   | 7(1.00) 8(1.00) 9(1.00) 11(1.00) 13(1.00) ...
+[  1] Mn  val=6.00  metal=0.00  formal=0   | 2(1.00) 5(1.00) 6(1.00) 64(1.00) 65(1.00) 67(1.00)
+[  3]  O  val=3.00  metal=0.00  formal=+1  | 64(3.00)
+[  4]  O  val=3.00  metal=0.00  formal=+1  | 65(3.00)
+[  8]  C  val=4.00  metal=1.00  formal=-1  | 0(1.00) 7(1.50*) 9(1.50*) 47(1.00)
+[ 23]  C  val=4.00  metal=1.00  formal=-1  | 0(1.00) 15(1.50*) 21(1.50*)
+[ 64]  C  val=3.00  metal=1.00  formal=-1  | 1(1.00) 3(3.00)
+[ 65]  C  val=3.00  metal=1.00  formal=-1  | 1(1.00) 4(3.00)
+[ 67]  H  val=0.00  metal=1.00  formal=-1  | 1(1.00)
+```
+
+**ASCII Depiction:**
+```text
+            C---------C
+           /           \
+           /            \               C--
+          /              \            //   ----
+         /                \         //         --C
+         /                 C      //             |
+        C                 /      C                |
+         \               /       |                |
+          \             /         |               |
+           \            /         |   O            |
+            \          /          |  #             C
+             C--------C            |#            //
+                       \          #C--         //
+                        \        //   ----   //
+                         \\    /C       H --C     C---------C                  C
+      C----                \ // \      /         /           \                /
+     / \   -----C         --P    \    /   C#####/             \              /
+  C----\---    /\     ----   \\   \   / //     /####O         \             /
+  |\\\  \  --//----C--         \\ \  ///      /                \           /
+ /|   \  \  /  ---\|             \\ //   ----N                  C---------N
+C----- \\\ /---   |                Mn----     \                /           \
+ |    ----Fe---   |                |           \              /            \
+ |  ---- /|\\  ----C               |           \             /              \
+ C--    /|   \\---|                |             \           /                \
+  \\  // |---- \\|                |              C---------C                 \
+   \\/---|     --C\               |             /                             C
+    C-\\|  ----    \\\          --N-          //
+        C--           \\    ----  | ---      /
+                        \C--      |    ---  /
+                         |        |       -C
+                         |        |
+                        |         |
+                        |         H
+                        |
+                        C
+```
+
+**[View full molecular structure (SVG)](examples/mnh.svg)**
+
+**Analysis:**
+- **Ferrocene fragment:** Fe²⁺ coordinated to two Cp⁻ ligands (η⁵ coordination)
+- **Cp rings:** Detected as aromatic with 6 π electrons (includes -1 charge contribution from each ring)
+- **Manganese center:** Mn¹⁺ with octahedral-like coordination
+  - Hydride (H⁻) ligand correctly identified (formal charge -1)
+  - Two CO ligands with C≡O triple bonds (formal charges: C: -1, O: +1)
+  - Phosphine (P) and amine (N) donors
+- **Beam search:** Converged in 5 iterations, primarily optimizing CO bond orders
+- **Charge balance:** System is neutral (Fe²⁺ + Mn¹⁺ - 2×Cp⁻ - H⁻ - 2×CO⁻ = 0)
+
+---
+
+### Example 2: Organic Cation (Acyl Isothiouronium)
+
+This example shows aromatic detection, formal charge assignment, and handling of heteroaromatic systems.
+
+**System:** Acyl isothiouronium cation (quaternary nitrogen)  
+**File:** `examples/isothio.xyz` (48 atoms, +1 charge)
+
+**Command:**
+```bash
+xyzgraph examples/isothio.xyz --charge 1 --ascii --debug
+```
+
+**Key Features:**
+- Benzene ring aromatic detection
+- 5-membered heterocycle evaluation (thiazole-like ring)
+- Formal charge on quaternary nitrogen (N⁺)
+- Beam search optimization of carbonyl bond order
+
+**Output (truncated):**
+
+```text
+KEKULE INITIALIZATION FOR AROMATIC RINGS
+    
+Ring 1 (6-membered): ['C22', 'C21', 'C20', 'C19', 'C24', 'C23']
+      π electrons estimate: 6
+    
+Ring 2 (5-membered): ['N16', 'C17', 'S18', 'C19', 'C24']
+      π electrons estimate: 7
+      ✗ Hückel rule violated (π=7, need 6 or 10)
+    
+Ring 4 (6-membered): ['C10', 'C9', 'C8', 'C7', 'C6', 'C5']
+      π electrons estimate: 6
+  
+------------------------------------------------------------
+  SUMMARY: Initialized 2 ring(s) with Kekulé pattern
+------------------------------------------------------------
+
+BEAM SEARCH OPTIMIZATION (width=5)
+  Initial score: 585.00
+  
+Iteration 1:
+      ✓ New best: N16-C17     Δtotal = 116.50  score =   468.50
+  
+Iteration 2:
+      ✓ New best: O0-C1       Δtotal =  71.00  score =   397.50
+  
+Iteration 3:
+      No improvements found in any beam, stopping
+  
+------------------------------------------------------------
+  Found 2 improvements
+  Score: 585.00 → 397.50
+------------------------------------------------------------
+
+FORMAL CHARGE CALCULATION
+    
+Initial formal charges:
+        Sum: +1 (target: +1)
+        Charged atoms:
+            N16: +1
+    
+No residual charge distribution needed (sum matches target)
+
+AROMATIC RING DETECTION (Hückel 4n+2)
+  
+Ring 1 (6-membered): ['C22', 'C21', 'C20', 'C19', 'C24', 'C23']
+    π electrons: 6 (C22:1, C21:1, C20:1, C19:1, C24:1, C23:1)
+    ✓ AROMATIC (4n+2 rule: n=1)
+  
+Ring 2 (5-membered): ['N16', 'C17', 'S18', 'C19', 'C24']
+    π electrons: 7 (N16:2(LP), C17:1, S18:2(LP), C19:1, C24:1)
+    ✗ Not aromatic (4n+2 rule violated)
+  
+Ring 4 (6-membered): ['C10', 'C9', 'C8', 'C7', 'C6', 'C5']
+    π electrons: 6 (C10:1, C9:1, C8:1, C7:1, C6:1, C5:1)
+    ✓ AROMATIC (4n+2 rule: n=1)
+
+------------------------------------------------------------
+  SUMMARY: 2 aromatic rings, 12 bonds set to 1.5
+------------------------------------------------------------
+
+# Selected atoms from molecular graph:
+[  0]  O  val=2.00  metal=0.00  formal=0   | 1(2.00)
+[  1]  C  val=4.00  metal=0.00  formal=0   | 0(2.00) 2(1.00) 3(1.00)
+[ 16]  N  val=4.00  metal=0.00  formal=+1  | 15(1.00) 17(2.00) 24(1.00)
+[ 17]  C  val=4.00  metal=0.00  formal=0   | 3(1.00) 16(2.00) 18(1.00)
+[ 18]  S  val=2.00  metal=0.00  formal=0   | 17(1.00) 19(1.00)
+```
+
+**ASCII Depiction:**
+```text
+                    C
+                   /
+            O==   /
+            =====C
+   C--         ===\        /S\
+  /   --C         \       /   \    --C
+ /       \         N----C‖     \C--   \\
+C        \        /     ‖‖      |       \
+ \        C--   //      ‖ ‖    |         C
+ \       /   --C         ‖‖  --C        /
+  C--   /       \        N‖--   \       /
+     --C        \      //        \   --C
+                 C----C           C--
+               //
+         C----C
+              \
+               \
+                \
+                C
+```
+
+**[View full molecular structure (SVG)](examples/isothio.svg)**
+
+**Analysis:**
+- **Benzene rings:** Two rings correctly identified as aromatic (bond order 1.5)
+- **5-membered heterocycle:** N-C-S-C-C ring has 7 π electrons (N: 2 from LP, S: 2 from LP, 3 C: 1 each)
+  - Not aromatic (4n+2 violated), retains Kekulé structure with N=C double bond
+- **Quaternary nitrogen:** N16 assigned +1 formal charge (4 bonds, no lone pairs)
+- **Carbonyl:** O=C double bond correctly optimized
+- **Beam search:** Fast convergence (3 iterations) - primarily adjusting N=C and C=O bonds
+
+---
 
 ## Bond Detection Thresholds
 

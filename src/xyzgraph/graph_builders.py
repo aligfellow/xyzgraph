@@ -407,6 +407,14 @@ class GraphBuilder:
                 for nbr in G.neighbors(node)
                 if G.nodes[nbr]['symbol'] not in DATA.metals  # Exclude metal bonds
             )
+            
+            # Special case: H bonded only to metal(s) is hydride (H⁻)
+            if sym == 'H' and bond_sum == 0:
+                if all(G.nodes[nbr]['symbol'] in DATA.metals for nbr in G.neighbors(node)):
+                    fc = -1  # Hydride
+                    formal.append(fc)
+                    continue
+            
             fc = self._compute_formal_charge_value(sym, V, bond_sum)
             formal.append(fc)
 
@@ -415,15 +423,15 @@ class GraphBuilder:
         
         # Log initial formal charges
         initial_sum = sum(formal)
-        self.log(f"\nInitial formal charges (before balancing):", 2)
+        self.log(f"\nInitial formal charges:", 2)
         self.log(f"  Sum: {initial_sum:+d} (target: {self.charge:+d})", 3)
         
         if has_metals:
             # Show metal coordination summary
             self.log(f"\n  Metal coordination summary:", 3)
             
-            # Compute ligand classification inline
-            ligand_classification = self._classify_metal_ligands(G)
+            # Compute ligand classification inline, passing formal charges
+            ligand_classification = self._classify_metal_ligands(G, formal)
             
             for metal_idx, ox_state in sorted(ligand_classification['metal_ox_states'].items()):
                 metal_sym = G.nodes[metal_idx]['symbol']
@@ -524,9 +532,8 @@ class GraphBuilder:
             for sym, idx, new_fc in distributed_to:
                 self.log(f"    {sym}{idx}: {new_fc:+d}", 4)
         elif residual != 0 and has_metals:
-            self.log(f"\nMetal complex detected: skipping residual distribution", 2)
+            self.log(f"\nMetal complex detected: ", 2)
             self.log(f"  Residual: {residual:+d} (represents metal oxidation states)", 3)
-            self.log(f"  Ligand charges are chemically correct as-is", 3)
         else:
             self.log(f"\nNo residual charge distribution needed (sum matches target)", 2)
 
@@ -723,10 +730,11 @@ class GraphBuilder:
                 pi_electrons += 1
             elif sym == 'N':
                 # Use TOTAL degree, not in-ring degree
-                # N with 2 bonds total = pyrrole-like → 2 π electrons (lone pair in π system)
-                # N with 3 bonds total = pyridine-like → 1 π electron (lone pair NOT in π system)
-                degree = sum(1 for _ in G.neighbors(idx))
-                pi_electrons += 2 if degree == 2 else 1
+                degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
+                if degree == 3:
+                    pi_electrons += 2  # Pyrrole-like: 3 bonds, LP in π system
+                elif degree == 2:
+                    pi_electrons += 1  # Pyridine-like: 2 bonds, LP not in π system
             elif sym in ('O', 'S'):
                 pi_electrons += 2
         
@@ -756,8 +764,9 @@ class GraphBuilder:
 
         initialized_rings = 0
 
-        # Atoms that can participate in aromatic conjugation
-        aromatic_atoms = {'C', 'N', 'O', 'S', 'B'}
+        # Atoms that can participate in conjugated ring systems
+        # Broader list for Kekulé initialization (gives optimizer a head start)
+        aromatic_atoms = {'C', 'N', 'O', 'S', 'B', 'P', 'Se'}
         
         self.log("\n" + "=" * 60, 0)
         self.log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
@@ -788,7 +797,7 @@ class GraphBuilder:
                 sym = G.nodes[idx]['symbol']
                 if sym == 'C':
                     # Count total degree (all bonds, including outside ring)
-                    degree = sum(1 for _ in G.neighbors(idx))
+                    degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
                     if degree >= 4:  # sp3 or higher coordination
                         self.log(f"✗ Contains non-sp2 carbon {sym}{idx}", 3)
                         has_sp3_carbon = True
@@ -1638,18 +1647,16 @@ class GraphBuilder:
                     contribution = 0
                     pi_breakdown.append(f"{sym}{idx}:0(empty_p)")
                 elif sym == 'N':
-                    # N with 2 neighbors (pyrrole-like) contributes 2
-                    # N with 3 neighbors (pyridine-like) contributes 1
-                    degree = sum(1 for _ in G.neighbors(idx))
-                    if degree == 2:
-                        contribution = 2
+                    degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
+                    if degree == 3:
+                        contribution = 2  # Pyrrole like: 3 bonds, LP in π system
                         pi_breakdown.append(f"{sym}{idx}:2(LP)")
-                    elif degree == 3:
-                        contribution = 1
+                    elif degree == 2:
+                        contribution = 1  # Pyridine like: 2 bonds, LP not in π system
                         pi_breakdown.append(f"{sym}{idx}:1")
                 elif sym in ('O', 'S'):
                     # O/S with 2 neighbors contributes 2 (furan-like)
-                    degree = sum(1 for _ in G.neighbors(idx))
+                    degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
                     if degree == 2:
                         contribution = 2
                         pi_breakdown.append(f"{sym}{idx}:2(LP)")
@@ -1751,16 +1758,25 @@ class GraphBuilder:
         
         return charge, ligand_id
     
-    def _classify_metal_ligands(self, G: nx.Graph) -> Dict[str, Any]:
+    def _classify_metal_ligands(self, G: nx.Graph, formal_charges: Optional[List[int]] = None) -> Dict[str, Any]:
         """
         Infer ligand types and metal oxidation state from formal charges.
         Handles: monatomic (H⁻, Cl⁻), linear chains (CO, CN⁻), rings (Cp⁻).
+        
+        Parameters:
+        - G: Graph with molecular structure
+        - formal_charges: Optional list of formal charges (if not stored in nodes yet)
         
         Returns classification dict with:
         - dative_bonds: [(metal, representative_atom, ligand_type)] neutral ligands
         - ionic_bonds: [(metal, representative_atom, charge, ligand_type)] charged ligands
         - metal_ox_states: {metal_idx: oxidation_state}
         """
+        # Helper to get formal charge
+        def get_fc(atom_idx):
+            if formal_charges is not None:
+                return formal_charges[atom_idx]
+            return G.nodes[atom_idx].get('formal_charge', 0)
         classification = {
             'dative_bonds': [],
             'ionic_bonds': [],
@@ -1788,7 +1804,7 @@ class GraphBuilder:
                 
                 if len(bonded_ring_atoms) >= len(ring) / 2:  # At least half the ring bonded
                     # Sum charges for entire ring
-                    ring_charge = sum(G.nodes[a].get('formal_charge', 0) for a in ring)
+                    ring_charge = sum(get_fc(a) for a in ring)
                     ligand_charge_sum += ring_charge
                     
                     # Mark as processed
@@ -1816,7 +1832,7 @@ class GraphBuilder:
                 
                 if len(non_metal_neighbors) == 0:
                     # Monatomic ligand (H⁻, Cl⁻, etc.)
-                    ligand_charge = G.nodes[donor_atom].get('formal_charge', 0)
+                    ligand_charge = get_fc(donor_atom)
                     ligand_type = f"{donor_sym}"
                 else:
                     # Linear chain ligand (CO, CN⁻, etc.)
