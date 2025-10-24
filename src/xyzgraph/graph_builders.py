@@ -915,7 +915,7 @@ class GraphBuilder:
 
         self.log("\n" + "-" * 60, 1)
         self.log(f"SUMMARY: Initialized {initialized_rings} ring(s) with Kekulé pattern", 1)
-        self.log("-" * 60 + "\n", 1)
+        self.log("-" * 60, 1)
 
         return initialized_rings
 
