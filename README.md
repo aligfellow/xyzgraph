@@ -794,6 +794,8 @@ Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
 ```
 
 **ASCII Depiction:**
+>[!TIP]
+> Don't look at this in too much detail, not good for complex molecular visualisation...
 ```text
             C---------C
            /           \
@@ -1042,8 +1044,10 @@ Where r₁ and r₂ are the VDW radii of the two atoms.
 - The `--threshold` (or `threshold` in Python) parameter provides a simple way to globally scale **all** thresholds.  
 - This is safer than modifying individual thresholds.  
 - e.g. `--threshold 1.1`  
-  - threshold_h_nonmetal × (r₁ + r₂) × **1.1**  
-- *these are **unstable** at >1.3*
+  - threshold_h_nonmetal × (r₁ + r₂) × **1.1**
+
+> [!WARNING]  
+> *these are **unstable** at >1.3*
 
 **Individual Scaling**:
 
