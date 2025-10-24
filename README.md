@@ -17,8 +17,9 @@
 7. [Python API](#python-api)
 8. [Visualization](#visualization)
 9. [Limitations & Future Work](#limitations--future-work)
-10. [References](#references)
-11. [Contributing & Contact](#contributing--contact)
+10. [Examples](#examples)
+11. [References](#references)
+12. [Contributing & Contact](#contributing--contact)
 
 ---
 
