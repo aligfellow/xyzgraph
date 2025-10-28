@@ -271,6 +271,23 @@ class GraphBuilder:
         if common_neighbors:
             # Check each potential 3-ring formed via common neighbor
             for k in common_neighbors:
+                # Angle-based validation: real 3-rings have angles ~60° (strained up to ~75°)
+                # Angles > 80° indicate coordination geometry or other non-ring structures
+                angle_i = self._calculate_angle(k, i, j, G)  # angle at vertex i
+                angle_j = self._calculate_angle(k, j, i, G)  # angle at vertex j
+                angle_k = self._calculate_angle(i, k, j, G)  # angle at vertex k
+                
+                max_angle = max(angle_i, angle_j, angle_k)
+                
+                # Real 3-rings (cyclopropane, aziridine) have internal angles ~60°
+                # Strained rings can reach ~75°, but >90° is definitely geometrically implausible
+                if max_angle > 90.0:
+                    sym_k = G.nodes[k]['symbol']
+                    self.log(f"  Rejected bond {i}-{j}: would form implausible 3-ring "
+                            f"(max angle {max_angle:.1f}° at {sym_k}{k}, true rings have ~60°)", 3)
+                    return False
+                
+                # Distance-based check: diagonal bonds across larger structures
                 # Distances: i-k, k-j, i-j (new bond)
                 d_ik = G[i][k]['distance']
                 d_kj = G[k][j]['distance']
