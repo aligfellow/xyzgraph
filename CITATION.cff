@@ -4,7 +4,7 @@ authors:
 - family-names: "Goodfellow"
   given-names: "Alister S."
   orcid: "https://orcid.org/0000-0002-0064-5007"
-title: "xyzgraph"
+title: "xyzgraph: Molecular Graph Construction from Cartesian Coordinates"
 version: 1.0.0
 date-released: 2025-10-28
 url: "https://github.com/aligfellow/xyzgraph"
