@@ -10,20 +10,51 @@ def _pick_charge(d):
             return d['charges'][k]
     return next(iter(d.get('charges', {}).values()), 0.0)
 
-def _visible_nodes(G: nx.Graph, include_h: bool) -> List[int]:
+def _visible_nodes(G: nx.Graph, include_h: bool, show_h_indices: Optional[List[int]] = None) -> List[int]:
     """
     Return node indices to display.
-    If include_h is False, hide only hydrogens bound solely to carbon (typical C–H hydrogens).
-    Hydrogens attached to any heteroatom (O, N, S, etc.) are retained.
+    
+    Parameters
+    ----------
+    G : nx.Graph
+        Molecular graph with node attributes including 'symbol'
+    include_h : bool
+        If True, show all hydrogen atoms
+    show_h_indices : Optional[List[int]], default=None
+        List of specific hydrogen atom indices to show, overriding the default
+        hiding behavior. Useful for highlighting specific hydrogens in transition
+        states or other special cases. If include_h is True, this parameter is ignored.
+    
+    Returns
+    -------
+    List[int]
+        List of node indices to display
+    
+    Notes
+    -----
+    If include_h is False, hydrogens bound solely to carbon (typical C-H hydrogens)
+    are hidden by default. Hydrogens attached to any heteroatom (O, N, S, etc.) are
+    retained. The show_h_indices parameter can override this to show specific C-H
+    hydrogens when needed.
     """
     if include_h:
         return list(G.nodes())
+    
+    # Convert show_h_indices to set for efficient lookup
+    show_h_set = set(show_h_indices) if show_h_indices else set()
+    
     keep = []
     for n, data in G.nodes(data=True):
         sym = data.get('symbol')
         if sym != 'H':
             keep.append(n)
             continue
+        
+        # Check if this hydrogen is explicitly requested to be shown
+        if n in show_h_set:
+            keep.append(n)
+            continue
+        
         # Hydrogen: inspect neighbors
         nbrs = list(G.neighbors(n))
         if not nbrs:
@@ -39,10 +70,24 @@ def _visible_nodes(G: nx.Graph, include_h: bool) -> List[int]:
 # -----------------------------
 # Debug (tabular) representation
 # -----------------------------
-def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
+def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Optional[List[int]] = None) -> str:
     """
     Debug listing (optionally hides hydrogens / C–H bonds if include_h=False).
     Valence shown is the full valence (including hidden H contributions).
+    
+    Parameters
+    ----------
+    G : nx.Graph
+        Molecular graph to report
+    include_h : bool, default=False
+        If True, show all hydrogen atoms
+    show_h_indices : Optional[List[int]], default=None
+        List of specific hydrogen atom indices to show
+    
+    Returns
+    -------
+    str
+        Formatted debug report
     """
     lines = []
     lines.append(f"# Molecular Graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds")
@@ -74,7 +119,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False) -> str:
     lines.append("# (val = organic valence excluding metal bonds; metal = metal coordination bonds)")
     arom_edges = {tuple(sorted((i,j))) for i,j,d in G.edges(data=True)
                   if 1.4 < d.get('bond_order',1.0) < 1.6}
-    visible = set(_visible_nodes(G, include_h))
+    visible = set(_visible_nodes(G, include_h, show_h_indices))
     for idx,data in G.nodes(data=True):
         if idx not in visible:
             continue

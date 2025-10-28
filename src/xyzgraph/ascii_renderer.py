@@ -245,11 +245,15 @@ class GraphToASCII:
                nodes: Optional[List[int]] = None,
                reference_layout: Optional[Dict[int, Tuple[float,float]]] = None,
                scale: float = 1.0,
-               include_h: bool = False) -> Tuple[str, Dict[int, Tuple[float,float]]]:
+               include_h: bool = False,
+               show_h_indices: Optional[List[int]] = None) -> Tuple[str, Dict[int, Tuple[float,float]]]:
         if nodes is None:
-            nodes = _visible_nodes(graph, include_h)
+            nodes = _visible_nodes(graph, include_h, show_h_indices)
         else:
-            nodes = [n for n in nodes if include_h or graph.nodes[n].get('symbol') != 'H' or
+            # When nodes are explicitly provided, still respect show_h_indices
+            show_h_set = set(show_h_indices) if show_h_indices else set()
+            nodes = [n for n in nodes if include_h or graph.nodes[n].get('symbol') != 'H' or 
+                     n in show_h_set or
                      any(graph.nodes[nbr].get('symbol') != 'C' for nbr in graph.neighbors(n))]
         if not nodes:
             return "<no heavy atoms>", {}
@@ -279,13 +283,18 @@ def graph_to_ascii(G: nx.Graph,
                    reference: Optional[nx.Graph] = None,
                    reference_layout: Optional[Dict[int, Tuple[float,float]]] = None,
                    nodes: Optional[List[int]] = None,
-                   return_layout: bool = False) -> str | Tuple[str, Dict[int, Tuple[float,float]]]:
+                   return_layout: bool = False,
+                   show_h_indices: Optional[List[int]] = None) -> str | Tuple[str, Dict[int, Tuple[float,float]]]:
     """
     Render graph to ASCII.
-      reference: optional graph providing canonical layout.
-      reference_layout: explicit node->(x,y) dict (overrides reference).
-      nodes: optional subset (auto-filtered for H hiding unless include_h=True).
-      return_layout=True returns (ascii, layout).
+        
+    Returns
+    -------
+    str or Tuple[str, Dict[int, Tuple[float,float]]]
+        ASCII rendering string, or tuple of (ascii string, layout dict) if return_layout=True
+    
+    Notes
+    -----
     Alignment only uses intersection of node sets; if no overlap layout fallback occurs.
     """
     gta = GraphToASCII()
@@ -295,7 +304,8 @@ def graph_to_ascii(G: nx.Graph,
         _, ref_layout = gta.render(reference,
                                    nodes=base_nodes,
                                    scale=scale,
-                                   include_h=include_h)
+                                   include_h=include_h,
+                                   show_h_indices=show_h_indices)
         layout = ref_layout
     if reference_layout is not None:
         layout = reference_layout
@@ -303,7 +313,7 @@ def graph_to_ascii(G: nx.Graph,
     if layout is not None:
         allowed = set(layout.keys())
         if target_nodes is None:
-            target_nodes = sorted(n for n in _visible_nodes(G, include_h) if n in allowed)
+            target_nodes = sorted(n for n in _visible_nodes(G, include_h, show_h_indices) if n in allowed)
         else:
             target_nodes = [n for n in target_nodes if n in allowed]
         if not target_nodes:
@@ -313,7 +323,8 @@ def graph_to_ascii(G: nx.Graph,
                                        nodes=target_nodes,
                                        reference_layout=layout,
                                        scale=scale,
-                                       include_h=include_h)
+                                       include_h=include_h,
+                                       show_h_indices=show_h_indices)
     if return_layout:
         return ascii_out, out_layout
     return ascii_out
