@@ -163,6 +163,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │    Geometric Validation (for elongated/TS bonds):               │
 │    • Acute angle check: 15° (metals) / 30° (non-metals)         │
 │    • Collinearity check: distinguishes trans vs spurious        │
+│    • 3-ring angle validation: rejects rings with angles >90°    │
 │    • Diagonal check: preventing false 3-ring formation          │
 │    → Allows TS bonds with --threshold 1.2-1.3 (≥1.35 unstable)  │
 │                                                                 │
