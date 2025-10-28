@@ -54,6 +54,8 @@ def main():
                     help="ASCII scaling factor (default: 3.0)")
     p.add_argument("-H", "--show-h", action="store_true",
                     help="Include hydrogens in visualizations (hidden by default)")
+    p.add_argument("--show-h-idx", type=str,
+                    help="Show specific hydrogen atoms by index (comma-separated, e.g., '3,7,12')")
     
     # Comparison
     p.add_argument("--compare-rdkit", action="store_true",
@@ -80,6 +82,15 @@ def main():
     # Parse forced_bonds: "0,5 3,7" → [(0, 5), (3, 7)]
     bond = _parse_pairs(args.bond) if args.bond else None
     unbond = _parse_pairs(args.unbond) if args.unbond else None
+    
+    # Parse show_h_idx: "3,7,12" → [3, 7, 12]
+    show_h_indices = None
+    if args.show_h_idx:
+        try:
+            show_h_indices = [int(idx.strip()) for idx in args.show_h_idx.split(',')]
+        except ValueError:
+            print(f"Error: Invalid hydrogen indices in --show-h-idx: {args.show_h_idx}")
+            return
 
     # Read structure (now as list of (atomic_number, (x,y,z)))
     atoms = read_xyz_file(args.xyz, bohr_units=args.bohr)
@@ -115,11 +126,11 @@ def main():
         print("\n# (Auto-enabled ASCII output - use --help for more options)\n")
     
     if args.debug:
-        print(graph_debug_report(G))
+        print(graph_debug_report(G, include_h=args.show_h, show_h_indices=show_h_indices))
 
     if show_ascii:
         print(f"\n{'=' * 60}\n# ASCII Depiction\n{'=' * 60}")
-        print(graph_to_ascii(G, scale=max(0.2, args.ascii_scale), include_h=args.show_h))
+        print(graph_to_ascii(G, scale=max(0.2, args.ascii_scale), include_h=args.show_h, show_h_indices=show_h_indices))
 
 
     if args.compare_rdkit:

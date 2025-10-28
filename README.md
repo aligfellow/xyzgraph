@@ -383,6 +383,8 @@ options:
   -as ASCII_SCALE, --ascii-scale ASCII_SCALE
                         ASCII scaling factor (default: 3.0)
   -H, --show-h          Include hydrogens in visualizations (hidden by default)
+  --show-h-idx SHOW_H_IDX
+                        Show specific hydrogen atoms by index (comma-separated, e.g., '3,7,12')
   --compare-rdkit       Compare with xyz2mol output (uses rdkit implementation)
   --no-clean            Keep temporary xTB files (only for --method xtb)
   --threshold-h-nonmetal THRESHOLD_H_NONMETAL
