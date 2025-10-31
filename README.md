@@ -148,36 +148,30 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 2. Initial Bond Graph (Distance-Based)                          │
-│    • Compute pairwise distances                                 │
-│    • Apply scaled VDW thresholds (default --threshold 1.0):     │
-|      - H-H: 0.38 × (r₁ + r₂) × threshold                        │
-│      - H-nonmetal: 0.42 × (r₁ + r₂) × threshold                 │
-│      - H-metal: 0.48 × (r₁ + r₂) × threshold                    │
-│      - Nonmetal-nonmetal: 0.55 × (r₁ + r₂) × threshold          │
-│      - Metal-ligand: 0.6 × (r₁ + r₂) (unscaled by threshold)    │
+│ 2. Initial Bond Graph (Two-Step Construction)                   │
+│                                                                 │
+│    Step 1: Baseline Bonds (DEFAULT thresholds)                  │
+│    • Uses DEFAULT threshold parameters (threshold=1.0)          │
+│    • Builds reliable "core" connectivity                        │
 │    • Bonds sorted by confidence: 1.0 (short) to 0.0 (at thresh) │
 │    • High confidence (>0.4): added directly                     │
 │    • Low confidence (≤0.4): geometric validation applied        │
+│    • Result: stable molecular scaffold                          │
+│    • Compute rings using NetworkX cycle_basis                   │
 │                                                                 │
-│    Geometric Validation (for elongated/TS bonds):               │
-│    • Acute angle check: 15° (metals) / 30° (non-metals)         │
-│    • Collinearity check: distinguishes trans vs spurious        │
-│    • 3-ring angle validation: rejects rings with angles >90°    │
-│    • Diagonal check: preventing false 3-ring formation          │
-│    → Allows TS bonds with --threshold 1.2-1.3 (≥1.35 unstable)  │
+│    Step 2: Extended Bonds (if using CUSTOM thresholds)          │
+│    • Sorted highest-confidence-first (most reliable first)      │
+│    • Additional bonds require geometric validation:             │
+│      - Acute angle check: 15° (metals) / 30° (non-metals)       │
+│      - Collinearity check: trans vs spurious detection          │
+│      - Existing ring diagonal rejection and 3-ring validation   │
+│    • Allows sensible elongated bonds (e.g., TS structures)      │
 │                                                                 │
 │    • Create graph with single bonds (order = 1.0)               │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 3. Ring Pruning                                                 │
-│    • Detect cycles (NetworkX cycle_basis)                       │
-│    • Remove geometrically distorted small rings (3,4-membered)  │
-└────────────────────┬────────────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────────────┐
-│ 3.5 Kekulé Initialization for Conjugated Rings                  │
+│ 3. Kekulé Initialization for Conjugated Rings                   │
 │    • Find 5/6-membered planar rings with C/N/O/S/B/P/Se         │
 │    • Initialize alternating bond orders (5-ring: 2-1-2-1-1,     │
 │      6-ring: 2-1-2-1-2-1)                                       │
@@ -1020,7 +1014,26 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 
 Where r₁ and r₂ are the VDW radii of the two atoms.
 
-### Modification (Not Recommended)
+### Detecting Elongated Bonds (Transition States)
+
+The two-step construction allows detection of elongated bonds in transition state structures by adjusting the global threshold:
+
+```bash
+# Detect elongated bonds in TS structures
+xyzgraph ts_structure.xyz --threshold 1.2 --debug
+```
+
+**Recommended threshold ranges**:
+- **1.0** (default): Ground-state structures
+- **1.1-1.2**: Slightly elongated bonds
+- **1.2-1.3**: Transition states with stretched geometries
+- **≥1.35**: Unstable - spurious bonding likely
+
+The two-step construction with geometric validation (Step 2) helps reject spurious diagonals even at higher thresholds, making TS detection more robust than previous versions.
+
+**Example workflow**: See [vib_analysis](https://github.com/aligfellow/vib_analysis) for a complete workflow analyzing transition state vibrational modes using xyzgraph connectivity.
+
+### Advanced Threshold Modification (Not Recommended)
 
 **Global Scaling**:  
 
@@ -1028,9 +1041,6 @@ Where r₁ and r₂ are the VDW radii of the two atoms.
 - This is safer than modifying individual thresholds.  
 - e.g. `--threshold 1.1`  
   - threshold_h_nonmetal × (r₁ + r₂) × **1.1**
-
-> [!WARNING]  
-> *these are **unstable** at >1.3*
 
 **Individual Scaling**:
 
