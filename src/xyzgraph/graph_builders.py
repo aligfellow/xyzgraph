@@ -264,6 +264,24 @@ class GraphBuilder:
                     else:
                         continue
         
+        # Check if i and j are ALREADY in the same ring (would create diagonal)
+        current_rings = G.graph.get('_rings', [])
+        for ring in current_rings:
+            ring_set = set(ring)
+            # If both i and j are in this ring, adding bond would create diagonal
+            if i in ring_set and j in ring_set:
+                # Allow for very small rings (3-4) if metal involved
+                if len(ring) <= 4 and has_metal:
+                    self.log(f"  Bond {i}-{j}: diagonal in existing {len(ring)}-ring but involves metal - allowed", 3)
+                    continue
+                # Reject diagonals in small rings (would create impossible geometry)
+                if len(ring) <= 4:
+                    self.log(f"  Rejected bond {i}-{j}: would create diagonal in existing {len(ring)}-ring", 3)
+                    return False
+                if len(ring) >= 5:
+                    self.log(f"  Rejected bond {i}-{j}: would create diagonal in existing {len(ring)}-ring", 3)
+                    return False
+        
         # Check for diagonal bonds across existing rings (creates spurious 3-rings)
         # If i and j share a common neighbor, they form a triangle - check if it's reasonable
         common_neighbors = set(G.neighbors(i)) & set(G.neighbors(j))
@@ -271,86 +289,155 @@ class GraphBuilder:
         if common_neighbors:
             # Check each potential 3-ring formed via common neighbor
             for k in common_neighbors:
-                # Angle-based validation: real 3-rings have angles ~60° (strained up to ~75°)
-                # Angles > 80° indicate coordination geometry or other non-ring structures
-                angle_i = self._calculate_angle(k, i, j, G)  # angle at vertex i
-                angle_j = self._calculate_angle(k, j, i, G)  # angle at vertex j
-                angle_k = self._calculate_angle(i, k, j, G)  # angle at vertex k
-                
+                # === 3-RING VALIDATION ===
+                               
+                # ANGLE CHECK (H-aware)
+                angle_i = self._calculate_angle(k, i, j, G)
+                angle_j = self._calculate_angle(k, j, i, G)
+                angle_k = self._calculate_angle(i, k, j, G)
                 max_angle = max(angle_i, angle_j, angle_k)
                 
-                # Real 3-rings (cyclopropane, aziridine) have internal angles ~60°
-                # Strained rings can reach ~75°, but >90° is definitely geometrically implausible
-                if max_angle > 90.0:
-                    sym_k = G.nodes[k]['symbol']
-                    self.log(f"  Rejected bond {i}-{j}: would form implausible 3-ring "
-                            f"(max angle {max_angle:.1f}° at {sym_k}{k}, true rings have ~60°)", 3)
+                sym_k = G.nodes[k]['symbol']
+                has_H_in_ring = 'H' in (sym_i, sym_j, sym_k)
+                
+                if has_H_in_ring:
+                    # Strict for H-containing rings
+                    angle_threshold = 95.0
+                else:
+                    # Permissive for non-H
+                    z_list = [G.nodes[i]['atomic_number'], G.nodes[j]['atomic_number'], G.nodes[k]['atomic_number']]
+                    avg_z = sum(min(z, 18) for z in z_list) / 3.0
+                    angle_threshold = 110.0 + (avg_z - 6) * 2.0 # Higher Z allows larger angles (stationary threshold from 3rd period elements)
+                
+                if max_angle > angle_threshold:
+                    self.log(f"  Rejected bond {i}-{j}: 3-ring angle {max_angle:.1f}° > {angle_threshold:.1f}° "
+                            f"({'H-containing' if has_H_in_ring else 'non-H'})", 3)
                     return False
                 
-                # Distance-based check: diagonal bonds across larger structures
-                # Distances: i-k, k-j, i-j (new bond)
+                # DISTANCE RATIO CHECK (diagonal detection)
                 d_ik = G[i][k]['distance']
                 d_kj = G[k][j]['distance']
-                d_ij = distance  # The bond we're trying to add
+                d_ij = distance
                 
-                # Triangle inequality: sum of two sides must be > third side
-                # If violated significantly, this is a diagonal bond across a larger structure
-                if d_ij > (d_ik + d_kj) * 0.65:  # Diagonal is nearly as long as going around
-                    # This suggests i and j are across from each other, not adjacent
-                    # Check if this would be a spurious diagonal bond
-                    
-                    # Calculate how much longer the diagonal is vs the path
-                    path_length = d_ik + d_kj
-                    ratio = d_ij / path_length
-                    
-                    # Confidence-based diagonal threshold (continuous interpolation)
-                    # Geometric basis: √2/2 ≈ 0.707 is theoretical diagonal ratio for square
-                    # Low confidence (0.0) → strict threshold (0.65)
-                    # High confidence (0.7) → lenient threshold (0.75)
+                # VDW-normalize distances for atom-type awareness (consistent with threshold calculation)
+                norm_ik = d_ik / (DATA.vdw[sym_i] + DATA.vdw[sym_k])
+                norm_kj = d_kj / (DATA.vdw[sym_k] + DATA.vdw[sym_j])
+                norm_ij = d_ij / (DATA.vdw[sym_i] + DATA.vdw[sym_j])
+
+                # Calculate ratio using normalized distances
+                norm_path = norm_ik + norm_kj
+                ratio = norm_ij / norm_path
+                               
+                # If diagonal is nearly as long as going around, it's suspicious
+                if ratio > 0.65:  # Use VDW-normalized ratio
+                    # Confidence-based threshold (stricter for low confidence)
+                    # √2/2 ≈ 0.707 is theoretical diagonal ratio for square
                     max_conf_for_interp = 0.7
                     diagonal_threshold = 0.65 + min(confidence, max_conf_for_interp) * (0.75 - 0.65) / max_conf_for_interp
                     
+                    self.log(f"    3-ring via {sym_k}{k}: ratio={ratio:.3f}, threshold={diagonal_threshold:.3f}", 3)
+                    
                     if ratio > diagonal_threshold:
                         if has_metal:
-                            # Metal coordination can form apparent "diagonals" (η², bridging, clusters)
-                            self.log(f"  Bond {i}-{j}: diagonal across 3-ring via {k}, metal bond ({sym_i}-{sym_j}) - allowed", 3)
-                            continue  # Skip rejection for metals
-                        else:
-                            self.log(f"  Rejected bond {i}-{j}: diagonal bond across 3-ring via {k} (d={d_ij:.2f} vs path={path_length:.2f}, ratio={ratio:.2f}, threshold={diagonal_threshold:.2f})", 3)
+                            self.log(f"  Bond {i}-{j}: diagonal (ratio={ratio:.2f}) across 3-ring via {k}, metal bond - allowed", 3)
+                            continue
+                        
+                        # Before rejecting, check valence as fallback
+                        # Real 3-rings (epoxide) have capacity, spurious diagonals don't
+                        atoms_at_limit = 0
+                        for atom in [i, j]:
+                            atom_sym = G.nodes[atom]['symbol']
+                            
+                            if atom_sym not in DATA.valences:
+                                continue
+                            
+                            current_val = sum(
+                                G[atom][nbr].get('bond_order', 1.0)
+                                for nbr in G.neighbors(atom)
+                                if G.nodes[nbr]['symbol'] not in self.data.metals
+                            )
+                            max_val = max(DATA.valences[atom_sym])
+                            
+                            if current_val + 1.0 > max_val:
+                                atoms_at_limit += 1
+                        
+                        if atoms_at_limit > 1:
+                            # Both at limit + bad ratio = spurious diagonal
+                            self.log(f"  Rejected bond {i}-{j}: diagonal across 3-ring via {k} "
+                                    f"(ratio={ratio:.2f}, threshold={diagonal_threshold:.2f}) and both atoms at valence limit", 3)
                             return False
-        
-        # Early return for metal bonds - skip expensive ring validation
-        # Metal coordination has flexible geometries (e.g., ferrocene, octahedral)
-        if has_metal:
-            return True
-        
-        # Only validate rings for non-metal bonds
-        # Check if this would create a geometrically impossible ring
-        G.add_edge(i, j, bond_order=1.0, distance=distance)
-        
-        ring_valid = True
-        try:
-            rings = nx.cycle_basis(G)
-            for ring in rings:
-                # Only check small rings that contain this new edge
-                if i in ring and j in ring and len(ring) <= 5:
-                    # Check if ring angles are reasonable
-                    angle_sum = self._ring_angle_sum(ring, G)
-                    expected = (len(ring) - 2) * 180.0
+                        elif ratio > 0.8 and atoms_at_limit == 1:
+                            # Even with valence capacity, ratio > 0.8 is too suspicious
+                            self.log(f"  Rejected bond {i}-{j}: diagonal ratio too high (ratio={ratio:.2f} > 0.8) even with valence capacity", 3)
+                            return False
+                        else:
+                            # At least one has valence capacity + reasonable ratio = likely real 3-ring (e.g., epoxide)
+                            self.log(f"  Bond {i}-{j}: suspicious ratio ({ratio:.2f}) but valence allows - likely real 3-ring", 3)
+                            # Continue to next common neighbor check
+                
+                # VALENCE CHECK (focus on bonding atoms i-j)
+                atoms_at_limit = 0
+                for atom in [i, j]:  # Only check the two atoms being bonded
+                    atom_sym = G.nodes[atom]['symbol']
                     
-                    # Allow generous tolerance for non-planar rings
-                    if abs(angle_sum - expected) > 45.0:
-                        self.log(f"  Rejected bond {i}-{j}: creates impossible {len(ring)}-ring (angle sum {angle_sum:.1f}° vs expected {expected:.1f}°)", 3)
-                        ring_valid = False
-                        break
-        except Exception as e:
-            # Ring detection failed, assume OK
-            pass
+                    # Skip if element not in valence dictionary (unknown chemistry)
+                    if atom_sym not in DATA.valences:
+                        continue
+                    
+                    current_val = sum(
+                        G[atom][nbr].get('bond_order', 1.0)
+                        for nbr in G.neighbors(atom)
+                        if G.nodes[nbr]['symbol'] not in self.data.metals
+                    )
+                    max_val = max(DATA.valences[atom_sym])
+                    
+                    # Check if adding this bond would EXCEED max valence
+                    if current_val + 1.0 > max_val:
+                        atoms_at_limit += 1
+                
+                if atoms_at_limit > 1:
+                    # Both bonding atoms would exceed → reject
+                    self.log(f"  Rejected bond {i}-{j}: both bonding atoms would exceed valence", 3)
+                    return False
+                
+        # All checks passed → allow this 3-ring bond
+        return True
+
+    def _find_new_rings_from_edge(self, G: nx.Graph, i: int, j: int) -> List[List[int]]:
+        """
+        Efficiently detect new rings formed by adding edge (i, j).
+        Find shortest path from i to j.
         
-        # Remove temporary edge
-        G.remove_edge(i, j)
+        Returns list of new rings 
+        """
+        # Skip if either atom is a metal (no organic rings to track)
+        if G.nodes[i]['symbol'] in DATA.metals or G.nodes[j]['symbol'] in DATA.metals:
+            return []
         
-        return ring_valid
+        # Work on metal-free subgraph
+        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]['symbol'] not in DATA.metals]
+        G_no_metals = G.subgraph(non_metal_nodes).copy()
+        
+        # Check if i and j are in the metal-free graph
+        if i not in G_no_metals or j not in G_no_metals:
+            return []
+        
+        # Temporarily remove the new edge (i,j) to find alternative path
+        if G_no_metals.has_edge(i, j):
+            G_no_metals.remove_edge(i, j)
+        
+        # Find shortest path from i to j
+        try:
+            path = nx.shortest_path(G_no_metals, source=i, target=j)
+            # Path found → ring formed
+            # Ring is the path + the new edge (i,j)
+            return [path]
+        except nx.NetworkXNoPath:
+            # No path exists → no ring formed
+            return []
+        except nx.NodeNotFound:
+            # Node not in graph
+            return []
 
     def _should_bond_metal(self, sym_i: str, sym_j: str) -> bool:
         """
@@ -611,9 +698,9 @@ class GraphBuilder:
 
     def _build_initial_graph(self) -> nx.Graph:
         """
-        Build initial graph with confidence-based bond construction.
-        High-confidence (short) bonds are added directly.
-        Low-confidence (long) bonds undergo geometric validation.
+        Build initial graph with 2-phase construction:
+        Step 1: Baseline bonds (DEFAULT thresholds), compute rings from baseline structure
+        Step 2: Extended bonds (CUSTOM thresholds if modified, strict validation)
         """
         G = nx.Graph()
 
@@ -628,8 +715,21 @@ class GraphBuilder:
 
         self.log(f"Added {len(self.atoms)} atoms", 1)
 
-        # Collect all potential bonds with confidence scores
-        potential_bonds = []
+        # Check if custom thresholds are being used
+        has_custom = (
+            self.threshold != DEFAULT_PARAMS['threshold'] or
+            self.threshold_h_h != DEFAULT_PARAMS['threshold_h_h'] or
+            self.threshold_h_nonmetal != DEFAULT_PARAMS['threshold_h_nonmetal'] or
+            self.threshold_h_metal != DEFAULT_PARAMS['threshold_h_metal'] or
+            self.threshold_metal_ligand != DEFAULT_PARAMS['threshold_metal_ligand'] or
+            self.threshold_nonmetal_nonmetal != DEFAULT_PARAMS['threshold_nonmetal_nonmetal']
+        )
+        
+        if has_custom:
+            self.log("Custom thresholds detected - using 2-phase construction", 1)
+        
+        # ===== STEP 1: Baseline bonds (using DEFAULT thresholds) =====
+        baseline_bonds = []
         
         for i in range(len(self.atoms)):
             si = self.symbols[i]
@@ -644,50 +744,47 @@ class GraphBuilder:
                 d = self._distance(pos[i], pos[j])
                 r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
 
-                # Choose threshold (scaled by threshold)
+                # Use DEFAULT thresholds for baseline
                 if si == 'H' and sj == 'H':
-                    threshold = self.threshold_h_h * r_sum * self.threshold
+                    baseline_threshold = DEFAULT_PARAMS['threshold_h_h'] * r_sum * DEFAULT_PARAMS['threshold']
                 elif has_h and has_metal:
-                    threshold = self.threshold_h_metal * r_sum * self.threshold
+                    baseline_threshold = DEFAULT_PARAMS['threshold_h_metal'] * r_sum * DEFAULT_PARAMS['threshold']
                 elif has_h and not has_metal:
-                    threshold = self.threshold_h_nonmetal * r_sum * self.threshold
+                    baseline_threshold = DEFAULT_PARAMS['threshold_h_nonmetal'] * r_sum * DEFAULT_PARAMS['threshold']
                 elif has_metal:
-                    threshold = self.threshold_metal_ligand * r_sum  #* self.threshold
+                    baseline_threshold = DEFAULT_PARAMS['threshold_metal_ligand'] * r_sum
                 else:
-                    threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
+                    baseline_threshold = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'] * r_sum * DEFAULT_PARAMS['threshold']
 
-                if d < threshold:
-                    # Calculate confidence: 1.0 (very short) to 0.0 (at threshold)
-                    confidence = 1.0 - (d / threshold)
-                    potential_bonds.append((confidence, i, j, d, has_metal))
+                if d < baseline_threshold:
+                    confidence = 1.0 - (d / baseline_threshold)
+                    baseline_bonds.append((confidence, i, j, d, has_metal))
 
         # Sort by confidence (most confident bonds first)
-        potential_bonds.sort(reverse=True, key=lambda x: x[0])
-        
-        self.log(f"Found {len(potential_bonds)} potential bonds, sorting by confidence", 1)
-        
-        # Add bonds with geometric validation for low-confidence bonds
+        baseline_bonds.sort(reverse=True, key=lambda x: x[0])
+
+        self.log(f"Step 1: Found {len(baseline_bonds)} baseline bonds (using default thresholds)", 1)
+
+        # Add baseline bonds with confidence-based validation
         edge_count = 0
         rejected_count = 0
         
-        for confidence, i, j, d, has_metal in potential_bonds:
+        for confidence, i, j, d, has_metal in baseline_bonds:
             si, sj = self.symbols[i], self.symbols[j]
             
             # Check metal bonding rules
             if has_metal and not self._should_bond_metal(si, sj):
                 rejected_count += 1
                 continue
-            
-            # High confidence bonds: add directly without geometric validation
-            # (short bonds relative to threshold are unlikely to be spurious)
+
+            # High confidence: add directly
             if confidence > 0.4:
                 G.add_edge(i, j,
                           bond_order=1.0,
                           distance=d,
                           metal_coord=has_metal)
                 edge_count += 1
-            
-            # Low confidence bonds: validate geometry with confidence-aware thresholds
+            # Low confidence: validate geometry
             else:
                 if self._validate_bond_geometry(G, i, j, d, confidence):
                     G.add_edge(i, j,
@@ -697,6 +794,99 @@ class GraphBuilder:
                     edge_count += 1
                 else:
                     rejected_count += 1
+
+        self.log(f"Step 1: {edge_count} baseline bonds added, {rejected_count} rejected", 1)
+
+        # Compute rings from baseline structure
+        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]['symbol'] not in DATA.metals]
+        G_no_metals = G.subgraph(non_metal_nodes).copy()
+        rings = nx.cycle_basis(G_no_metals)
+        
+        G.graph['_rings'] = rings
+        G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
+        G.graph['_has_H'] = {n: any(G.nodes[nbr]['symbol'] == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
+
+        self.log(f"Found {len(rings)} rings from initial bonding (excluding metal cycles)", 1)
+
+        # ===== STEP 2: Extended bonds (CUSTOM thresholds if modified) =====
+        if has_custom:
+            extended_bonds = []
+            baseline_edges = set(G.edges())
+            
+            for i in range(len(self.atoms)):
+                si = self.symbols[i]
+                is_metal_i = si in self.data.metals
+
+                for j in range(i + 1, len(self.atoms)):
+                    # Skip if already in baseline
+                    if (i, j) in baseline_edges or (j, i) in baseline_edges:
+                        continue
+                    
+                    sj = self.symbols[j]
+                    is_metal_j = sj in self.data.metals
+                    has_metal = is_metal_i or is_metal_j
+                    has_h = 'H' in (si, sj)
+
+                    d = self._distance(pos[i], pos[j])
+                    r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
+
+                    # Use CUSTOM thresholds for extended
+                    if si == 'H' and sj == 'H':
+                        custom_threshold = self.threshold_h_h * r_sum * self.threshold
+                    elif has_h and has_metal:
+                        custom_threshold = self.threshold_h_metal * r_sum * self.threshold
+                    elif has_h and not has_metal:
+                        custom_threshold = self.threshold_h_nonmetal * r_sum * self.threshold
+                    elif has_metal:
+                        custom_threshold = self.threshold_metal_ligand * r_sum
+                    else:
+                        custom_threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
+
+                    if d < custom_threshold:
+                        confidence = 1.0 - (d / custom_threshold)
+                        extended_bonds.append((confidence, i, j, d, has_metal))
+
+            # Sort by confidence (HIGHEST first)
+            extended_bonds.sort(reverse=True, key=lambda x: x[0])
+
+            self.log(f"Step 2: Found {len(extended_bonds)} extended bonds (custom thresholds)", 1)
+
+            # Add extended bonds with STRICT validation and incremental ring updates
+            extended_added = 0
+            extended_rejected = 0
+            new_rings_count = 0
+            
+            for confidence, i, j, d, has_metal in extended_bonds:
+                si, sj = self.symbols[i], self.symbols[j]
+                self.log(f"  Evaluating extended bond {i}-{j} (d={d:.3f} Å, conf={confidence:.2f})", 3)
+                # Check metal bonding rules
+                if has_metal and not self._should_bond_metal(si, sj):
+                    extended_rejected += 1
+                    continue
+                
+                # ALL extended bonds require geometric validation
+                if self._validate_bond_geometry(G, i, j, d, confidence):
+                    G.add_edge(i, j,
+                              bond_order=1.0,
+                              distance=d,
+                              metal_coord=has_metal)
+                    extended_added += 1
+                    
+                    # Incremental ring detection (metal-free)
+                    new_rings = self._find_new_rings_from_edge(G, i, j)
+                    if new_rings:
+                        G.graph['_rings'].extend(new_rings)
+                        new_rings_count += len(new_rings)
+                        ring_size = len(new_rings[0])
+                        self.log(f"    Bond {i}-{j} creates new {ring_size}-ring", 3)
+                    
+                    # Update caches incrementally
+                    G.graph['_neighbors'][i] = list(G.neighbors(i))
+                    G.graph['_neighbors'][j] = list(G.neighbors(j))
+                else:
+                    extended_rejected += 1
+            
+            self.log(f"Step 2: {extended_added} extended bonds added, {extended_rejected} rejected, {new_rings_count} new rings detected", 1)
 
         # Handle user-specified bonds
         if self.bond:
@@ -712,20 +902,16 @@ class GraphBuilder:
                     G.remove_edge(i, j)
                     self.log(f"Removed user-specified bond {i}-{j}", 2)
 
-        self.log(f"Initial bonds: {edge_count} added, {rejected_count} rejected by geometry validation", 1)
+        # Final ring update if extended bonds were added
+        if has_custom:
+            non_metal_nodes = [n for n in G.nodes() if G.nodes[n]['symbol'] not in DATA.metals]
+            G_no_metals = G.subgraph(non_metal_nodes).copy()
+            rings = nx.cycle_basis(G_no_metals)
+            G.graph['_rings'] = rings
+            self.log(f"Final: {len(rings)} rings after extended bonds", 1)
 
-        # Cache graph properties
-        # Exclude metals from cycle detection to find true organic rings (e.g., Cp, pyridine)
-        # Metal-containing rings (C-M-C) clutter the cycle basis
-        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]['symbol'] not in DATA.metals]
-        G_no_metals = G.subgraph(non_metal_nodes).copy()
-        rings = nx.cycle_basis(G_no_metals)
-        
-        G.graph['_rings'] = rings
-        G.graph['_neighbors'] = {n: list(G.neighbors(n)) for n in G.nodes()}
-        G.graph['_has_H'] = {n: any(G.nodes[nbr]['symbol'] == 'H' for nbr in G.neighbors(n)) for n in G.nodes()}
-
-        self.log(f"Found {len(rings)} rings (excluding metal-containing cycles)", 1)
+        total_bonds = G.number_of_edges()
+        self.log(f"Total bonds in graph: {total_bonds}", 1)
 
         return G
 
@@ -1337,7 +1523,7 @@ class GraphBuilder:
                 
         return G_new
 
-    def _score_assignment(self, G: nx.Graph, rings: List[List[int]] = None) -> Tuple[float, List[int]]:
+    def _score_assignment(self, G: nx.Graph, rings: Optional[List[List[int]]] = None) -> Tuple[float, List[int]]:
         """
         Scoring that uses pre-computed valence cache.
         """
