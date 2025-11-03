@@ -27,6 +27,7 @@ DEFAULT_PARAMS = {
     'threshold_h_metal': 0.48,
     'threshold_metal_ligand': 0.6,
     'threshold_nonmetal_nonmetal': 0.55,
+    'relaxed': False,
 }
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
