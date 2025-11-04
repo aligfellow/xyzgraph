@@ -1021,6 +1021,9 @@ The two-step construction allows detection of elongated bonds in transition stat
 ```bash
 # Detect elongated bonds in TS structures
 xyzgraph ts_structure.xyz --threshold 1.2 --debug
+
+# For more dense connectivity, one can use relaxed mode (more permissive geometric validation)
+xyzgraph structure.xyz --threshold 1.2 --relaxed --debug
 ```
 
 **Recommended threshold ranges**:
@@ -1029,7 +1032,7 @@ xyzgraph ts_structure.xyz --threshold 1.2 --debug
 - **1.2-1.3**: Transition states with stretched geometries
 - **≥1.35**: Unstable - spurious bonding likely
 
-The two-step construction with geometric validation (Step 2) helps reject spurious diagonals even at higher thresholds, making TS detection more robust than previous versions.
+The two-step construction with geometric validation helps reject spurious diagonals even at higher thresholds. The `--relaxed` flag can be used for more permissive angle and diagonal thresholds (**but note:** *this is likely to produce spurious structures*).
 
 **Example workflow**: See [vib_analysis](https://github.com/aligfellow/vib_analysis) for a complete workflow analyzing transition state vibrational modes using xyzgraph connectivity.
 

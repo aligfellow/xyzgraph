@@ -40,7 +40,8 @@ class GraphBuilder:
             threshold_h_nonmetal: float = DEFAULT_PARAMS['threshold_h_nonmetal'],
             threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
             threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
-            threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal']
+            threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
+            relaxed: bool = DEFAULT_PARAMS['relaxed']
             ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
         self.charge = charge
@@ -71,6 +72,7 @@ class GraphBuilder:
         self.threshold_h_metal = threshold_h_metal
         self.threshold_metal_ligand = threshold_metal_ligand
         self.threshold_nonmetal_nonmetal = threshold_nonmetal_nonmetal
+        self.relaxed = relaxed
 
         # Reference to global data
         self.data = DATA
@@ -175,13 +177,35 @@ class GraphBuilder:
         is_metal_j = sym_j in self.data.metals
         has_metal = is_metal_i or is_metal_j  # Bond involves metal at either end
         
+        # Configure thresholds based on relaxed mode
+        # Relaxed mode: more permissive for TS structures with strained rings
+        if self.relaxed:
+            # Relaxed thresholds
+            acute_threshold_metal = 12.0
+            acute_threshold_nonmetal = 20.0
+            angle_threshold_h_ring = 115.0
+            angle_threshold_base = 135.0  # Fixed value for relaxed, no Z-dependence
+            diagonal_ratio_initial = 0.75
+            diagonal_ratio_max = 0.85
+            diagonal_ratio_hard = 0.90
+            allow_same_ring_diagonal_size = 6  # Allow diagonals only in rings >= 6
+        else:
+            # Strict thresholds (current default behavior)
+            acute_threshold_metal = 15.0
+            acute_threshold_nonmetal = 30.0
+            angle_threshold_h_ring = 95.0
+            angle_threshold_base = 110.0  # Will add Z-factor: 110 + (avg_z - 6) * 2
+            diagonal_ratio_initial = 0.65
+            diagonal_ratio_max = 0.75
+            diagonal_ratio_hard = 0.80
+            allow_same_ring_diagonal_size = 5  # Reject diagonals in all rings >= 5
+        
         # Check angles at atom i with existing neighbors
         for existing_neighbor in G.neighbors(i):
             angle = self._calculate_angle(existing_neighbor, i, j, G)
             
-            # Variable acute angle threshold: metals more lenient (15°) vs non-metals (30°)
-            # This allows η² coordination (~20-30°) while rejecting spurious long bonds (~1-5°)
-            acute_threshold = 15.0 if has_metal else 30.0
+            # Variable acute angle threshold: metals more lenient vs non-metals
+            acute_threshold = acute_threshold_metal if has_metal else acute_threshold_nonmetal
             
             if angle < acute_threshold:
                 self.log(f"  Rejected bond {i}-{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{i}", 3)
@@ -227,8 +251,8 @@ class GraphBuilder:
         for existing_neighbor in G.neighbors(j):
             angle = self._calculate_angle(existing_neighbor, j, i, G)
             
-            # Variable acute angle threshold: metals more lenient (15°) vs non-metals (30°)
-            acute_threshold = 15.0 if has_metal else 30.0
+            # Use configured threshold (same as for atom i)
+            acute_threshold = acute_threshold_metal if has_metal else acute_threshold_nonmetal
             
             if angle < acute_threshold:
                 self.log(f"  Rejected bond {i}-{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{j}", 3)
@@ -301,13 +325,13 @@ class GraphBuilder:
                 has_H_in_ring = 'H' in (sym_i, sym_j, sym_k)
                 
                 if has_H_in_ring:
-                    # Strict for H-containing rings
-                    angle_threshold = 95.0
+                    # Use configured H-ring threshold
+                    angle_threshold = angle_threshold_h_ring
                 else:
-                    # Permissive for non-H
+                    # Use configured base threshold + Z-factor
                     z_list = [G.nodes[i]['atomic_number'], G.nodes[j]['atomic_number'], G.nodes[k]['atomic_number']]
                     avg_z = sum(min(z, 18) for z in z_list) / 3.0
-                    angle_threshold = 110.0 + (avg_z - 6) * 2.0 # Higher Z allows larger angles (stationary threshold from 3rd period elements)
+                    angle_threshold = angle_threshold_base + (avg_z - 6) * 2.0
                 
                 if max_angle > angle_threshold:
                     self.log(f"  Rejected bond {i}-{j}: 3-ring angle {max_angle:.1f}° > {angle_threshold:.1f}° "
@@ -329,11 +353,11 @@ class GraphBuilder:
                 ratio = norm_ij / norm_path
                                
                 # If diagonal is nearly as long as going around, it's suspicious
-                if ratio > 0.65:  # Use VDW-normalized ratio
+                if ratio > diagonal_ratio_initial:  # Use configured initial threshold
                     # Confidence-based threshold (stricter for low confidence)
                     # √2/2 ≈ 0.707 is theoretical diagonal ratio for square
                     max_conf_for_interp = 0.7
-                    diagonal_threshold = 0.65 + min(confidence, max_conf_for_interp) * (0.75 - 0.65) / max_conf_for_interp
+                    diagonal_threshold = diagonal_ratio_initial + min(confidence, max_conf_for_interp) * (diagonal_ratio_max - diagonal_ratio_initial) / max_conf_for_interp
                     
                     self.log(f"    3-ring via {sym_k}{k}: ratio={ratio:.3f}, threshold={diagonal_threshold:.3f}", 3)
                     
@@ -366,9 +390,9 @@ class GraphBuilder:
                             self.log(f"  Rejected bond {i}-{j}: diagonal across 3-ring via {k} "
                                     f"(ratio={ratio:.2f}, threshold={diagonal_threshold:.2f}) and both atoms at valence limit", 3)
                             return False
-                        elif ratio > 0.8 and atoms_at_limit == 1:
-                            # Even with valence capacity, ratio > 0.8 is too suspicious
-                            self.log(f"  Rejected bond {i}-{j}: diagonal ratio too high (ratio={ratio:.2f} > 0.8) even with valence capacity", 3)
+                        elif ratio > diagonal_ratio_hard and atoms_at_limit == 1:
+                            # Even with valence capacity, ratio > hard threshold is too suspicious
+                            self.log(f"  Rejected bond {i}-{j}: diagonal ratio too high (ratio={ratio:.2f} > {diagonal_ratio_hard:.2f}) even with valence capacity", 3)
                             return False
                         else:
                             # At least one has valence capacity + reasonable ratio = likely real 3-ring (e.g., epoxide)
@@ -396,9 +420,34 @@ class GraphBuilder:
                         atoms_at_limit += 1
                 
                 if atoms_at_limit > 1:
-                    # Both bonding atoms would exceed → reject
-                    self.log(f"  Rejected bond {i}-{j}: both bonding atoms would exceed valence", 3)
-                    return False
+                    # In relaxed mode, allow modest valence overflow (≤1.0 over max)
+                    if self.relaxed:
+                        # Check if overflow is modest (both atoms ≤1.0 over their max valence)
+                        overflow_ok = True
+                        for atom in [i, j]:
+                            atom_sym = G.nodes[atom]['symbol']
+                            if atom_sym not in DATA.valences:
+                                continue
+                            current_val = sum(
+                                G[atom][nbr].get('bond_order', 1.0)
+                                for nbr in G.neighbors(atom)
+                                if G.nodes[nbr]['symbol'] not in self.data.metals
+                            )
+                            max_val = max(DATA.valences[atom_sym])
+                            overflow = (current_val + 1.0) - max_val
+                            if overflow > 1.0:  # More than 1.0 over max is too much
+                                overflow_ok = False
+                                break
+                        
+                        if overflow_ok:
+                            self.log(f"  Bond {i}-{j}: both atoms would exceed valence but overflow ≤1.0 - allowed in relaxed mode", 3)
+                        else:
+                            self.log(f"  Rejected bond {i}-{j}: both bonding atoms would exceed valence by >1.0 (even in relaxed mode)", 3)
+                            return False
+                    else:
+                        # Both bonding atoms would exceed → reject
+                        self.log(f"  Rejected bond {i}-{j}: both bonding atoms would exceed valence", 3)
+                        return False
                 
         # All checks passed → allow this 3-ring bond
         return True
@@ -2303,7 +2352,8 @@ def build_graph(
             threshold_h_nonmetal: float = DEFAULT_PARAMS['threshold_h_nonmetal'],
             threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
             threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
-            threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal']
+            threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
+            relaxed: bool = DEFAULT_PARAMS['relaxed']
         ) -> nx.Graph:
     """Convenience function that wraps GraphBuilder.
 
@@ -2332,6 +2382,7 @@ def build_graph(
         threshold_h_nonmetal=threshold_h_nonmetal,
         threshold_h_metal=threshold_h_metal,
         threshold_metal_ligand=threshold_metal_ligand,
-        threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal
+        threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
+        relaxed=relaxed
     )
     return builder.build()

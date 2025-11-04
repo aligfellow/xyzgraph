@@ -25,6 +25,8 @@ def main():
 
     p.add_argument("-t", "--threshold", type=float, default=1.0,
                     help="Scaling factor for bond detection thresholds (default: 1.0)")
+    p.add_argument("--relaxed", action="store_true", default=DEFAULT_PARAMS['relaxed'],
+                    help="Relaxed mode: use more permissive geometric validation for transition states and strained rings, more likely to produce spurious structures")
     p.add_argument("--edge-per-iter", type=int, default=DEFAULT_PARAMS['edge_per_iter'],
                     help=f"Number of edges to adjust per iteration (default: {DEFAULT_PARAMS['edge_per_iter']}, cheminf only)")
     p.add_argument("-o", "--optimizer", choices=["greedy", "beam"], default=DEFAULT_PARAMS['optimizer'],
@@ -115,7 +117,8 @@ def main():
             threshold_h_nonmetal=args.threshold_h_nonmetal,
             threshold_h_metal=args.threshold_h_metal,
             threshold_metal_ligand=args.threshold_metal_ligand,
-            threshold_nonmetal_nonmetal=args.threshold_nonmetal
+            threshold_nonmetal_nonmetal=args.threshold_nonmetal,
+            relaxed=args.relaxed
         )
 
     # Determine what to show
