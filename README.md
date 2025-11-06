@@ -494,7 +494,7 @@ C             \             //     ---C\          \C---      \
 - Double bonds: `=`, `‖` (parallel lines)
 - Triple bonds: `#`
 - Aromatic: 1.5 bond orders shown as single
-- Special edges: `*` (TS), `.` (NCI) if `G.edges[i,j]['TS']=True`
+- Special edges: `*` (TS), `.` (NCI) if `G.edges[i,j]['TS']=True` or `G.edges[i,j]['NCI']=True`
 
 ### Layout Alignment
 
