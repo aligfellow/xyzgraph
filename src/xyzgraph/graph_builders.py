@@ -651,7 +651,7 @@ class GraphBuilder:
         
         if has_metals:
             # Show metal coordination summary
-            self.log(f"\n  Metal coordination summary:", 3)
+            self.log(f"\nMetal coordination summary:", 3)
             
             # Compute ligand classification inline, passing formal charges
             ligand_classification = self._classify_metal_ligands(G, formal)

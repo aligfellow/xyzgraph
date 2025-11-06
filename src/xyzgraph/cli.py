@@ -101,8 +101,8 @@ def main():
                     help="Enable debug output (construction details + graph report)")
     p.add_argument("-a", "--ascii", action="store_true",
                     help="Show 2D ASCII depiction (auto-enabled if no other output)")
-    p.add_argument("-as", "--ascii-scale", type=float, default=3.0,
-                    help="ASCII scaling factor (default: 3.0)")
+    p.add_argument("-as", "--ascii-scale", type=float, default=2.5,
+                    help="ASCII scaling factor (default: 2.5)")
     p.add_argument("-H", "--show-h", action="store_true",
                     help="Include hydrogens in visualizations (hidden by default)")
     p.add_argument("--show-h-idx", type=str,
