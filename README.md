@@ -341,11 +341,15 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ### Command Syntax
 
-```bash
+```text
 > xyzgraph -h
-usage: xyzgraph [-h] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH] [--bond BOND]
-                [--unbond UNBOND] [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--compare-rdkit] [--no-clean]
-                xyz
+xyzgraph -h
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed] 
+                [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] 
+                [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--no-clean]
+                [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL] 
+                [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL]
+                [xyz]
 
 Build molecular graph from XYZ.
 
@@ -354,12 +358,15 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  --version             Print version information and exit
+  --citation            Print citation information and exit
   --method {cheminf,xtb}
                         Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)
   -q, --quick           Quick mode: fast heuristics, less accuracy (NOT recommended)
   --max-iter MAX_ITER   Maximum iterations for bond order optimization (default: 50, cheminf only)
   -t THRESHOLD, --threshold THRESHOLD
-                        vdW Scaling factor for bond detection thresholds (default: 1.0)
+                        Scaling factor for bond detection thresholds (default: 1.0)
+  --relaxed             Relaxed mode: use more permissive geometric validation for transition states and strained rings, more likely to produce spurious structures
   --edge-per-iter EDGE_PER_ITER
                         Number of edges to adjust per iteration (default: 10, cheminf only)
   -o {greedy,beam}, --optimizer {greedy,beam}
@@ -382,15 +389,16 @@ options:
                         Show specific hydrogen atoms by index (comma-separated, e.g., '3,7,12')
   --compare-rdkit       Compare with xyz2mol output (uses rdkit implementation)
   --no-clean            Keep temporary xTB files (only for --method xtb)
+  --threshold-h-h THRESHOLD_H_H
+                        ADVANCED: vdW threshold for H-H bonds (default: 0.38)
   --threshold-h-nonmetal THRESHOLD_H_NONMETAL
                         ADVANCED: vdW threshold for H-nonmetal bonds (default: 0.42)
   --threshold-h-metal THRESHOLD_H_METAL
-                        ADVANCED: vdW threshold for H-metal bonds (default: 0.5)
+                        ADVANCED: vdW threshold for H-metal bonds (default: 0.48)
   --threshold-metal-ligand THRESHOLD_METAL_LIGAND
-                        ADVANCED: vdW threshold for metal-ligand bonds (default: 0.65)
+                        ADVANCED: vdW threshold for metal-ligand bonds (default: 0.6)
   --threshold-nonmetal THRESHOLD_NONMETAL
                         ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: 0.55)
-
 ```
 
 **Method comparison**:
@@ -446,27 +454,38 @@ print(ascii_art)
 **Output example** (acyl isothiouronium):
 
 ```text
-                                       C
-                                        \
-                                        \
-                                         C-------C
-                                      ///
-        ---C-               /C-------C
-    C---     ---          //          \           /C----
-   /            -C------N\            \          /      ---C
-  C             /        \\           /C-------C/           \\
-   \\          /          \\        //          \             C
-     \\    ---C-          -C\-----N/            \           //
-       C---     ----   ---         \             C---     //
-                    -S-             \                ----C
-                                    /C===
-                                  // =======O
-                                C\       ====
-                                 \\
-                                  \\
-                                  /C\
-                                //
-                              C/
+>  xyzgraph examples/isothio.xyz -a 
+
+                                  /C
+                                 /
+                              ///
+                             C\
+                              \\
+                              \ \
+                               \\
+                                C\
+                              //
+                            //
+                   O=======C
+                   =========\
+     C----                  \              /S\
+   //     ---C               \            /   \\
+ //           \               N----    ///      \\     ----C\
+C             \             //     ---C\          \C---      \
+ \             \           /           \\         /           \\\
+  \             C---     //             \         /              C
+  \           //    ----C               \\        /             /
+   C---     //           \               N\------C              /
+       ----C              \           ///         \\\           /
+                          \          /               \      ---C
+                           C-------C/                 \C----
+                         //
+              C----    //
+                   ---C
+                       \
+                        \
+                        \
+                         C
 ```
 
 **Features**:
@@ -735,7 +754,9 @@ xyzgraph examples/mnh.xyz --ascii --debug
 **Output (truncated):**
 
 ```text
+================================================================================
 KEKULE INITIALIZATION FOR AROMATIC RINGS
+================================================================================
     
 Ring 1 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
       ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
@@ -753,12 +774,14 @@ Ring 4 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
 Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
       ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
       π electrons estimate: 6
-  
-------------------------------------------------------------
-  SUMMARY: Initialized 5 ring(s) with Kekulé pattern
-------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+  SUMMARY: Initialized 5 ring(s) with Kekulé pattern
+--------------------------------------------------------------------------------
+
+================================================================================
 BEAM SEARCH OPTIMIZATION (width=5)
+================================================================================
   Locked 16 metal bonds
   Initial score: 456.70
   
@@ -781,18 +804,21 @@ Iteration 4:
 Iteration 5:
       No improvements found in any beam, stopping
   
-------------------------------------------------------------
+Applying best solution to graph...
+--------------------------------------------------------------------------------
   Explored 181 states across 5 iterations
   Found 4 improvements
   Score: 456.70 → 254.70
-------------------------------------------------------------
+--------------------------------------------------------------------------------
 
+================================================================================
 FORMAL CHARGE CALCULATION
+================================================================================
     
 Initial formal charges:
         Sum: -3 (target: +0)
       
-  Metal coordination summary:
+Metal coordination summary:
         
 [  0] Fe  oxidation_state=+2  coordination=10
           • 5-ring (-1)  [donor: C13]
@@ -807,21 +833,35 @@ Initial formal charges:
           •      N ( 0)  [donor: N5]
     
 Metal complex detected: 
-        Residual: +3 (represents metal oxidation states)
+        Residual: +4 (represents metal oxidation states)
 
+================================================================================
 AROMATIC RING DETECTION (Hückel 4n+2)
+================================================================================
   
 Ring 1 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
     π electrons: 6 (C7:1, C13:1, C11:1, C9:1, C8:1+1(charge))
+    ✓ AROMATIC (4n+2 rule: n=1)
+  
+Ring 2 (6-membered): ['C37', 'C39', 'C41', 'C43', 'C45', 'C36']
+    π electrons: 6 (C37:1, C39:1, C41:1, C43:1, C45:1, C36:1)
+    ✓ AROMATIC (4n+2 rule: n=1)
+  
+Ring 3 (6-membered): ['C34', 'C32', 'C30', 'C28', 'C26', 'C25']
+    π electrons: 6 (C34:1, C32:1, C30:1, C28:1, C26:1, C25:1)
+    ✓ AROMATIC (4n+2 rule: n=1)
+  
+Ring 4 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
+    π electrons: 6 (C55:1, C53:1, N6:1, C52:1, C58:1, C57:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
 Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
     π electrons: 6 (C15:1, C17:1, C19:1, C21:1, C23:1+1(charge))
     ✓ AROMATIC (4n+2 rule: n=1)
 
-------------------------------------------------------------
+--------------------------------------------------------------------------------
   SUMMARY: 5 aromatic rings, 28 bonds set to 1.5
-------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 # Selected atoms from molecular graph:
 [  0] Fe  val=10.00  metal=0.00  formal=0   | 7(1.00) 8(1.00) 9(1.00) 11(1.00) 13(1.00) ...
@@ -837,7 +877,7 @@ Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
 
 **ASCII Depiction:**
 >[!TIP]
-> Don't look at this in too much detail, not good for complex molecular visualisation...
+> Avert your eyes... Not good for complex molecular visualisation...
 ```text
             C---------C
            /           \
@@ -907,28 +947,47 @@ xyzgraph examples/isothio.xyz --charge 1 --ascii --debug
 - Formal charge on quaternary nitrogen (N⁺)
 - Beam search optimization of carbonyl bond order
 
-**Output (truncated):**
+**Output:**
 
 ```text
-> xyzgraph examples/isothio.xyz -a -d -as 2 --charge 1
+> xyzgraph examples/isothio.xyz -a -d -c 1
 
-============================================================
+================================================================================
+BUILDING GRAPH (CHEMINF, FULL MODE)
+Atoms: 52, Charge: 1, Multiplicity: 1
+================================================================================
+
+  Added 52 atoms
+  Step 1: Found 55 baseline bonds (using default thresholds)
+  Step 1: 55 baseline bonds added, 0 rejected
+  Found 4 rings from initial bonding (excluding metal cycles)
+  Total bonds in graph: 55
+  Initial bonds: 55
+
+================================================================================
 KEKULE INITIALIZATION FOR AROMATIC RINGS
-============================================================
+================================================================================
     
 Ring 1 (6-membered): ['C24', 'C23', 'C22', 'C21', 'C26', 'C25']
       π electrons estimate: 6
-       
+    
+Ring 2 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
+      π electrons estimate: 7
+      ✗ Hückel rule violated (π=7, need 6 or 10)
+    
+Ring 3 (6-membered): ['N18', 'C17', 'C13', 'C6', 'N5', 'C19']
+      ✗ Not planar
+    
 Ring 4 (6-membered): ['C8', 'C9', 'C10', 'C11', 'C12', 'C7']
       π electrons estimate: 6
-  
-------------------------------------------------------------
-  SUMMARY: Initialized 2 ring(s) with Kekulé pattern
-------------------------------------------------------------
 
-============================================================
+--------------------------------------------------------------------------------
+  SUMMARY: Initialized 2 ring(s) with Kekulé pattern
+--------------------------------------------------------------------------------
+
+================================================================================
 BEAM SEARCH OPTIMIZATION (width=5)
-============================================================
+================================================================================
   Initial score: 657.00
   
 Iteration 1:
@@ -947,15 +1006,15 @@ Iteration 4:
       No improvements found in any beam, stopping
   
 Applying best solution to graph...
-------------------------------------------------------------
+--------------------------------------------------------------------------------
   Explored 148 states across 4 iterations
   Found 3 improvements
   Score: 657.00 → 397.50
-------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-============================================================
+================================================================================
 FORMAL CHARGE CALCULATION
-============================================================
+================================================================================
     
 Initial formal charges:
         Sum: +1 (target: +1)
@@ -964,9 +1023,9 @@ Initial formal charges:
     
 No residual charge distribution needed (sum matches target)
 
-============================================================
+================================================================================
 AROMATIC RING DETECTION (Hückel 4n+2)
-============================================================
+================================================================================
   
 Ring 1 (6-membered): ['C24', 'C23', 'C22', 'C21', 'C26', 'C25']
     π electrons: 6 (C24:1, C23:1, C22:1, C21:1, C26:1, C25:1)
@@ -983,15 +1042,15 @@ Ring 4 (6-membered): ['C8', 'C9', 'C10', 'C11', 'C12', 'C7']
     π electrons: 6 (C8:1, C9:1, C10:1, C11:1, C12:1, C7:1)
     ✓ AROMATIC (4n+2 rule: n=1)
 
-------------------------------------------------------------
+--------------------------------------------------------------------------------
   SUMMARY: 2 aromatic rings, 12 bonds set to 1.5
-------------------------------------------------------------
+--------------------------------------------------------------------------------
 
     Gasteiger charge calculation failed: Explicit valence for atom # 18 N, 4, is greater than permitted
 
-============================================================
+================================================================================
 GRAPH CONSTRUCTION COMPLETE
-============================================================
+================================================================================
 
 # Molecular Graph: 52 atoms, 55 bonds
 # total_charge=1  multiplicity=1  sum(gasteiger)=+1.000  sum(gasteiger_raw)=+0.000
@@ -1000,38 +1059,98 @@ GRAPH CONSTRUCTION COMPLETE
 # (val = organic valence excluding metal bonds; metal = metal coordination bonds)
 [  0]  O  val=2.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 1(2.00)
 [  1]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 0(2.00) 2(1.00) 5(1.00)
+[  2]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 1(1.00) 3(2.00)
+[  3]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 2(2.00) 4(1.00)
+[  4]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.077 | 3(1.00)
 [  5]  N  val=3.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 1(1.00) 6(1.00) 19(1.00)
+[  6]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 5(1.00) 7(1.00) 13(1.00)
+[  7]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 6(1.00) 8(1.50*) 12(1.50*)
+[  8]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 7(1.50*) 9(1.50*)
+[  9]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 8(1.50*) 10(1.50*)
+[ 10]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 9(1.50*) 11(1.50*)
+[ 11]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 10(1.50*) 12(1.50*)
+[ 12]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 7(1.50*) 11(1.50*)
+[ 13]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 6(1.00) 14(1.00) 17(1.00)
+[ 14]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 13(1.00) 15(1.00) 16(1.00)
+[ 15]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.077 | 14(1.00)
+[ 16]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.077 | 14(1.00)
+[ 17]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.058 | 13(1.00) 18(1.00)
 [ 18]  N  val=4.00  metal=0.00  formal=+1  chg=+0.019  agg=+0.019 | 17(1.00) 19(2.00) 26(1.00)
 [ 19]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 5(1.00) 18(2.00) 20(1.00)
 [ 20]  S  val=2.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 19(1.00) 21(1.00)
-```
+[ 21]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 20(1.00) 22(1.50*) 26(1.50*)
+[ 22]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 21(1.50*) 23(1.50*)
+[ 23]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 22(1.50*) 24(1.50*)
+[ 24]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 23(1.50*) 25(1.50*)
+[ 25]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 24(1.50*) 26(1.50*)
+[ 26]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 18(1.00) 21(1.50*) 25(1.50*)
 
-**ASCII Depiction:**
-```text
-                            C
-                           /
+# Bonds (i-j: order) (filtered)
+[ 0- 1]: 2.00
+[ 1- 2]: 1.00
+[ 1- 5]: 1.00
+[ 2- 3]: 2.00
+[ 3- 4]: 1.00
+[ 5- 6]: 1.00
+[ 5-19]: 1.00
+[ 6- 7]: 1.00
+[ 6-13]: 1.00
+[ 7- 8]: 1.50
+[ 7-12]: 1.50
+[ 8- 9]: 1.50
+[ 9-10]: 1.50
+[10-11]: 1.50
+[11-12]: 1.50
+[13-14]: 1.00
+[13-17]: 1.00
+[14-15]: 1.00
+[14-16]: 1.00
+[17-18]: 1.00
+[18-19]: 2.00
+[18-26]: 1.00
+[19-20]: 1.00
+[20-21]: 1.00
+[21-22]: 1.50
+[21-26]: 1.50
+[22-23]: 1.50
+[23-24]: 1.50
+[24-25]: 1.50
+[25-26]: 1.50
+
+================================================================================
+# ASCII Depiction
+================================================================================
+
+                                  /C
+                                 /
+                              ///
+                             C\
+                              \\
+                              \ \
+                               \\
+                                C\
+                              //
+                            //
+                   O=======C
+                   =========\
+     C----                  \              /S\
+   //     ---C               \            /   \\
+ //           \               N----    ///      \\     ----C\
+C             \             //     ---C\          \C---      \
+ \             \           /           \\         /           \\\
+  \             C---     //             \         /              C
+  \           //    ----C               \\        /             /
+   C---     //           \               N\------C              /
+       ----C              \           ///         \\\           /
+                          \          /               \      ---C
+                           C-------C/                 \C----
                          //
-                        C\
-                         \\
-                         \\
-                         /C\
-                        /
-               O======C/
-               ========\
-   /C------C           \           /S-
-  /         \           N---     //   ---     --C\
-C/          \         //    ---C\        -C---    \\
-\           \        /          \\       /          \C
- \          /C------C           \\       /          /
-  \        /         \           N\-----C           /
-  C------C/          \         //        \\         /
-                      C---    /            \    ---C
-                    //    ---C              C---
-           C---    /
-               ---C
-                   \
-                   \
-                    C
+              C----    //
+                   ---C
+                       \
+                        \
+                        \
+                         C
 ```
 
 ![isothiouronium](examples/isothio.svg)
