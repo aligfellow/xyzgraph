@@ -5,15 +5,64 @@ from . import (
     graph_to_ascii,
     read_xyz_file,
     xyz2mol_compare,
-    DEFAULT_PARAMS,
+    __version__,
+    __citation__,
     BOHR_TO_ANGSTROM,
 )
 
+from .config import DEFAULT_PARAMS
+from .graph_builders import compute_metadata
 from .utils import _parse_pairs
+
+
+def print_header(input_file, params_used):
+    """
+    Print formatted header with version, citation, and parameter information.
+    
+    Args:
+        input_file: Path to input XYZ file
+        params_used: Dict of non-default parameters used
+    """
+    import textwrap
+    import os
+    
+    print("=" * 80)
+    print(" " * 31 + "XYZGRAPH")
+    print(" " * 10 + "Molecular Graph Construction from Cartesian Coordinates")
+    print(" " * 26 + "A. S. Goodfellow, 2025")
+    print("=" * 80)
+    print()
+    print(f"Version:        xyzgraph v{__version__}")
+    
+    # Wrap citation at 80 characters with proper indent
+    wrapped_citation = textwrap.fill(__citation__, width=80, 
+                                     initial_indent="Citation:       ",
+                                     subsequent_indent="                ")
+    print(wrapped_citation)
+    
+    print(f"Input:          {os.path.basename(input_file)}")
+    
+    # Print non-default parameters with wrapping
+    if params_used:
+        params_str = ", ".join(f"{k}={v}" for k, v in params_used.items())
+        wrapped_params = textwrap.fill(params_str, width=80, 
+                                       initial_indent="Parameters:     ",
+                                       subsequent_indent="                ")
+        print(wrapped_params)
+    
+    print()
+    print("=" * 80)
+    print()
 
 def main():
     p = argparse.ArgumentParser(description="Build molecular graph from XYZ.")
-    p.add_argument("xyz", help="Input XYZ file")
+    p.add_argument("xyz", nargs='?', help="Input XYZ file")
+    
+    # Version and citation flags
+    p.add_argument("--version", action="store_true",
+                    help="Print version information and exit")
+    p.add_argument("--citation", action="store_true",
+                    help="Print citation information and exit")
     
     # Method and quality
     p.add_argument("--method", choices=["cheminf", "xtb"], default=DEFAULT_PARAMS['method'],
@@ -81,6 +130,20 @@ def main():
     
     args = p.parse_args()
     
+    # Handle --version flag
+    if args.version:
+        print(f"xyzgraph v{__version__}")
+        return
+    
+    # Handle --citation flag
+    if args.citation:
+        print(__citation__)
+        return
+    
+    # Require xyz file if not using --version or --citation
+    if not args.xyz:
+        p.error("the following arguments are required: xyz")
+    
     # Parse forced_bonds: "0,5 3,7" → [(0, 5), (3, 7)]
     bond = _parse_pairs(args.bond) if args.bond else None
     unbond = _parse_pairs(args.unbond) if args.unbond else None
@@ -97,7 +160,37 @@ def main():
     # Read structure (now as list of (atomic_number, (x,y,z)))
     atoms = read_xyz_file(args.xyz, bohr_units=args.bohr)
 
-    # Create analyzer with all parameters
+    # Determine what to show (need to know this before building graph for header)
+    has_explicit_output = args.debug or args.ascii or args.compare_rdkit
+    show_ascii = args.ascii or not has_explicit_output
+    
+    # Compute metadata BEFORE building (for header)
+    metadata = compute_metadata(
+        method=args.method,
+        charge=args.charge,
+        multiplicity=args.multiplicity,
+        quick=args.quick,
+        optimizer=args.optimizer,
+        max_iter=args.max_iter,
+        edge_per_iter=args.edge_per_iter,
+        beam_width=args.beam_width,
+        bond=bond,
+        unbond=unbond,
+        clean_up=not args.no_clean,
+        threshold=args.threshold,
+        threshold_h_h=args.threshold_h_h,
+        threshold_h_nonmetal=args.threshold_h_nonmetal,
+        threshold_h_metal=args.threshold_h_metal,
+        threshold_metal_ligand=args.threshold_metal_ligand,
+        threshold_nonmetal_nonmetal=args.threshold_nonmetal,
+        relaxed=args.relaxed
+    )
+    
+    # Print header BEFORE building graph (if output is requested)
+    if has_explicit_output or show_ascii:
+        print_header(args.xyz, metadata)
+    
+    # Build graph with pre-computed metadata
     G = build_graph(
             atoms=atoms,
             method=args.method,
@@ -118,21 +211,18 @@ def main():
             threshold_h_metal=args.threshold_h_metal,
             threshold_metal_ligand=args.threshold_metal_ligand,
             threshold_nonmetal_nonmetal=args.threshold_nonmetal,
-            relaxed=args.relaxed
+            relaxed=args.relaxed,
+            metadata=metadata
         )
-
-    # Determine what to show
-    has_explicit_output = args.debug or args.ascii or args.compare_rdkit
-    show_ascii = args.ascii or not has_explicit_output
     
     if not args.ascii and not has_explicit_output:
-        print("\n# (Auto-enabled ASCII output - use --help for more options)\n")
+        print("# (Auto-enabled ASCII output - use --help for more options)")
     
     if args.debug:
         print(graph_debug_report(G, include_h=args.show_h, show_h_indices=show_h_indices))
 
     if show_ascii:
-        print(f"\n{'=' * 60}\n# ASCII Depiction\n{'=' * 60}")
+        print(f"\n{'=' * 80}\n# ASCII Depiction\n{'=' * 80}\n")
         print(graph_to_ascii(G, scale=max(0.2, args.ascii_scale), include_h=args.show_h, show_h_indices=show_h_indices))
 
 
