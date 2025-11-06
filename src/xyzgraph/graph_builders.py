@@ -7,8 +7,78 @@ from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')  # Try to suppress RDKit warnings
 
 from .data_loader import DATA
-from . import DEFAULT_PARAMS
+from .config import DEFAULT_PARAMS
 from .utils import read_xyz_file
+
+# =============================================================================
+# METADATA COMPUTATION
+# =============================================================================
+
+def compute_metadata(
+        method: str,
+        charge: int,
+        multiplicity: Optional[int],
+        quick: bool,
+        optimizer: str,
+        max_iter: int,
+        edge_per_iter: int,
+        beam_width: int,
+        bond: Optional[List[Tuple[int, int]]],
+        unbond: Optional[List[Tuple[int, int]]],
+        clean_up: bool,
+        threshold: float,
+        threshold_h_h: float,
+        threshold_h_nonmetal: float,
+        threshold_h_metal: float,
+        threshold_metal_ligand: float,
+        threshold_nonmetal_nonmetal: float,
+        relaxed: bool
+) -> Dict[str, Any]:
+    """
+    Compute non-default parameters for metadata.
+    
+    Returns dict of parameters that differ from defaults.
+    """
+    non_default = {}
+    
+    if method != DEFAULT_PARAMS['method']:
+        non_default['method'] = method
+    if charge != DEFAULT_PARAMS['charge']:
+        non_default['charge'] = charge
+    if multiplicity != DEFAULT_PARAMS['multiplicity']:
+        non_default['multiplicity'] = multiplicity
+    if quick != DEFAULT_PARAMS['quick']:
+        non_default['quick'] = quick
+    if optimizer != DEFAULT_PARAMS['optimizer']:
+        non_default['optimizer'] = optimizer
+    if max_iter != DEFAULT_PARAMS['max_iter']:
+        non_default['max_iter'] = max_iter
+    if edge_per_iter != DEFAULT_PARAMS['edge_per_iter']:
+        non_default['edge_per_iter'] = edge_per_iter
+    if beam_width != DEFAULT_PARAMS['beam_width']:
+        non_default['beam_width'] = beam_width
+    if bond != DEFAULT_PARAMS['bond']:
+        non_default['bond'] = bond
+    if unbond != DEFAULT_PARAMS['unbond']:
+        non_default['unbond'] = unbond
+    if clean_up != DEFAULT_PARAMS['clean_up']:
+        non_default['clean_up'] = clean_up
+    if threshold != DEFAULT_PARAMS['threshold']:
+        non_default['threshold'] = threshold
+    if threshold_h_h != DEFAULT_PARAMS['threshold_h_h']:
+        non_default['threshold_h_h'] = threshold_h_h
+    if threshold_h_nonmetal != DEFAULT_PARAMS['threshold_h_nonmetal']:
+        non_default['threshold_h_nonmetal'] = threshold_h_nonmetal
+    if threshold_h_metal != DEFAULT_PARAMS['threshold_h_metal']:
+        non_default['threshold_h_metal'] = threshold_h_metal
+    if threshold_metal_ligand != DEFAULT_PARAMS['threshold_metal_ligand']:
+        non_default['threshold_metal_ligand'] = threshold_metal_ligand
+    if threshold_nonmetal_nonmetal != DEFAULT_PARAMS['threshold_nonmetal_nonmetal']:
+        non_default['threshold_nonmetal_nonmetal'] = threshold_nonmetal_nonmetal
+    if relaxed != DEFAULT_PARAMS['relaxed']:
+        non_default['relaxed'] = relaxed
+    
+    return non_default
 
 # =============================================================================
 # GRAPH-BASED BOND CONSTRUCTION CLASS
@@ -215,7 +285,7 @@ class GraphBuilder:
             if angle > 160.0:
                 # If bond involves metal (at either end), be lenient with collinearity
                 if has_metal:
-                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{i}, but involves metal ({sym_i}-{sym_j}) - allowed", 3)
+                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{i}, involves metal ({sym_i}-{sym_j}) - allowed", 3)
                     continue
                 
                 # For non-metal bonds: distinguish same direction (spurious) vs opposite (trans/linear)
@@ -262,7 +332,7 @@ class GraphBuilder:
             if angle > 160.0:
                 # If bond involves metal, be lenient
                 if has_metal:
-                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, but involves metal ({sym_i}-{sym_j}) - allowed", 3)
+                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, involves metal ({sym_i}-{sym_j}) - allowed", 3)
                     continue
                 
                 # For non-metal bonds: check direction
@@ -296,7 +366,7 @@ class GraphBuilder:
             if i in ring_set and j in ring_set:
                 # Allow for very small rings (3-4) if metal involved
                 if len(ring) <= 4 and has_metal:
-                    self.log(f"  Bond {i}-{j}: diagonal in existing {len(ring)}-ring but involves metal - allowed", 3)
+                    self.log(f"  Bond {i}-{j}: diagonal in existing {len(ring)}-ring involves metal - allowed", 3)
                     continue
                 # Reject diagonals in small rings (would create impossible geometry)
                 if len(ring) <= 4:
@@ -537,9 +607,9 @@ class GraphBuilder:
         """Compute formal charges for all atoms and balance to total charge"""
         formal = []
 
-        self.log("\n" + "=" * 60, 0)
+        self.log("\n" + "=" * 80, 0)
         self.log("FORMAL CHARGE CALCULATION", 0)
-        self.log("=" * 60, 0)
+        self.log("=" * 80, 0)
 
         for node in G.nodes():
             sym = G.nodes[node]['symbol']
@@ -719,11 +789,11 @@ class GraphBuilder:
     def build(self) -> nx.Graph:
         """Build molecular graph using configured method"""
         mode = "QUICK" if self.quick else "FULL"
-        self.log(f"\n{'=' * 60}")
+        self.log(f"\n{'=' * 80}")
         self.log(f"BUILDING GRAPH ({self.method.upper()}, {mode} MODE)")
         self.log(f"Atoms: {len(self.atoms)}, Charge: {self.charge}, "
                 f"Multiplicity: {self.multiplicity}")
-        self.log(f"{'=' * 60}\n")
+        self.log(f"{'=' * 80}\n")
         
         if self.method == 'cheminf':
             self.graph = self._build_cheminf()
@@ -735,9 +805,9 @@ class GraphBuilder:
         # Store build log in graph
         self.graph.graph['build_log'] = self.get_log()
         
-        self.log(f"\n{'=' * 60}")
+        self.log(f"\n{'=' * 80}")
         self.log("GRAPH CONSTRUCTION COMPLETE")
-        self.log(f"{'=' * 60}\n")
+        self.log(f"{'=' * 80}\n")
         
         return self.graph
 
@@ -1020,9 +1090,9 @@ class GraphBuilder:
         # Broader list for Kekulé initialization (gives optimizer a head start)
         aromatic_atoms = {'C', 'N', 'O', 'S', 'B', 'P', 'Se'}
         
-        self.log("\n" + "=" * 60, 0)
+        self.log("\n" + "=" * 80, 0)
         self.log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
-        self.log("=" * 60, 0)
+        self.log("=" * 80, 0)
 
         for ring_idx, cycle in enumerate(cycles):
             # Must be 5 or 6-membered
@@ -1165,9 +1235,9 @@ class GraphBuilder:
                     # Conflict detected - skip this ring, let optimizer handle it
                     self.log("✗ Conflict in existing bond orders", 3)
 
-        self.log("\n" + "-" * 60, 1)
+        self.log("\n" + "-" * 80, 0)
         self.log(f"SUMMARY: Initialized {initialized_rings} ring(s) with Kekulé pattern", 1)
-        self.log("-" * 60, 1)
+        self.log("-" * 80, 0)
 
         return initialized_rings
 
@@ -1368,9 +1438,9 @@ class GraphBuilder:
             - final_score
             - final formal_charges
         """
-        self.log(f"\n{'=' * 60}", 0)
+        self.log(f"\n{'=' * 80}", 0)
         self.log("FULL VALENCE OPTIMIZATION", 1)
-        self.log("=" * 60, 0)
+        self.log("=" * 80, 0)
 
         # --- Precompute / cache graph info ---
         rings = G.graph.get('_rings') or nx.cycle_basis(G)
@@ -1500,10 +1570,10 @@ class GraphBuilder:
         stats['final_score'] = current_score
         stats['final_formal_charges'] = final_formal_charges
 
-        self.log("-" * 60, 0)
+        self.log("-" * 80, 0)
         self.log(f"Optimized: {stats['improvements']} improvements", 1)
         self.log(f"Score: {initial_score:.2f} → {stats['final_score']:.2f}", 1)
-        self.log("-" * 60, 0)
+        self.log("-" * 80, 0)
 
         return stats
 
@@ -1674,9 +1744,9 @@ class GraphBuilder:
         - When promoting edge (i,j), update valence for nodes i and j
         - Score calculation uses cached valences
         """
-        self.log(f"\n{'=' * 60}", 0)
+        self.log(f"\n{'=' * 80}", 0)
         self.log(f"BEAM SEARCH OPTIMIZATION (width={self.beam_width})", 0)
-        self.log("=" * 60, 0)
+        self.log("=" * 80, 0)
         
         # Use cached graph info (don't recompute - preserves metal-free rings)
         rings = G.graph.get('_rings', nx.cycle_basis(G))
@@ -1822,11 +1892,11 @@ class GraphBuilder:
         stats['final_score'] = final_score
         stats['final_formal_charges'] = final_formal_charges
         
-        self.log("-" * 60, 0)
+        self.log("-" * 80, 0)
         self.log(f"Explored {stats['beam_explored']} states across {stats['iterations']} iterations", 1)
         self.log(f"Found {stats['improvements']} improvements", 1)
         self.log(f"Score: {initial_score:.2f} → {stats['final_score']:.2f}", 1)
-        self.log("-" * 60, 0)
+        self.log("-" * 80, 0)
         
         return stats
 
@@ -1842,9 +1912,9 @@ class GraphBuilder:
             Reduces to C only for now.
         This only sets bond orders to 1.5 for aromatic rings - kekule structure is still a valid solution.
         """
-        self.log(f"\n{'=' * 60}", 0)
+        self.log(f"\n{'=' * 80}", 0)
         self.log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
-        self.log("=" * 60, 0)
+        self.log("=" * 80, 0)
         
         # Use cached cycles (metal-free) instead of recalculating
         cycles = G.graph.get('_rings', [])
@@ -1940,9 +2010,9 @@ class GraphBuilder:
             else:
                 self.log(f"✗ Not aromatic (4n+2 rule violated)", 2)
 
-        self.log(f"\n{'-' * 60}", 0)
+        self.log(f"\n{'-' * 80}", 0)
         self.log(f"SUMMARY: {aromatic_rings} aromatic rings, {aromatic_count} bonds set to 1.5", 1)
-        self.log(f"{'-' * 60}\n", 0)
+        self.log(f"{'-' * 80}\n", 0)
 
         return aromatic_count
 
@@ -2353,15 +2423,40 @@ def build_graph(
             threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
             threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
             threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
-            relaxed: bool = DEFAULT_PARAMS['relaxed']
+            relaxed: bool = DEFAULT_PARAMS['relaxed'],
+            metadata: Optional[Dict[str, Any]] = None
         ) -> nx.Graph:
     """Convenience function that wraps GraphBuilder.
 
     atoms: Either a list of (symbol, (x,y,z)) tuples, or a filepath to read.
+    metadata: Pre-computed metadata dict (for CLI to avoid duplication).
     """
     # Handle filepath input
     if isinstance(atoms, str):
         atoms = read_xyz_file(atoms)
+
+    # Compute metadata if not provided
+    if metadata is None:
+        metadata = compute_metadata(
+            method=method,
+            charge=charge,
+            multiplicity=multiplicity,
+            quick=quick,
+            optimizer=optimizer,
+            max_iter=max_iter,
+            edge_per_iter=edge_per_iter,
+            beam_width=beam_width,
+            bond=bond,
+            unbond=unbond,
+            clean_up=clean_up,
+            threshold=threshold,
+            threshold_h_h=threshold_h_h,
+            threshold_h_nonmetal=threshold_h_nonmetal,
+            threshold_h_metal=threshold_h_metal,
+            threshold_metal_ligand=threshold_metal_ligand,
+            threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
+            relaxed=relaxed
+        )
 
     builder = GraphBuilder(
         atoms=atoms,
@@ -2385,4 +2480,15 @@ def build_graph(
         threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
         relaxed=relaxed
     )
-    return builder.build()
+    
+    G = builder.build()
+    
+    # Add metadata to graph (with version/citation info)
+    from . import __version__, __citation__
+    G.graph['metadata'] = {
+        'version': __version__,
+        'citation': __citation__,
+        'parameters': metadata
+    }
+    
+    return G

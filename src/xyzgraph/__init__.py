@@ -1,34 +1,12 @@
-"""
-xyzgraph - Molecular graph construction from XYZ geometries
-"""
+from importlib.metadata import version
+__version__ = version("xyzgraph")
+__citation__ = f"A. S. Goodfellow, xyzgraph: Molecular Graph Construction from Cartesian Coordinates, v{__version__}, 2025, https://github.com/aligfellow/xyzgraph.git."
 
-# Eagerly load data singleton
+# Eagerly load data 
 from .data_loader import DATA, BOHR_TO_ANGSTROM
 
-# Centralized default parameters for graph building
-DEFAULT_PARAMS = {
-    'method': 'cheminf',
-    'charge': 0,
-    'multiplicity': None,
-    'quick': False,
-    'optimizer': 'beam',
-    'max_iter': 50,
-    'edge_per_iter': 10,
-    'beam_width': 5,
-    'bond': None,
-    'unbond': None,
-    'clean_up': True,
-    'debug': False,
-    'threshold': 1.0,
-    
-    # Advanced bonding thresholds:
-    'threshold_h_h': 0.38,
-    'threshold_h_nonmetal': 0.42,
-    'threshold_h_metal': 0.48,
-    'threshold_metal_ligand': 0.6,
-    'threshold_nonmetal_nonmetal': 0.55,
-    'relaxed': False,
-}
+# Import default parameters from config
+from .config import DEFAULT_PARAMS
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
 from .graph_builders import GraphBuilder, build_graph
