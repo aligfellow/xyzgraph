@@ -512,66 +512,105 @@ print(report)
 ```text
 > xyzgraph benzene_NH4-cation-pi.xyz -c 1 -a -d
 
-============================================================
+================================================================================
+                               XYZGRAPH
+          Molecular Graph Construction from Cartesian Coordinates
+                          A. S. Goodfellow, 2025
+================================================================================
+
+Version:        xyzgraph v1.1.0
+Citation:       A. S. Goodfellow, xyzgraph: Molecular Graph Construction from
+                Cartesian Coordinates, v1.1.0, 2025,
+                https://github.com/aligfellow/xyzgraph.git.
+Input:          benzene_NH4-cation-pi.xyz
+Parameters:     charge=1
+
+================================================================================
+
+
+================================================================================
 BUILDING GRAPH (CHEMINF, FULL MODE)
 Atoms: 17, Charge: 1, Multiplicity: 1
-============================================================
+================================================================================
 
   Added 17 atoms
+  Step 1: Found 16 baseline bonds (using default thresholds)
+  Step 1: 16 baseline bonds added, 0 rejected
+  Found 1 rings from initial bonding (excluding metal cycles)
+  Total bonds in graph: 16
   Initial bonds: 16
-  Found 1 rings
-  Initial bonds: 16
-  Pruning distorted rings (sizes: [3, 4])
-  Initialized 1 6-membered carbon rings with Kekulé pattern
-============================================================
-  
-BEAM SEARCH OPTIMIZATION (width=3)
-============================================================
-  Initial score: 15.50
+
+================================================================================
+KEKULE INITIALIZATION FOR AROMATIC RINGS
+================================================================================
+    
+Ring 1 (6-membered): ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
+      π electrons estimate: 6
+
+--------------------------------------------------------------------------------
+  SUMMARY: Initialized 1 ring(s) with Kekulé pattern
+--------------------------------------------------------------------------------
+
+================================================================================
+BEAM SEARCH OPTIMIZATION (width=5)
+================================================================================
+  Initial score: 22.50
   
 Iteration 1:
       No improvements found in any beam, stopping
   
 Applying best solution to graph...
-------------------------------------------------------------
+--------------------------------------------------------------------------------
   Explored 13 states across 1 iterations
   Found 0 improvements
-  Score: 15.50 → 15.50
-------------------------------------------------------------
+  Score: 22.50 → 22.50
+--------------------------------------------------------------------------------
 
-============================================================
+================================================================================
+FORMAL CHARGE CALCULATION
+================================================================================
+    
+Initial formal charges:
+        Sum: +1 (target: +1)
+        Charged atoms:
+            N12: +1
+    
+No residual charge distribution needed (sum matches target)
+
+================================================================================
 AROMATIC RING DETECTION (Hückel 4n+2)
-============================================================
+================================================================================
   
 Ring 1 (6-membered): ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
     π electrons: 6 (C0:1, C1:1, C2:1, C3:1, C4:1, C5:1)
     ✓ AROMATIC (4n+2 rule: n=1)
 
-------------------------------------------------------------
+--------------------------------------------------------------------------------
   SUMMARY: 1 aromatic rings, 6 bonds set to 1.5
-------------------------------------------------------------
+--------------------------------------------------------------------------------
 
     Gasteiger charge calculation failed: Explicit valence for atom # 12 N, 4, is greater than permitted
 
-============================================================
+================================================================================
 GRAPH CONSTRUCTION COMPLETE
-============================================================
+================================================================================
 
 # Molecular Graph: 17 atoms, 16 bonds
 # total_charge=1  multiplicity=1  sum(gasteiger)=+1.000  sum(gasteiger_raw)=+0.000
 # (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)
-# [idx] Sym  val=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)
-[  0]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 1(1.50*) 5(1.50*)
-[  1]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 0(1.50*) 2(1.50*)
-[  2]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 1(1.50*) 3(1.50*)
-[  3]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 2(1.50*) 4(1.50*)
-[  4]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 3(1.50*) 5(1.50*)
-[  5]  C  val=4.00  formal=+0  chg=+0.059  agg=+0.118 | 0(1.50*) 4(1.50*)
-[ 12]  N  val=4.00  formal=+1  chg=+0.059  agg=+0.294 | 13(1.00) 14(1.00) 15(1.00) 16(1.00)
-[ 13]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
-[ 14]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
-[ 15]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
-[ 16]  H  val=1.00  formal=+0  chg=+0.059  agg=+0.059 | 12(1.00)
+# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)
+# (val = organic valence excluding metal bonds; metal = metal coordination bonds)
+[  0]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 1(1.50*) 5(1.50*)
+[  1]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 0(1.50*) 2(1.50*)
+[  2]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 1(1.50*) 3(1.50*)
+[  3]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 2(1.50*) 4(1.50*)
+[  4]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 3(1.50*) 5(1.50*)
+[  5]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 0(1.50*) 4(1.50*)
+[ 12]  N  val=4.00  metal=0.00  formal=+1  chg=+0.059  agg=+0.294 | 13(1.00) 14(1.00) 15(1.00) 16(1.00)
+[ 13]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
+[ 14]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
+[ 15]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
+[ 16]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
 
 # Bonds (i-j: order) (filtered)
 [ 0- 1]: 1.50
@@ -585,28 +624,33 @@ GRAPH CONSTRUCTION COMPLETE
 [12-15]: 1.00
 [12-16]: 1.00
 
-============================================================
+================================================================================
 # ASCII Depiction
-============================================================
-         -C-------------------C-
-      ---                       ----
-  ----                              ----
-C-                                      -C
-  \\                                 ///
-    \\\                            //
-       \\                       ///
-         \C-------------------C/
+================================================================================
+
+            -C------------------------C-
+         ---                            ---
+     ----                                  ----
+  ---                                          ---
+C\                                                -C
+  \\                                            //
+    \\\                                      ///
+       \\\                                ///
+          \\                            //
+            \C------------------------C/
 
 
-                    H
-                    |
-                    |
-                    |
-H-------------------N--------------------H
-                    |
-                    |
-                    |
-                    H
+                         H
+                         |
+                         |
+                         |
+                         |
+H------------------------N-------------------------H
+                         |
+                         |
+                         |
+                         |
+                         H
 ```
 
 ---
