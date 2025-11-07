@@ -21,4 +21,7 @@ DEFAULT_PARAMS = {
     'threshold_metal_ligand': 0.6,
     'threshold_nonmetal_nonmetal': 0.55,
     'relaxed': False,
+    
+    # ORCA-specific parameters:
+    'orca_bond_threshold': 0.5,
 }
