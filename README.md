@@ -26,9 +26,11 @@
 ## Key Features
 
 - **Distance-based initial bonding** using *consistent* van der Waals radii across *all elements* from Charry and Tkatchenko [[1]](https://doi.org/10.1021/acs.jctc.4c00784)
-- **Two construction methods**:
+- **Four construction methods**:
   - `cheminf`: Pure cheminformatics with bond order optimization
-  - `xtb`: semi-empirical calculation of bond orders via xTB Wiberg bond orders with Mulliken charges [[2]](https://pubs.acs.org/doi/10.1021/acs.jctc.8b01176)
+  - `xtb`: Semi-empirical calculation via xTB Wiberg bond orders with Mulliken charges [[2]](https://pubs.acs.org/doi/10.1021/acs.jctc.8b01176)
+  - `rdkit`: RDKit's DetermineBonds algorithm [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
+  - `orca`: Reads Mayer bond orders and Mulliken charges from ORCA outputs.
 - **Cheminformatics modes**:
   - `--quick`: Fast (crude) valence adjustment
   - Full optimization with valence and charge minimisation
@@ -36,7 +38,7 @@
       **beam**: optimization across multiple paths (slightly slower, default)  
       **greedy**: iterative valence adjustment
 - **Aromatic detection**: Hückel 4n+2 rule for 6-membered rings
-- **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB) partial charges
+- **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
 - **ASCII 2D depiction** with layout alignment for method comparison (see also [[5]](https://github.com/whitead/moltext))
 
@@ -80,7 +82,8 @@ conda install -c conda-forge xtb # or download from GitHub releases
 **Minimal usage** (auto-displays ASCII depiction):
 
 ```bash
-xyzgraph molecule.xyz
+xyzgraph molecule.xyz   # constructs graph with cheminformatics style defaults
+xyzgraph molecule.out   # constructs graph from ORCA output
 ```
 
 **Specify charge and method**:
@@ -101,20 +104,49 @@ xyzgraph molecule.xyz --debug
 xyzgraph molecule.xyz --compare-rdkit
 ```
 
+**Compare with ORCA output**:
+
+```bash
+# Compare XYZ (cheminf) vs ORCA bond orders
+xyzgraph molecule.xyz --orca-out molecule.out
+
+# Three-way comparison: cheminf vs ORCA vs RDKit
+xyzgraph molecule.xyz --orca-out molecule.out --compare-rdkit
+```
+
 ### Python Example
 
 **Basic usage**:
 
 ```python
-from xyzgraph import build_graph, graph_to_ascii, read_xyz_file
+from xyzgraph import build_graph, build_graph_rdkit, build_graph_orca
 
-atoms = read_xyz_file("molecule.xyz") 
-G = build_graph(atoms, charge=0)
-# OR
-G = build_graph("molecule.xyz", charge=0)
+# Cheminformatics (default method)
+G_cheminf = build_graph("molecule.xyz", charge=0)
+
+# RDKit's DetermineBonds
+G_rdkit = build_graph_rdkit("molecule.xyz", charge=0)
+
+# ORCA output (Mayer bond orders)
+G_orca = build_graph_orca("structure.out", bond_threshold=0.5)
 
 # Print ASCII structure
-print(graph_to_ascii(G, scale=3.0, include_h=False))
+from xyzgraph import graph_to_ascii
+print(graph_to_ascii(G_cheminf, scale=3.0, include_h=False))
+```
+
+**Comparing methods**:
+
+```python
+from xyzgraph import compare_with_rdkit
+
+# Build graphs
+G_cheminf = build_graph("molecule.xyz", charge=-1)
+G_rdkit = build_graph_rdkit("molecule.xyz", charge=-1)
+
+# Compare (returns formatted report)
+report = compare_with_rdkit(G_cheminf, G_rdkit, verbose=True, ascii=True)
+print(report)
 ```
 
 ---
@@ -343,51 +375,53 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ```text
 > xyzgraph -h
-xyzgraph -h
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed] 
-                [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] 
-                [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--no-clean]
-                [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL] 
-                [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL]
-                [xyz]
 
-Build molecular graph from XYZ.
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed] [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH]
+                [--bond BOND] [--unbond UNBOND] [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--orca-out ORCA_OUT]
+                [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL]
+                [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL]
+                [input_file]
+
+Build molecular graph from XYZ or ORCA output.
 
 positional arguments:
-  xyz                   Input XYZ file
+  input_file            Input file (XYZ or ORCA .out)
 
 options:
   -h, --help            show this help message and exit
   --version             Print version information and exit
   --citation            Print citation information and exit
   --method {cheminf,xtb}
-                        Graph construction method (default: cheminf) (xtb requires xTB binary installed and available in PATH)
+                        Graph construction method (default: cheminf)
   -q, --quick           Quick mode: fast heuristics, less accuracy (NOT recommended)
   --max-iter MAX_ITER   Maximum iterations for bond order optimization (default: 50, cheminf only)
   -t THRESHOLD, --threshold THRESHOLD
                         Scaling factor for bond detection thresholds (default: 1.0)
-  --relaxed             Relaxed mode: use more permissive geometric validation for transition states and strained rings, more likely to produce spurious structures
+  --relaxed             Relaxed mode: use more permissive geometric validation
   --edge-per-iter EDGE_PER_ITER
                         Number of edges to adjust per iteration (default: 10, cheminf only)
   -o {greedy,beam}, --optimizer {greedy,beam}
-                        Optimization algorithm (default: beam, cheminf , BEAM recommended)
+                        Optimization algorithm (default: beam, BEAM recommended)
   -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
-                        Beam width for beam search (default: 5). i.e. number of candidate graphs to retain per iteration
-  --bond BOND           Specify atoms that must be bonded in the graph construction. Example: --bond 0,1 2,3
-  --unbond UNBOND       Specify that two atoms indices are NOT bonded in the graph construction. Example: --unbond 0,1 1,2
+                        Beam width for beam search (default: 5)
+  --bond BOND           Force specific bonds. Example: --bond 0,1 2,3
+  --unbond UNBOND       Prevent specific bonds. Example: --unbond 0,1 1,2
   -c CHARGE, --charge CHARGE
                         Total molecular charge (default: 0)
   -m MULTIPLICITY, --multiplicity MULTIPLICITY
                         Spin multiplicity (auto-detected if not specified)
-  -b, --bohr            XYZ file provided in units bohr (default is Angstrom)
-  -d, --debug           Enable debug output (construction details + graph report)
-  -a, --ascii           Show 2D ASCII depiction (auto-enabled if no other output)
+  -b, --bohr            XYZ file in Bohr units (default is Angstrom)
+  -d, --debug           Enable debug output
+  -a, --ascii           Show 2D ASCII depiction
   -as ASCII_SCALE, --ascii-scale ASCII_SCALE
-                        ASCII scaling factor (default: 3.0)
-  -H, --show-h          Include hydrogens in visualizations (hidden by default)
+                        ASCII scaling factor (default: 2.5)
+  -H, --show-h          Include hydrogens in visualizations
   --show-h-idx SHOW_H_IDX
-                        Show specific hydrogen atoms by index (comma-separated, e.g., '3,7,12')
-  --compare-rdkit       Compare with xyz2mol output (uses rdkit implementation)
+                        Show specific hydrogen atoms (comma-separated, e.g., '3,7,12')
+  --compare-rdkit       Compare with RDKit graph
+  --orca-out ORCA_OUT   ORCA output file for comparison
+  --orca-threshold ORCA_THRESHOLD
+                        Minimum Mayer bond order for ORCA graphs (default: 0.5)
   --no-clean            Keep temporary xTB files (only for --method xtb)
   --threshold-h-h THRESHOLD_H_H
                         ADVANCED: vdW threshold for H-H bonds (default: 0.38)
@@ -412,7 +446,7 @@ diff cheminf.txt xtb.txt
 **Validate against RDKit**:
 
 ```bash
-xyzgraph molecule.xyz --compare-xyz2mol
+xyzgraph molecule.xyz --compare-rdkit
 ```
 
 ---

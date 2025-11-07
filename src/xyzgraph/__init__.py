@@ -9,17 +9,26 @@ from .data_loader import DATA, BOHR_TO_ANGSTROM
 from .config import DEFAULT_PARAMS
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
-from .graph_builders import GraphBuilder, build_graph
+from .graph_builders import GraphBuilder, build_graph, build_graph_rdkit, build_graph_orca
+
+# ORCA parser
+from .orca_parser import parse_orca_output, OrcaParseError
 
 # Utilities
 from .ascii_renderer import graph_to_ascii
 from .utils import graph_debug_report, read_xyz_file
-from .compare import xyz2mol_compare
+from .compare import compare_with_rdkit
 
 __all__ = [
     # Main interfaces
     'GraphBuilder',
     'build_graph',
+    'build_graph_rdkit',
+    'build_graph_orca',
+    
+    # ORCA support
+    'parse_orca_output',
+    'OrcaParseError',
     
     # Visualization
     'graph_to_ascii',
@@ -27,7 +36,7 @@ __all__ = [
     
     # Utilities
     'read_xyz_file',
-    'xyz2mol_compare',
+    'compare_with_rdkit',
 
     # Configuration
     'DEFAULT_PARAMS',
