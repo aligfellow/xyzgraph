@@ -22,6 +22,11 @@ DEFAULT_PARAMS = {
     'threshold_nonmetal_nonmetal': 0.55,
     'relaxed': False,
     
+    # Heavy element and metal bonding:
+    'allow_metal_metal_bonds': True,
+    'period_scaling_h_bonds': 0.05,
+    'period_scaling_nonmetal_bonds': 0.00,
+    
     # ORCA-specific parameters:
     'orca_bond_threshold': 0.5,
 }

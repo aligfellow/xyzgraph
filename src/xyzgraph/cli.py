@@ -165,6 +165,12 @@ def main():
                   help=f"ADVANCED: vdW threshold for metal-ligand bonds (default: {DEFAULT_PARAMS['threshold_metal_ligand']})")
     p.add_argument("--threshold-nonmetal", type=float, default=DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
                   help=f"ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: {DEFAULT_PARAMS['threshold_nonmetal_nonmetal']})")
+    p.add_argument("--allow-metal-metal-bonds", action="store_true", default=DEFAULT_PARAMS['allow_metal_metal_bonds'],
+                  help="ADVANCED: Allow metal-metal bonds (disabled by default)")
+    p.add_argument("--period-scaling-h-bonds", type=float, default=DEFAULT_PARAMS['period_scaling_h_bonds'],
+                  help=f"ADVANCED: Period scaling for H bonds (default: {DEFAULT_PARAMS['period_scaling_h_bonds']}, 0=disabled)")
+    p.add_argument("--period-scaling-nonmetal-bonds", type=float, default=DEFAULT_PARAMS['period_scaling_nonmetal_bonds'],
+                  help=f"ADVANCED: Period scaling for nonmetal bonds (default: {DEFAULT_PARAMS['period_scaling_nonmetal_bonds']}, 0=disabled)")
     
     args = p.parse_args()
     
@@ -217,7 +223,10 @@ def main():
         threshold=args.threshold, threshold_h_h=args.threshold_h_h,
         threshold_h_nonmetal=args.threshold_h_nonmetal, threshold_h_metal=args.threshold_h_metal,
         threshold_metal_ligand=args.threshold_metal_ligand,
-        threshold_nonmetal_nonmetal=args.threshold_nonmetal, relaxed=args.relaxed
+        threshold_nonmetal_nonmetal=args.threshold_nonmetal, relaxed=args.relaxed,
+        allow_metal_metal_bonds=args.allow_metal_metal_bonds,
+        period_scaling_h_bonds=args.period_scaling_h_bonds,
+        period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds
     )
     
     print_header(args.input_file, metadata)
@@ -234,7 +243,11 @@ def main():
         threshold_h_nonmetal=args.threshold_h_nonmetal, threshold_h_metal=args.threshold_h_metal,
         threshold_metal_ligand=args.threshold_metal_ligand,
         threshold_nonmetal_nonmetal=args.threshold_nonmetal,
-        relaxed=args.relaxed, metadata=metadata
+        relaxed=args.relaxed,
+        allow_metal_metal_bonds=args.allow_metal_metal_bonds,
+        period_scaling_h_bonds=args.period_scaling_h_bonds,
+        period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
+        metadata=metadata
     )
     
     # Build comparison graphs if requested

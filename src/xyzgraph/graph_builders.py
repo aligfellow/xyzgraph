@@ -32,7 +32,10 @@ def compute_metadata(
         threshold_h_metal: float,
         threshold_metal_ligand: float,
         threshold_nonmetal_nonmetal: float,
-        relaxed: bool
+        relaxed: bool,
+        allow_metal_metal_bonds: bool,
+        period_scaling_h_bonds: float,
+        period_scaling_nonmetal_bonds: float
 ) -> Dict[str, Any]:
     """
     Compute non-default parameters for metadata.
@@ -77,6 +80,12 @@ def compute_metadata(
         non_default['threshold_nonmetal_nonmetal'] = threshold_nonmetal_nonmetal
     if relaxed != DEFAULT_PARAMS['relaxed']:
         non_default['relaxed'] = relaxed
+    if allow_metal_metal_bonds != DEFAULT_PARAMS['allow_metal_metal_bonds']:
+        non_default['allow_metal_metal_bonds'] = allow_metal_metal_bonds
+    if period_scaling_h_bonds != DEFAULT_PARAMS['period_scaling_h_bonds']:
+        non_default['period_scaling_h_bonds'] = period_scaling_h_bonds
+    if period_scaling_nonmetal_bonds != DEFAULT_PARAMS['period_scaling_nonmetal_bonds']:
+        non_default['period_scaling_nonmetal_bonds'] = period_scaling_nonmetal_bonds
     
     return non_default
 
@@ -111,7 +120,10 @@ class GraphBuilder:
             threshold_h_metal: float = DEFAULT_PARAMS['threshold_h_metal'],
             threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
             threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
-            relaxed: bool = DEFAULT_PARAMS['relaxed']
+            relaxed: bool = DEFAULT_PARAMS['relaxed'],
+            allow_metal_metal_bonds: bool = DEFAULT_PARAMS['allow_metal_metal_bonds'],
+            period_scaling_h_bonds: float = DEFAULT_PARAMS['period_scaling_h_bonds'],
+            period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS['period_scaling_nonmetal_bonds']
             ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
         self.charge = charge
@@ -143,6 +155,9 @@ class GraphBuilder:
         self.threshold_metal_ligand = threshold_metal_ligand
         self.threshold_nonmetal_nonmetal = threshold_nonmetal_nonmetal
         self.relaxed = relaxed
+        self.allow_metal_metal_bonds = allow_metal_metal_bonds
+        self.period_scaling_h_bonds = period_scaling_h_bonds
+        self.period_scaling_nonmetal_bonds = period_scaling_nonmetal_bonds
 
         # Reference to global data
         self.data = DATA
@@ -558,24 +573,88 @@ class GraphBuilder:
             # Node not in graph
             return []
 
+    def _get_period(self, atomic_number: int) -> int:
+        """Get period (row) from atomic number"""
+        if atomic_number <= 2:
+            return 1
+        elif atomic_number <= 10:
+            return 2
+        elif atomic_number <= 18:
+            return 3
+        elif atomic_number <= 36:
+            return 4
+        elif atomic_number <= 54:
+            return 5
+        elif atomic_number <= 86:
+            return 6
+        else:
+            return 7
+    
+    def _get_threshold_with_period_scaling(
+        self,
+        base_threshold: float,
+        z_i: int,
+        z_j: int,
+        has_hydrogen: bool = False
+    ) -> float:
+        """
+        Apply period-dependent scaling to bond threshold.
+        
+        Heavier elements need looser thresholds because VDW/covalent 
+        ratio increases down the periodic table.
+        
+        Parameters:
+        - base_threshold: Base threshold value
+        - z_i, z_j: Atomic numbers of the two atoms
+        - has_hydrogen: Whether bond involves hydrogen
+        
+        Returns scaled threshold
+        """
+        if has_hydrogen:
+            # H bonds: use H-bond scaling factor
+            if self.period_scaling_h_bonds == 0.0:
+                return base_threshold
+            non_h_z = z_i if z_i > 1 else z_j
+            period = self._get_period(non_h_z)
+            period_factor = 1.0 + (period - 2) * self.period_scaling_h_bonds
+            return base_threshold * period_factor
+        else:
+            # Non-H bonds: check if both atoms are nonmetals
+            sym_i = DATA.n2s.get(z_i, '')
+            sym_j = DATA.n2s.get(z_j, '')
+            both_nonmetal = (sym_i not in DATA.metals and sym_j not in DATA.metals)
+            
+            if both_nonmetal and self.period_scaling_nonmetal_bonds != 0.0:
+                # Both nonmetals: use nonmetal scaling
+                max_period = max(self._get_period(z_i), self._get_period(z_j))
+                period_factor = 1.0 + (max_period - 2) * self.period_scaling_nonmetal_bonds
+                return base_threshold * period_factor
+            else:
+                # Metal bond: no period scaling
+                return base_threshold
+
     def _should_bond_metal(self, sym_i: str, sym_j: str) -> bool:
         """
         Chemical filter for metal bonds (called AFTER distance check).
         
-        Returns False only for implausible metal pairings:
-        - Metal-metal (unless bridging ligand expected) # NOTE: this may be a limitation
+        Returns False only for implausible metal pairings.
         
         Accepts:
-        - Metal to donor atoms (O, N, C, P, S) # NOTE: this may be a limitation
+        - Metal to donor atoms (O, N, C, P, S)
         - Metal to halides/oxo (ionic)
         - Metal to H (hydrides)
+        - Metal-metal (if allow_metal_metal_bonds flag is enabled)
         """
+        # Neither metal - always OK
         if sym_i not in self.data.metals and sym_j not in self.data.metals:
             return True
         
-        # Identify metal and other
-        metal = sym_i if sym_i in self.data.metals else sym_j
-        other = sym_j if metal == sym_i else sym_i
+        # Both metals - check flag
+        if sym_i in self.data.metals and sym_j in self.data.metals:
+            return self.allow_metal_metal_bonds
+        
+        # One metal, one non-metal - check ligand plausibility
+        other = sym_j if sym_i in self.data.metals else sym_i
         
         # Accept common ligands
         if other in ('O', 'N', 'C', 'P', 'S', 'H'):
@@ -583,6 +662,10 @@ class GraphBuilder:
         
         # Accept halides
         if other in ('F', 'Cl', 'Br', 'I'):
+            return True
+        
+        # Accept other plausible ligands
+        if other in ('B', 'Si', 'Se', 'Te'):
             return True
         
         return False
@@ -874,6 +957,13 @@ class GraphBuilder:
                     baseline_threshold = DEFAULT_PARAMS['threshold_metal_ligand'] * r_sum
                 else:
                     baseline_threshold = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'] * r_sum * DEFAULT_PARAMS['threshold']
+                
+                # Apply period scaling using DEFAULT scaling factors
+                z_i = self.atomic_numbers[i]
+                z_j = self.atomic_numbers[j]
+                baseline_threshold = self._get_threshold_with_period_scaling(
+                    baseline_threshold, z_i, z_j, has_hydrogen=has_h
+                )
 
                 if d < baseline_threshold:
                     confidence = 1.0 - (d / baseline_threshold)
@@ -960,6 +1050,13 @@ class GraphBuilder:
                         custom_threshold = self.threshold_metal_ligand * r_sum
                     else:
                         custom_threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
+                    
+                    # Apply period scaling using CUSTOM scaling factors
+                    z_i = self.atomic_numbers[i]
+                    z_j = self.atomic_numbers[j]
+                    custom_threshold = self._get_threshold_with_period_scaling(
+                        custom_threshold, z_i, z_j, has_hydrogen=has_h
+                    )
 
                     if d < custom_threshold:
                         confidence = 1.0 - (d / custom_threshold)
@@ -2424,6 +2521,9 @@ def build_graph(
             threshold_metal_ligand: float = DEFAULT_PARAMS['threshold_metal_ligand'],
             threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
             relaxed: bool = DEFAULT_PARAMS['relaxed'],
+            allow_metal_metal_bonds: bool = DEFAULT_PARAMS['allow_metal_metal_bonds'],
+            period_scaling_h_bonds: float = DEFAULT_PARAMS['period_scaling_h_bonds'],
+            period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS['period_scaling_nonmetal_bonds'],
             metadata: Optional[Dict[str, Any]] = None
         ) -> nx.Graph:
     """Convenience function that wraps GraphBuilder.
@@ -2455,7 +2555,10 @@ def build_graph(
             threshold_h_metal=threshold_h_metal,
             threshold_metal_ligand=threshold_metal_ligand,
             threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
-            relaxed=relaxed
+            relaxed=relaxed,
+            allow_metal_metal_bonds=allow_metal_metal_bonds,
+            period_scaling_h_bonds=period_scaling_h_bonds,
+            period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds
         )
 
     builder = GraphBuilder(
@@ -2478,7 +2581,10 @@ def build_graph(
         threshold_h_metal=threshold_h_metal,
         threshold_metal_ligand=threshold_metal_ligand,
         threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
-        relaxed=relaxed
+        relaxed=relaxed,
+        allow_metal_metal_bonds=allow_metal_metal_bonds,
+        period_scaling_h_bonds=period_scaling_h_bonds,
+        period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds
     )
     
     G = builder.build()
