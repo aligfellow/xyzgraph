@@ -152,11 +152,14 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
     lines.append("")
     lines.append("# Bonds (i-j: order) (filtered)")
 
-    max_idx = max(max(i, j) for i, j, d in G.edges(data=True))
-    idx_width = max(2, len(str(max_idx)))
-    for i,j,d in sorted(G.edges(data=True)):
-        if i in visible and j in visible:
-            lines.append(f"[{i:>{idx_width}}-{j:>{idx_width}}]: {d.get('bond_order', 1.0):>4.2f}")
+    if G.number_of_edges() > 0:
+        max_idx = max(max(i, j) for i, j, d in G.edges(data=True))
+        idx_width = max(2, len(str(max_idx)))
+        for i,j,d in sorted(G.edges(data=True)):
+            if i in visible and j in visible:
+                lines.append(f"[{i:>{idx_width}}-{j:>{idx_width}}]: {d.get('bond_order', 1.0):>4.2f}")
+    else:
+        lines.append("# (no bonds detected)")
     
     return "\n".join(lines)
 

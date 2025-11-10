@@ -376,10 +376,13 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 ```text
 > xyzgraph -h
 
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed] [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH]
-                [--bond BOND] [--unbond UNBOND] [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--orca-out ORCA_OUT]
-                [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL]
-                [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL]
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed]
+                [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] [-c CHARGE]
+                [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--orca-out ORCA_OUT]
+                [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H]
+                [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL]
+                [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
+                [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
                 [input_file]
 
 Build molecular graph from XYZ or ORCA output.
@@ -433,6 +436,12 @@ options:
                         ADVANCED: vdW threshold for metal-ligand bonds (default: 0.6)
   --threshold-nonmetal THRESHOLD_NONMETAL
                         ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: 0.55)
+  --allow-metal-metal-bonds
+                        ADVANCED: Allow metal-metal bonds (True by default)
+  --period-scaling-h-bonds PERIOD_SCALING_H_BONDS
+                        ADVANCED: Period scaling for H bonds (default: 0.05, 0=disabled)
+  --period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS
+                        ADVANCED: Period scaling for nonmetal bonds (default: 0.0, 0=disabled)                        
 ```
 
 **Method comparison**:
