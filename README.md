@@ -378,7 +378,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed]
                 [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] [-c CHARGE]
-                [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--orca-out ORCA_OUT]
+                [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT]
                 [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H]
                 [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL]
                 [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
@@ -422,9 +422,10 @@ options:
   --show-h-idx SHOW_H_IDX
                         Show specific hydrogen atoms (comma-separated, e.g., '3,7,12')
   --compare-rdkit       Compare with RDKit graph
+  --compare-rdkit-tm    Compare with RDKit graph from xyz2mol_tm (Jan Jensen)
   --orca-out ORCA_OUT   ORCA output file for comparison
   --orca-threshold ORCA_THRESHOLD
-                        Minimum Mayer bond order for ORCA graphs (default: 0.5)
+                        Minimum Mayer bond order for ORCA graphs (default: 0.25)
   --no-clean            Keep temporary xTB files (only for --method xtb)
   --threshold-h-h THRESHOLD_H_H
                         ADVANCED: vdW threshold for H-H bonds (default: 0.38)
@@ -747,10 +748,12 @@ H------------------------N-------------------------H
 
 ### Built-in Comparison
 
-xyzgraph can directly compare its output to rdkit/xyz2mol:
+xyzgraph can directly compare its output to rdkit/xyz2mol [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit) or to rdkit/xyz2mol_tm [[6]](https://github.com/jensengroup/xyz2mol_tm), [[7]](https://jcheminf.biomedcentral.com/articles/10.1186/s13321-025-01008-1):
 
 ```bash
 xyzgraph molecule.xyz --compare-rdkit --debug
+# or
+xyzgraph molecule.xyz --compare-rdkit-tm --debug # integrates graph building from xyz2mol_tm
 ```
 
 **Output includes**:
@@ -1279,6 +1282,10 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 4. **RDKit**: RDKit: Open-source cheminformatics. [https://www.rdkit.org](https://www.rdkit.org). [Repo](https://github.com/rdkit).
 
 5. **moltext**: A. White, *moltext*. [Repo](https://github.com/whitead/moltext)
+
+6. **xyz2mol_tm**: Jan Jensen *et al.*, [xyz2mol_tm](https://github.com/jensengroup/xyz2mol_tm). See also ref **7.**.
+
+7. **SMILES all around: structure to SMILES conversion for transition metal complexes**: Maria H. Rasmussen, Magnus Strandgaard, Julius Seumer, Laura K. Hemmingsen, Angelo Frei, David Balcells and Jan H. Jensen, *Journal of Cheminformatics*, 2025, **17**. [DOI](https://jcheminf.biomedcentral.com/articles/10.1186/s13321-025-01008-1).
 
 ---
 

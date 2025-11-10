@@ -28,5 +28,5 @@ DEFAULT_PARAMS = {
     'period_scaling_nonmetal_bonds': 0.00,
     
     # ORCA-specific parameters:
-    'orca_bond_threshold': 0.5,
+    'orca_bond_threshold': 0.25,
 }
