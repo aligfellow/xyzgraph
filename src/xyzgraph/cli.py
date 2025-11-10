@@ -2,6 +2,7 @@ import argparse
 from . import (
     build_graph,
     build_graph_rdkit,
+    build_graph_rdkit_tm,
     build_graph_orca,
     compare_with_rdkit,
     graph_debug_report,
@@ -58,7 +59,7 @@ def display_graph(G, args, show_h_indices, label=""):
         print(graph_debug_report(G, include_h=args.show_h, show_h_indices=show_h_indices))
     
     # Determine if ASCII should be shown
-    has_explicit_output = args.debug or args.ascii or args.compare_rdkit or args.orca_out
+    has_explicit_output = args.debug or args.ascii or args.compare_rdkit or args.compare_rdkit_tm or args.orca_out
     show_ascii = args.ascii or not has_explicit_output
     
     if show_ascii:
@@ -147,6 +148,8 @@ def main():
     
     # Comparison
     p.add_argument("--compare-rdkit", action="store_true", help="Compare with RDKit graph")
+    p.add_argument("--compare-rdkit-tm", action="store_true", help="Compare with RDKit graph from xyz2mol_tm (Jan Jensen)")
+
     p.add_argument("--orca-out", type=str, help="ORCA output file for comparison")
     p.add_argument("--orca-threshold", type=float, default=DEFAULT_PARAMS['orca_bond_threshold'],
                   help=f"Minimum Mayer bond order for ORCA graphs (default: {DEFAULT_PARAMS['orca_bond_threshold']})")
@@ -253,6 +256,7 @@ def main():
     # Build comparison graphs if requested
     G_orca = None
     G_rdkit = None
+    G_rdkit_tm = None
     
     if args.orca_out:
         print(f"# Building ORCA graph from {args.orca_out}...")
@@ -267,6 +271,13 @@ def main():
             G_rdkit = build_graph_rdkit(args.input_file, charge=args.charge, bohr_units=args.bohr)
         except ValueError as e:
             print(f"# Failed to build RDKit graph: {e}")
+    
+    if args.compare_rdkit_tm:
+        print(f"# Building RDKit-TM graph from {args.input_file}...")
+        try:
+            G_rdkit_tm = build_graph_rdkit_tm(args.input_file, charge=args.charge, bohr_units=args.bohr)
+        except (ValueError, ImportError) as e:
+            print(f"# Failed to build RDKit-TM graph: {e}")
     
     # Display primary graph
     show_ascii = display_graph(G_primary, args, show_h_indices, label=args.method)
@@ -298,6 +309,26 @@ def main():
             verbose=args.debug, ascii=show_ascii,
             ascii_scale=args.ascii_scale, ascii_include_h=args.show_h
         ).rstrip())
+    
+    # Compare with RDKit-TM if available
+    if G_rdkit_tm:
+        compare_graphs(G_primary, G_rdkit_tm, args.method, "RDKit-TM")
+        
+        if args.debug:
+            print(f"\n{'=' * 80}")
+            print("# RDKIT-TM GRAPH DETAILS")
+            print("=" * 80)
+            print(graph_debug_report(G_rdkit_tm, include_h=args.show_h, show_h_indices=show_h_indices))
+        
+        if show_ascii:
+            print(f"\n{'=' * 80}\n# ASCII Depiction (RDKit-TM, aligned)\n{'=' * 80}\n")
+            _, layout = graph_to_ascii(G_primary, scale=max(0.2, args.ascii_scale),
+                                      include_h=args.show_h, show_h_indices=show_h_indices,
+                                      return_layout=True)
+            ascii_rdkit_tm = graph_to_ascii(G_rdkit_tm, scale=max(0.2, args.ascii_scale),
+                                           include_h=args.show_h, show_h_indices=show_h_indices,
+                                           reference_layout=layout)
+            print(ascii_rdkit_tm)
 
 
 if __name__ == "__main__":

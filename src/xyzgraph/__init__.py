@@ -9,7 +9,7 @@ from .data_loader import DATA, BOHR_TO_ANGSTROM
 from .config import DEFAULT_PARAMS
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
-from .graph_builders import GraphBuilder, build_graph, build_graph_rdkit, build_graph_orca
+from .graph_builders import GraphBuilder, build_graph, build_graph_rdkit, build_graph_rdkit_tm, build_graph_orca
 
 # ORCA parser
 from .orca_parser import parse_orca_output, OrcaParseError
@@ -24,6 +24,7 @@ __all__ = [
     'GraphBuilder',
     'build_graph',
     'build_graph_rdkit',
+    'build_graph_rdkit_tm',
     'build_graph_orca',
     
     # ORCA support
