@@ -34,6 +34,7 @@ def compute_metadata(
         threshold_nonmetal_nonmetal: float,
         relaxed: bool,
         allow_metal_metal_bonds: bool,
+        threshold_metal_metal_self: float,
         period_scaling_h_bonds: float,
         period_scaling_nonmetal_bonds: float
 ) -> Dict[str, Any]:
@@ -82,6 +83,8 @@ def compute_metadata(
         non_default['relaxed'] = relaxed
     if allow_metal_metal_bonds != DEFAULT_PARAMS['allow_metal_metal_bonds']:
         non_default['allow_metal_metal_bonds'] = allow_metal_metal_bonds
+    if threshold_metal_metal_self != DEFAULT_PARAMS['threshold_metal_metal_self']:
+        non_default['threshold_metal_metal_self'] = threshold_metal_metal_self
     if period_scaling_h_bonds != DEFAULT_PARAMS['period_scaling_h_bonds']:
         non_default['period_scaling_h_bonds'] = period_scaling_h_bonds
     if period_scaling_nonmetal_bonds != DEFAULT_PARAMS['period_scaling_nonmetal_bonds']:
@@ -122,6 +125,7 @@ class GraphBuilder:
             threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
             relaxed: bool = DEFAULT_PARAMS['relaxed'],
             allow_metal_metal_bonds: bool = DEFAULT_PARAMS['allow_metal_metal_bonds'],
+            threshold_metal_metal_self: float = DEFAULT_PARAMS['threshold_metal_metal_self'],
             period_scaling_h_bonds: float = DEFAULT_PARAMS['period_scaling_h_bonds'],
             period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS['period_scaling_nonmetal_bonds']
             ):
@@ -156,6 +160,7 @@ class GraphBuilder:
         self.threshold_nonmetal_nonmetal = threshold_nonmetal_nonmetal
         self.relaxed = relaxed
         self.allow_metal_metal_bonds = allow_metal_metal_bonds
+        self.threshold_metal_metal_self = threshold_metal_metal_self
         self.period_scaling_h_bonds = period_scaling_h_bonds
         self.period_scaling_nonmetal_bonds = period_scaling_nonmetal_bonds
 
@@ -261,6 +266,15 @@ class GraphBuilder:
         is_metal_i = sym_i in self.data.metals
         is_metal_j = sym_j in self.data.metals
         has_metal = is_metal_i or is_metal_j  # Bond involves metal at either end
+        
+        # === CLUSTER BYPASS: Conservative check for homogeneous inorganic clusters ===
+        # Only bypass validation if: homogeneous, non-C, non-H
+        if sym_i == sym_j and sym_i not in {'C', 'H'}:
+            elem_count = sum(1 for node in G.nodes() if G.nodes[node]['symbol'] == sym_i)
+            # Threshold: >= 8 atoms suggests cluster chemistry (B8, Li8, Na8, etc.)
+            if elem_count >= 8:
+                self.log(f"  Bond {i}-{j}: homogeneous {sym_i}-{sym_i} in {elem_count}-atom cluster - bypassing validation", 3)
+                return True
         
         # Configure thresholds based on relaxed mode
         # Relaxed mode: more permissive for TS structures with strained rings
@@ -941,6 +955,7 @@ class GraphBuilder:
                 sj = self.symbols[j]
                 is_metal_j = sj in self.data.metals
                 has_metal = is_metal_i or is_metal_j
+                is_metal_metal_self = is_metal_i and is_metal_j and (si == sj)
                 has_h = 'H' in (si, sj)
 
                 d = self._distance(pos[i], pos[j])
@@ -953,6 +968,8 @@ class GraphBuilder:
                     baseline_threshold = DEFAULT_PARAMS['threshold_h_metal'] * r_sum * DEFAULT_PARAMS['threshold']
                 elif has_h and not has_metal:
                     baseline_threshold = DEFAULT_PARAMS['threshold_h_nonmetal'] * r_sum * DEFAULT_PARAMS['threshold']
+                elif is_metal_metal_self:
+                    baseline_threshold = DEFAULT_PARAMS['threshold_metal_metal_self'] * r_sum
                 elif has_metal:
                     baseline_threshold = DEFAULT_PARAMS['threshold_metal_ligand'] * r_sum
                 else:
@@ -1198,6 +1215,12 @@ class GraphBuilder:
 
             ring_atoms = [f"{G.nodes[i]['symbol']}{i}" for i in cycle]
             self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 2)
+
+            ring_elements = {G.nodes[i]['symbol'] for i in cycle}  # Get UNIQUE symbols
+            if len(ring_elements) == 1 and list(ring_elements)[0] != 'C':
+                # Homogeneous non-carbon ring 
+                self.log(f"✗ Homogeneous {list(ring_elements)[0]} ring, skipping", 3)
+                continue
 
             # Allow some heteroatoms for extended conjugation
             if not all(G.nodes[i]['symbol'] in aromatic_atoms for i in cycle):
@@ -2522,6 +2545,7 @@ def build_graph(
             threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS['threshold_nonmetal_nonmetal'],
             relaxed: bool = DEFAULT_PARAMS['relaxed'],
             allow_metal_metal_bonds: bool = DEFAULT_PARAMS['allow_metal_metal_bonds'],
+            threshold_metal_metal_self: float = DEFAULT_PARAMS['threshold_metal_metal_self'],
             period_scaling_h_bonds: float = DEFAULT_PARAMS['period_scaling_h_bonds'],
             period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS['period_scaling_nonmetal_bonds'],
             metadata: Optional[Dict[str, Any]] = None
@@ -2557,6 +2581,7 @@ def build_graph(
             threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
             relaxed=relaxed,
             allow_metal_metal_bonds=allow_metal_metal_bonds,
+            threshold_metal_metal_self=threshold_metal_metal_self,
             period_scaling_h_bonds=period_scaling_h_bonds,
             period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds
         )
@@ -2583,6 +2608,7 @@ def build_graph(
         threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
         relaxed=relaxed,
         allow_metal_metal_bonds=allow_metal_metal_bonds,
+        threshold_metal_metal_self=threshold_metal_metal_self,
         period_scaling_h_bonds=period_scaling_h_bonds,
         period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds
     )

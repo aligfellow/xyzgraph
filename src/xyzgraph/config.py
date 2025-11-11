@@ -20,6 +20,7 @@ DEFAULT_PARAMS = {
     'threshold_h_metal': 0.48,
     'threshold_metal_ligand': 0.6,
     'threshold_nonmetal_nonmetal': 0.55,
+    'threshold_metal_metal_self': 0.7,
     'relaxed': False,
     
     # Heavy element and metal bonding:
