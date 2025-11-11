@@ -170,6 +170,8 @@ def main():
                   help=f"ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: {DEFAULT_PARAMS['threshold_nonmetal_nonmetal']})")
     p.add_argument("--allow-metal-metal-bonds", action="store_true", default=DEFAULT_PARAMS['allow_metal_metal_bonds'],
                   help=f"ADVANCED: Allow metal-metal bonds ({DEFAULT_PARAMS['allow_metal_metal_bonds']} by default)")
+    p.add_argument("--threshold-metal-metal-self", type=float, default=DEFAULT_PARAMS['threshold_metal_metal_self'],
+                  help=f"ADVANCED: vdW threshold for metal-metal bonds (default: {DEFAULT_PARAMS['threshold_metal_metal_self']})")
     p.add_argument("--period-scaling-h-bonds", type=float, default=DEFAULT_PARAMS['period_scaling_h_bonds'],
                   help=f"ADVANCED: Period scaling for H bonds (default: {DEFAULT_PARAMS['period_scaling_h_bonds']}, 0=disabled)")
     p.add_argument("--period-scaling-nonmetal-bonds", type=float, default=DEFAULT_PARAMS['period_scaling_nonmetal_bonds'],
@@ -228,6 +230,7 @@ def main():
         threshold_metal_ligand=args.threshold_metal_ligand,
         threshold_nonmetal_nonmetal=args.threshold_nonmetal, relaxed=args.relaxed,
         allow_metal_metal_bonds=args.allow_metal_metal_bonds,
+        threshold_metal_metal_self=args.threshold_metal_metal_self,
         period_scaling_h_bonds=args.period_scaling_h_bonds,
         period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds
     )
@@ -248,11 +251,13 @@ def main():
         threshold_nonmetal_nonmetal=args.threshold_nonmetal,
         relaxed=args.relaxed,
         allow_metal_metal_bonds=args.allow_metal_metal_bonds,
+        threshold_metal_metal_self=args.threshold_metal_metal_self,
         period_scaling_h_bonds=args.period_scaling_h_bonds,
         period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
         metadata=metadata
     )
-    
+    print(f"Constructed graph with chemical formula: {G_primary.graph['formula']}")
+
     # Build comparison graphs if requested
     G_orca = None
     G_rdkit = None
