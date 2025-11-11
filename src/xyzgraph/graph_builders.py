@@ -267,15 +267,6 @@ class GraphBuilder:
         is_metal_j = sym_j in self.data.metals
         has_metal = is_metal_i or is_metal_j  # Bond involves metal at either end
         
-        # === CLUSTER BYPASS: Conservative check for homogeneous inorganic clusters ===
-        # Only bypass validation if: homogeneous, non-C, non-H
-        if sym_i == sym_j and sym_i not in {'C', 'H'}:
-            elem_count = sum(1 for node in G.nodes() if G.nodes[node]['symbol'] == sym_i)
-            # Threshold: >= 8 atoms suggests cluster chemistry (B8, Li8, Na8, etc.)
-            if elem_count >= 8:
-                self.log(f"  Bond {i}-{j}: homogeneous {sym_i}-{sym_i} in {elem_count}-atom cluster - bypassing validation", 3)
-                return True
-        
         # Configure thresholds based on relaxed mode
         # Relaxed mode: more permissive for TS structures with strained rings
         if self.relaxed:
@@ -393,6 +384,15 @@ class GraphBuilder:
             ring_set = set(ring)
             # If both i and j are in this ring, adding bond would create diagonal
             if i in ring_set and j in ring_set:
+                # === CLUSTER BYPASS: Check if ring is homogeneous inorganic cluster ===
+                ring_elements = {G.nodes[node]['symbol'] for node in ring}
+                if len(ring_elements) == 1 and list(ring_elements)[0] not in {'C', 'H'}:
+                    elem = list(ring_elements)[0]
+                    elem_count = G.graph.get('_element_counts', {}).get(elem, 0)
+                    if elem_count >= 8:
+                        self.log(f"  Bond {i}-{j}: diagonal in homogeneous {elem} cluster ring - allowed", 3)
+                        continue  # Skip this ring check, continue to next ring
+                
                 # Allow for very small rings (3-4) if metal involved
                 if len(ring) <= 4 and has_metal:
                     self.log(f"  Bond {i}-{j}: diagonal in existing {len(ring)}-ring involves metal - allowed", 3)
@@ -412,6 +412,16 @@ class GraphBuilder:
         if common_neighbors:
             # Check each potential 3-ring formed via common neighbor
             for k in common_neighbors:
+                # === CLUSTER BYPASS: Check if potential 3-ring is homogeneous cluster ===
+                sym_k = G.nodes[k]['symbol']
+                ring_elements = {sym_i, sym_j, sym_k}
+                if len(ring_elements) == 1 and list(ring_elements)[0] not in {'C', 'H'}:
+                    elem = list(ring_elements)[0]
+                    elem_count = G.graph.get('_element_counts', {}).get(elem, 0)
+                    if elem_count >= 8:
+                        self.log(f"  Bond {i}-{j}: 3-ring in homogeneous {elem} cluster - bypassing validation", 3)
+                        continue  # Skip validation for this 3-ring, check next common neighbor
+                
                 # === 3-RING VALIDATION ===
                                
                 # ANGLE CHECK (H-aware)
@@ -420,7 +430,6 @@ class GraphBuilder:
                 angle_k = self._calculate_angle(i, k, j, G)
                 max_angle = max(angle_i, angle_j, angle_k)
                 
-                sym_k = G.nodes[k]['symbol']
                 has_H_in_ring = 'H' in (sym_i, sym_j, sym_k)
                 
                 if has_H_in_ring:
@@ -930,6 +939,24 @@ class GraphBuilder:
                       position=tuple(pos[i]))
 
         self.log(f"Added {len(self.atoms)} atoms", 1)
+        
+        # Precompute element counts and chemical formula (for cluster detection and metadata)
+        from collections import Counter
+        element_counts = Counter(self.symbols)
+        G.graph['_element_counts'] = dict(element_counts)
+        
+        # Generate chemical formula (sorted by Hill system: C, H, then alphabetical)
+        formula_parts = []
+        if 'C' in element_counts:
+            formula_parts.append(f"C{element_counts['C']}" if element_counts['C'] > 1 else "C")
+        if 'H' in element_counts:
+            formula_parts.append(f"H{element_counts['H']}" if element_counts['H'] > 1 else "H")
+        for elem in sorted(element_counts.keys()):
+            if elem not in ('C', 'H'):
+                formula_parts.append(f"{elem}{element_counts[elem]}" if element_counts[elem] > 1 else elem)
+        G.graph['formula'] = ''.join(formula_parts)
+        
+        self.log(f"Chemical formula: {G.graph['formula']}", 1)
 
         # Check if custom thresholds are being used
         has_custom = (
