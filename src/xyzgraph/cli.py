@@ -256,7 +256,8 @@ def main():
         period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
         metadata=metadata
     )
-    
+    print(f"Constructed graph with chemical formula: {G_primary.graph['formula']}")
+
     # Build comparison graphs if requested
     G_orca = None
     G_rdkit = None
