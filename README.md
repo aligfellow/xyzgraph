@@ -744,6 +744,10 @@ H------------------------N-------------------------H
    - Hückel electron counting is simplistic
    - Should still solve with valence/charge optimisation
 
+6. **Inorganic Cages**
+   - Homogeneous clusters (≥8 atoms, same element) bypass standard ring validation
+   - Unlikely to be fully accurately described, *e.g.* C/B cage structures
+
 ---
 
 ### Built-in Comparison
