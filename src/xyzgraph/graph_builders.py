@@ -472,7 +472,7 @@ class GraphBuilder:
                     ring_type = 'non-H'
                 
                 if max_angle > angle_threshold:
-                    self.log(f"  Rejected bond {i}-{j}: 3-ring angle {max_angle:.1f}° > {angle_threshold:.1f}° ({ring_type})", 3)
+                    self.log(f"  Rejected bond {i}-{j}: 3-ring angle {max_angle:.1f}° > {angle_threshold:.1f}° ({ring_type})", 4)
                     return False
                 
                 # DISTANCE RATIO CHECK (diagonal detection)
