@@ -3158,6 +3158,13 @@ def _partial_graph_matching(G_rdkit: nx.Graph, G_xyz: nx.Graph) -> dict:
     for n in G_xyz.nodes():
         xyz_by_elem[G_xyz.nodes[n]["symbol"]].append(n)
 
+    # Check element counts
+    for elem in rdkit_by_elem:
+        rdkit_count = len(rdkit_by_elem[elem])
+        xyz_count = len(xyz_by_elem.get(elem, []))
+        if rdkit_count != xyz_count:
+            raise ValueError(f"Cannot perform partial matching: element '{elem}' count mismatch. RDKit has {rdkit_count}, XYZ has {xyz_count}. This could be bimetallic and not handled by xyz2mol_tm.")
+
     # Compute shortest-path distance matrices
     print("   Computing all-pairs shortest-path distance matrices...")
     D_rdkit = np.asarray(nx.floyd_warshall_numpy(G_rdkit))
