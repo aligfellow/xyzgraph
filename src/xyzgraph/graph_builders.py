@@ -269,25 +269,32 @@ class GraphBuilder:
         is_metal_j = sym_j in self.data.metals
         has_metal = is_metal_i or is_metal_j  # Bond involves metal at either end
         
-        # Agostic H-M bond filtering: reject weak H-M bonds when H strongly bonded to non-metal
+        # Agostic H-M / F-M bond filtering: reject weak H-M or F-M bonds
         if has_metal and baseline_bonds is not None:
-            # Identify H and M atoms
-            H_atom = i if sym_i == 'H' else (j if sym_j == 'H' else None)
-            
-            if H_atom is not None:
-                # Check existing H-X bonds (non-metal)
-                for X_atom in G.neighbors(H_atom):
-                    if G.nodes[X_atom]['symbol'] in self.data.metals:
+            # Identify H or F atom
+            nonmetal_atom = None
+            if sym_i in ('H', 'F'):
+                nonmetal_atom = i
+                nonmetal_sym = sym_i
+            elif sym_j in ('H', 'F'):
+                nonmetal_atom = j
+                nonmetal_sym = sym_j
+
+            if nonmetal_atom is not None:
+                # Check existing strong bonds to non-metals (excluding metals)
+                for X_atom in G.neighbors(nonmetal_atom):
+                    X_sym = G.nodes[X_atom]['symbol']
+                    if X_sym in self.data.metals:
                         continue  # Skip metal neighbors
-                    
-                    # Find H-X bond confidence in baseline_bonds
-                    for HX_conf, bi, bj, _, _ in baseline_bonds:
-                        if (H_atom in (bi, bj)) and (X_atom in (bi, bj)):
-                            # Compare confidences: reject if H-X >> H-M
-                            if HX_conf / max(confidence, 0.01) > 2.0:
-                                self.log(f"  Rejected H-M agostic: H-X bond much stronger (conf={HX_conf:.2f} vs {confidence:.2f}, ratio={HX_conf / max(confidence, 0.01):.1f})", 4)
+
+                    # Look up bond confidence
+                    for conf, bi, bj, _, _ in baseline_bonds:
+                        if nonmetal_atom in (bi, bj) and X_atom in (bi, bj):
+                            # Reject weak M-nonmetal bonds if stronger bond exists
+                            if conf / max(confidence, 0.01) > 2.0:
+                                self.log(f"  Rejected {nonmetal_sym}-M agostic: {nonmetal_sym}-X bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
                                 return False
-                            break  # Found H-X bond, check complete
+                            break  # Found relevant bond, check complete
         
         # Configure thresholds based on relaxed mode
         # Relaxed mode: more permissive for TS structures with strained rings
@@ -445,6 +452,24 @@ class GraphBuilder:
                         continue  # Skip validation for this 3-ring, check next common neighbor
                 
                 # === 3-RING VALIDATION ===
+                
+                # M-L BOND PRIORITY CHECK: Reject weak M-ligand bonds if 3-ring crosses stronger M-donor bond
+                # Similar to agostic H-M filtering, but applies to any ligand forming 3-ring via metal
+                has_metal_in_bond = is_metal_i or is_metal_j
+                
+                if has_metal_in_bond and baseline_bonds is not None:
+                    # Identify which atom is metal, which is ligand
+                    metal_atom = i if is_metal_i else j
+                    ligand_atom = j if is_metal_i else i
+                    
+                    # Check if k (ring vertex) is already bonded to metal with higher confidence
+                    for conf, bi, bj, _, _ in baseline_bonds:
+                        if metal_atom in (bi, bj) and k in (bi, bj):
+                            # Found existing M-k bond - compare confidences
+                            if conf / max(confidence, 0.01) > 2.0:
+                                self.log(f"  Rejected bond {i}-{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
+                                return False
+                            break  # Only need to check one existing M-k bond
                                
                 # ANGLE CHECK (metal-aware, then H-aware)
                 angle_i = self._calculate_angle(k, i, j, G)
@@ -2928,8 +2953,7 @@ def build_graph_rdkit_tm(
     else:
         raise TypeError("xyz_file must be a path or list of (symbol, position) tuples")
 
-    heavy_idx = [i for i, (s, _) in enumerate(atoms) if s != 'H']
-    heavy_symbols_xyz = [atoms[i][0] for i in heavy_idx]
+    heavy_idx = [i for i,(s,_) in enumerate(atoms) if s != 'H']
 
     # ===== STEP 2: Get connectivity from xyz2mol_tm =====
     # xyz2mol_tm reads XYZ only from file, so create temp file
@@ -2939,7 +2963,35 @@ def build_graph_rdkit_tm(
     with tempfile.NamedTemporaryFile(mode='w+', suffix='.xyz', delete=False) as tmp:
         tmp.write(xyz_block)
         tmp.flush()
-        mol = xyz2mol_tmc.get_tmc_mol(tmp.name, overall_charge=charge)
+        # --- timeout protection around xyz2mol_tmc ---
+        import signal
+
+        def handler(signum, frame):
+            raise TimeoutError("xyz2mol_tmc took too long")
+
+        signal.signal(signal.SIGALRM, handler)
+        signal.alarm(5)  # 5 seconds timeout
+
+        try:
+            mol = xyz2mol_tmc.get_tmc_mol(tmp.name, overall_charge=charge)
+        except TimeoutError:
+            print(f"[Warning] xyz2mol_tmc timed out for {xyz_file}. Skipping RDKit-TM graph.")
+            mol = None  # gracefully skip
+        except Exception as e:
+            print(f"[Warning] xyz2mol_tmc failed for {xyz_file}: {e}")
+            mol = None
+        finally:
+            signal.alarm(0)
+
+    if mol is None:
+        # Return a placeholder graph or skip
+        import networkx as nx
+        G = nx.Graph()
+        G.graph['metadata'] = {
+            'source': 'rdkit_tm',
+            'note': 'xyz2mol_tmc failed or timed out',
+        }
+        return G
 
     # Build RDKit connectivity graph (element + bonds only)
     G_rdkit = nx.Graph()
@@ -2949,84 +3001,36 @@ def build_graph_rdkit_tm(
     for bond in mol.GetBonds():
         G_rdkit.add_edge(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
 
-    # Get list of heavy atoms in RDKit Mol
-    heavy_symbols_rdkit = [mol.GetAtomWithIdx(i).GetSymbol() for i in range(mol.GetNumAtoms()) if mol.GetAtomWithIdx(i).GetSymbol() != 'H']
 
-    if len(heavy_symbols_xyz) != len(heavy_symbols_rdkit) or set(heavy_symbols_xyz) != set(heavy_symbols_rdkit):
-        missing_in_rdkit = set(heavy_symbols_xyz) - set(heavy_symbols_rdkit)
-        extra_in_rdkit = set(heavy_symbols_rdkit) - set(heavy_symbols_xyz)
-        msg = (
-            "\nxyz2mol_tm may have failed to parse the molecule correctly.\n"
-            "Likely a bimetallic or unsupported species.\n"
-            f"Number of heavy atoms mismatch: XYZ={len(heavy_symbols_xyz)}, RDKit={len(heavy_symbols_rdkit)}\n"
-        )
-        if missing_in_rdkit:
-            msg += f"Missing in RDKit: {missing_in_rdkit}\n"
-        if extra_in_rdkit:
-            msg += f"Extra in RDKit: {extra_in_rdkit}\n"
-
-        raise ValueError(msg)
-
-    # ===== STEP 3: Build XYZ connectivity using geometric method =====
-    # Use existing graph builder for heavy atoms only
-    G_xyz_heavy = build_graph(
-        atoms=[atoms[i] for i in heavy_idx],
-        charge=charge,
-        quick=True
-    )
-
-    # CRITICAL: Relabel nodes to use original XYZ indices
-    # build_graph returns nodes 0,1,2,... but we need heavy_idx[0], heavy_idx[1], ...
+    # ===== STEP 3: Build XYZ heavy-atom graph =====
+    G_xyz_heavy = build_graph([atoms[i] for i in heavy_idx], charge=charge, quick=True)
     mapping_to_original = {i: heavy_idx[i] for i in range(len(heavy_idx))}
     G_xyz_relabeled = nx.relabel_nodes(G_xyz_heavy, mapping_to_original)
 
-    # Simplify for matching (just element + edges)
-    G_xyz_simple = nx.Graph()
-    for node in G_xyz_relabeled.nodes():
-        G_xyz_simple.add_node(node, symbol=G_xyz_relabeled.nodes[node]['symbol'])
-    for edge in G_xyz_relabeled.edges():
-        G_xyz_simple.add_edge(*edge)
-
-
-    # --- Build simplified XYZ graph for matching ---
-    G_xyz_simple = nx.Graph()
-    for node in G_xyz_relabeled.nodes():
-        G_xyz_simple.add_node(node, symbol=G_xyz_relabeled.nodes[node]['symbol'])
-    
-    for edge in G_xyz_relabeled.edges():
-        G_xyz_simple.add_edge(*edge)
-
-    # --- Step 3.5: Filter XYZ edges to only those allowed in RDKit Mol ---
-    # Build set of allowed symbol pairs from RDKit Mol
+    # ===== STEP 3a: Filter XYZ edges to match RDKit connectivity =====
     allowed_pairs = set()
     for bond in mol.GetBonds():
         sym_i = mol.GetAtomWithIdx(bond.GetBeginAtomIdx()).GetSymbol()
         sym_j = mol.GetAtomWithIdx(bond.GetEndAtomIdx()).GetSymbol()
-        allowed_pairs.add(frozenset([sym_i, sym_j]))  # unordered pair
+        allowed_pairs.add(frozenset([sym_i, sym_j]))
 
-    # Keep only edges in XYZ graph that correspond to allowed symbol pairs
     edges_to_keep = [
         (i, j) for i, j in G_xyz_relabeled.edges()
         if frozenset([G_xyz_relabeled.nodes[i]['symbol'], G_xyz_relabeled.nodes[j]['symbol']]) in allowed_pairs
     ]
 
-    # Rebuild filtered XYZ graph
-    G_xyz_relabeled_filtered = nx.Graph()
-    for idx in G_xyz_relabeled.nodes():
-        G_xyz_relabeled_filtered.add_node(idx, symbol=G_xyz_relabeled.nodes[idx]['symbol'])
-    G_xyz_relabeled_filtered.add_edges_from(edges_to_keep)
-
-    # Use the filtered graph for isomorphism / partial matching
-    G_xyz_simple = G_xyz_relabeled_filtered
+    G_xyz_simple = nx.Graph()
+    for n in G_xyz_relabeled.nodes():
+        G_xyz_simple.add_node(n, symbol=G_xyz_relabeled.nodes[n]['symbol'])
+    G_xyz_simple.add_edges_from(edges_to_keep)
 
     # ===== STEP 4: Match graphs (try perfect first, fall back to partial) =====
     nm = isomorphism.categorical_node_match('symbol', '')
     GM = isomorphism.GraphMatcher(G_rdkit, G_xyz_simple, node_match=nm)
     
     if GM.is_isomorphic():
-        # Perfect match!
         rdkit_to_xyz = GM.mapping
-        print("Perfect graph isomorphism found.")
+        print("Indexed against xyzgraph by perfect isomorphism.")
     else:
         # Graphs differ - use partial matching
         print(f"Warning: Graphs not perfectly isomorphic.")
@@ -3034,7 +3038,7 @@ def build_graph_rdkit_tm(
         print(f"  XYZ:   {G_xyz_simple.number_of_nodes()} nodes, {G_xyz_simple.number_of_edges()} edges")
         print(f"  Attempting partial matching based on connectivity similarity...")
         
-        rdkit_to_xyz = _partial_graph_matching(G_rdkit, G_xyz_simple, atoms)
+        rdkit_to_xyz = _partial_graph_matching(G_rdkit, G_xyz_simple)
         
         # Validate mapping quality
         mapped_edges = 0
@@ -3123,94 +3127,92 @@ def build_graph_rdkit_tm(
 
     return G
 
-def _partial_graph_matching(G_rdkit, G_xyz, atoms):
+def _partial_graph_matching(G_rdkit: nx.Graph, G_xyz: nx.Graph) -> dict:
     """
-    Match graphs when they're not perfectly isomorphic.
-    
-    Strategy:
-    1. Match by symbol and degree (number of neighbors)
-    2. Score based on neighbor symbol compatibility
-    3. Use greedy assignment with highest scores first
-    
-    Returns mapping: rdkit_idx -> xyz_idx
+    Graph-distance + neighbor-symbol similarity based partial matching for non-isomorphic graphs.
+
+    Parameters
+    ----------
+    G_rdkit : nx.Graph
+        RDKit molecular graph (nodes with 'symbol')
+    G_xyz : nx.Graph
+        XYZ-based molecular graph (nodes with 'symbol')
+
+    Returns
+    -------
+    dict
+        Mapping {rdkit_node -> xyz_node}
     """
     import numpy as np
+    from scipy.optimize import linear_sum_assignment
     from collections import defaultdict
-    
-    # Group by symbol for initial filtering
+    import networkx as nx
+
+    print("  Starting graph-distance + neighbor-symbol partial matching...")
+
+    # Group nodes by element
     rdkit_by_elem = defaultdict(list)
-    for node in G_rdkit.nodes():
-        elem = G_rdkit.nodes[node]['symbol']
-        degree = G_rdkit.degree(node)
-        neighbors = sorted([G_rdkit.nodes[n]['symbol'] for n in G_rdkit.neighbors(node)])
-        rdkit_by_elem[elem].append((node, degree, tuple(neighbors)))
-    
     xyz_by_elem = defaultdict(list)
-    for node in G_xyz.nodes():
-        elem = G_xyz.nodes[node]['symbol']
-        degree = G_xyz.degree(node)
-        neighbors = sorted([G_xyz.nodes[n]['symbol'] for n in G_xyz.neighbors(node)])
-        xyz_by_elem[elem].append((node, degree, tuple(neighbors)))
-    
+    for n in G_rdkit.nodes():
+        rdkit_by_elem[G_rdkit.nodes[n]["symbol"]].append(n)
+    for n in G_xyz.nodes():
+        xyz_by_elem[G_xyz.nodes[n]["symbol"]].append(n)
+
+    # Compute shortest-path distance matrices
+    print("   Computing all-pairs shortest-path distance matrices...")
+    D_rdkit = np.asarray(nx.floyd_warshall_numpy(G_rdkit))
+    D_xyz = np.asarray(nx.floyd_warshall_numpy(G_xyz))
+
+    rdkit_nodes = list(G_rdkit.nodes())
+    xyz_nodes = list(G_xyz.nodes())
+    rdkit_index = {n: i for i, n in enumerate(rdkit_nodes)}
+    xyz_index = {n: i for i, n in enumerate(xyz_nodes)}
+
     rdkit_to_xyz = {}
-    used_xyz = set()
-    
-    # For each symbol, match atoms by connectivity similarity
-    for elem in rdkit_by_elem:
+
+    # Match nodes per element
+    for elem, rdkit_list in rdkit_by_elem.items():
         if elem not in xyz_by_elem:
-            raise ValueError(f"Symbol {elem} in RDKit but not in XYZ")
-        
-        rdkit_atoms = rdkit_by_elem[elem]
-        xyz_atoms = xyz_by_elem[elem]
-        
-        if len(rdkit_atoms) != len(xyz_atoms):
-            raise ValueError(
-                f"Symbol {elem} count mismatch: "
-                f"{len(rdkit_atoms)} in RDKit, {len(xyz_atoms)} in XYZ"
-            )
-        
-        # Build score matrix: higher score = better match
-        scores = np.zeros((len(rdkit_atoms), len(xyz_atoms)))
-        
-        for i, (rdkit_node, rdkit_deg, rdkit_neighs) in enumerate(rdkit_atoms):
-            for j, (xyz_node, xyz_deg, xyz_neighs) in enumerate(xyz_atoms):
-                if xyz_node in used_xyz:
-                    scores[i, j] = -1000  # Already used
-                    continue
-                
-                score = 0
-                
-                # Degree match (important)
-                if rdkit_deg == xyz_deg:
-                    score += 100
-                else:
-                    score -= abs(rdkit_deg - xyz_deg) * 20
-                
-                # Neighbor symbol similarity (very important)
-                common_neighs = len(set(rdkit_neighs) & set(xyz_neighs))
-                score += common_neighs * 50
-                
-                # Penalize neighbor count mismatch
-                score -= abs(len(rdkit_neighs) - len(xyz_neighs)) * 10
-                
+            raise ValueError(f"Element {elem} in RDKit but not in XYZ")
+        xyz_list = xyz_by_elem[elem]
+
+        n_r, n_x = len(rdkit_list), len(xyz_list)
+        min_count = min(n_r, n_x)
+        if n_r != n_x:
+            print(f"   Warning: Element {elem} count mismatch: RDKit={n_r}, XYZ={n_x}. Matching {min_count} atoms.")
+
+        # Build score matrix
+        scores = np.zeros((n_r, n_x))
+        for i, r_node in enumerate(rdkit_list):
+            d_r = D_rdkit[rdkit_index[r_node], :]
+            r_neighs = set(G_rdkit.neighbors(r_node))
+            r_symbols = {G_rdkit.nodes[n]["symbol"] for n in r_neighs}
+
+            for j, x_node in enumerate(xyz_list):
+                d_x = D_xyz[xyz_index[x_node], :]
+                x_neighs = set(G_xyz.neighbors(x_node))
+                x_symbols = {G_xyz.nodes[n]["symbol"] for n in x_neighs}
+
+                # 1) Graph-distance similarity
+                dist_diff = np.sum(np.abs(d_r - d_x))
+                score = -dist_diff  # negative = more similar
+
+                # 2) Neighbor symbol overlap bonus
+                common_symbols = len(r_symbols & x_symbols)
+                score += common_symbols * 5  # adjust weight if needed
+
                 scores[i, j] = score
-        
-        # Greedy assignment: match highest scores first
-        for _ in range(len(rdkit_atoms)):
-            i, j = np.unravel_index(np.argmax(scores), scores.shape)
-            if scores[i, j] < -500:  # No good match left
-                break
-            
-            rdkit_node = rdkit_atoms[i][0]
-            xyz_node = xyz_atoms[j][0]
-            
-            rdkit_to_xyz[rdkit_node] = xyz_node
-            used_xyz.add(xyz_node)
-            
-            # Mark this row and column as used
-            scores[i, :] = -1000
-            scores[:, j] = -1000
-    
+
+        # Hungarian algorithm for optimal assignment
+        row_ind, col_ind = linear_sum_assignment(-scores)
+        for i, j in zip(row_ind[:min_count], col_ind[:min_count]):
+            r_node = rdkit_list[i]
+            x_node = xyz_list[j]
+            score = scores[i, j]
+            rdkit_to_xyz[r_node] = x_node
+            print(f"   Matched {r_node} → {x_node} (score={score:.2f})")
+
+    print(f"Finished partial matching. {len(rdkit_to_xyz)} atoms mapped.")
     return rdkit_to_xyz
 
 

@@ -197,6 +197,10 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │      - Acute angle check: 15° (metals) / 30° (non-metals)       │
 │      - Collinearity check: trans vs spurious detection          │
 │      - Existing ring diagonal rejection and 3-ring validation   │
+|      - Agostic bond filtering: H-M/F-M bonds rejected if        │
+│        stronger H-X or F-X bond exists (2x confidence ratio)    │
+│      - M-L priority check: diagonal M-ligand bonds in 3-rings   │
+│        rejected if stronger M-donor bond exists in ring (2x)    │
 │    • Allows sensible elongated bonds (e.g., TS structures)      │
 │                                                                 │
 │    • Create graph with single bonds (order = 1.0)               │
@@ -376,13 +380,11 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 ```text
 > xyzgraph -h
 
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed]
-                [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}] [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] [-c CHARGE]
-                [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT]
-                [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H]
-                [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL]
-                [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
-                [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed] [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}]
+                [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit]
+                [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL]
+                [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
+                [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF] [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
                 [input_file]
 
 Build molecular graph from XYZ or ORCA output.
@@ -434,15 +436,17 @@ options:
   --threshold-h-metal THRESHOLD_H_METAL
                         ADVANCED: vdW threshold for H-metal bonds (default: 0.48)
   --threshold-metal-ligand THRESHOLD_METAL_LIGAND
-                        ADVANCED: vdW threshold for metal-ligand bonds (default: 0.6)
+                        ADVANCED: vdW threshold for metal-ligand bonds (default: 0.65)
   --threshold-nonmetal THRESHOLD_NONMETAL
                         ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: 0.55)
   --allow-metal-metal-bonds
                         ADVANCED: Allow metal-metal bonds (True by default)
+  --threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF
+                        ADVANCED: vdW threshold for metal-metal bonds (default: 0.7)
   --period-scaling-h-bonds PERIOD_SCALING_H_BONDS
                         ADVANCED: Period scaling for H bonds (default: 0.05, 0=disabled)
   --period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS
-                        ADVANCED: Period scaling for nonmetal bonds (default: 0.0, 0=disabled)                        
+                        ADVANCED: Period scaling for nonmetal bonds (default: 0.0, 0=disabled)                      
 ```
 
 **Method comparison**:
@@ -1222,8 +1226,10 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 | H-H | 0.38 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
 | H-metal | 0.48 × (r₁ + r₂) | `threshold_h_metal` |
-| Metal-ligand | 0.6 × (r₁ + r₂) | `threshold_metal_ligand` |
+| Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
+| Metal-Metal (same type) | 0.7 × (2r) | `threshold_metal_metal_self` |
+
 
 Where r₁ and r₂ are the VDW radii of the two atoms.
 
