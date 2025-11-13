@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xyzgraph"
-version = "1.4.2"
+version = "1.4.3"
 description = "Molecular Graph Construction from Cartesian Coordinates."
 authors = [{name = "Dr Alister Goodfellow"}]
 readme = "README.md"

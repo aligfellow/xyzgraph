@@ -1285,7 +1285,7 @@ class GraphBuilder:
         # Atoms that can participate in conjugated ring systems
         # Broader list for Kekulé initialization (gives optimizer a head start)
         aromatic_atoms = {'C', 'N', 'O', 'S', 'B', 'P', 'Se'}
-        
+
         self.log("\n" + "=" * 80, 0)
         self.log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
         self.log("=" * 80, 0)
@@ -1313,9 +1313,8 @@ class GraphBuilder:
             if not self._check_planarity(cycle, G, threshold=0.15):
                 self.log("✗ Not planar", 3)
                 continue
-            
-            # Check that all carbons are sp2 (3-coordinate), not sp3 (4-valent)
-            # sp3 carbons cannot participate in aromatic π systems
+
+            # Check for sp3 carbons
             has_sp3_carbon = False
             for idx in cycle:
                 sym = G.nodes[idx]['symbol']
@@ -1358,89 +1357,141 @@ class GraphBuilder:
                 self.log(f"✗ Hückel rule violated (π={pi_electrons}, need 6 or 10)", 3)
                 continue
 
-            # Get ring edges and their current bond orders
-            ring_edges = [(cycle[k], cycle[(k+1) % len(cycle)]) for k in range(len(cycle))]
-            current_orders = []
-            for i, j in ring_edges:
-                if G.has_edge(i, j):
-                    current_orders.append(G.edges[i, j]['bond_order'])
+            # Ring edges and current bond orders
+            ring_edges = [(cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))]
+            current_orders = [G.edges[i, j]['bond_order'] if G.has_edge(i, j) else 1.0 for i, j in ring_edges]
+            anchors = [(idx, bo) for idx, bo in enumerate(current_orders) if abs(bo - 1.0) > 0.01]
+
+            # --- 5-membered heterocycle logic ---
+            if len(cycle) == 5 and any(G.nodes[i]['symbol'] in ('N', 'O', 'S', 'B') for i in cycle):
+                
+                # Identify heteroatom with LP in p-orbital (needs single bonds on both sides)
+                lp_in_atom = None
+                
+                for idx in cycle:
+                    sym = G.nodes[idx]['symbol']
+                    if sym not in ('N', 'O', 'S', 'B'):
+                        continue
+                    
+                    # Count total neighbors (including exocyclic bonds)
+                    total_neighbors = len(list(G.neighbors(idx)))
+                    
+                    if sym == 'N':
+                        if total_neighbors == 3:
+                            # N with exocyclic bond → LP in p-orbital
+                            lp_in_atom = idx
+                            self.log(f"  N{idx}: 3 neighbors → LP in p-orbital (pyrrole-like, needs single bonds)", 3)
+                            break  # Found it, no need to check others
+                        elif total_neighbors == 2:
+                            # N without exocyclic → LP in sp²
+                            self.log(f"  N{idx}: 2 neighbors → LP in sp² (pyridine-like, can accept double)", 3)
+                        else:
+                            self.log(f"  N{idx}: {total_neighbors} neighbors - unusual", 3)
+                            
+                    elif sym in ('O', 'S'):
+                        # O/S typically have LP in p-orbital in 5-rings
+                        if total_neighbors == 2:
+                            lp_in_atom = idx
+                            self.log(f"  {sym}{idx}: furan/thiophene-like (LP in p-orbital, needs single bonds)", 3)
+                            break
+                        else:
+                            self.log(f"  {sym}{idx}: {total_neighbors} neighbors - unusual", 3)
+
+                # Apply bonding pattern
+                if lp_in_atom is not None:
+                    self.log(f"  Strategy: Trace pattern from {G.nodes[lp_in_atom]['symbol']}{lp_in_atom}", 3)
+                    
+                    # Find position of LP-in atom in cycle
+                    lp_pos = cycle.index(lp_in_atom)
+                    
+                    # Pattern starting from LP atom going around ring: S-D-S-D-S
+                    # This ensures:
+                    # - Both edges touching LP atom are single
+                    # - Double bonds alternate (never adjacent)
+                    # - Total: 2 double bonds, 3 single bonds
+                    
+                    pattern = [1.0] * 5
+                    pattern[lp_pos] = 1.0                    # Edge FROM LP atom: single
+                    pattern[(lp_pos + 1) % 5] = 2.0          # Next edge: double
+                    pattern[(lp_pos + 2) % 5] = 1.0          # Next edge: single
+                    pattern[(lp_pos + 3) % 5] = 2.0          # Next edge: double
+                    pattern[(lp_pos + 4) % 5] = 1.0          # Edge TO LP atom: single
+                    
+                    # Apply the pattern
+                    for k, (i, j) in enumerate(ring_edges):
+                        if G.has_edge(i, j):
+                            G.edges[i, j]['bond_order'] = pattern[k]
+                    
+                    # Log the result
+                    bond_strs = []
+                    for k in range(5):
+                        i, j = ring_edges[k]
+                        if G.has_edge(i, j):
+                            bo = G.edges[i, j]['bond_order']
+                            sym_i = G.nodes[i]['symbol']
+                            sym_j = G.nodes[j]['symbol']
+                            bond_strs.append(f"{sym_i}{i}{'=' if bo > 1.5 else '-'}{sym_j}{j}")
+                    self.log(f"  Bond pattern: {' '.join(bond_strs)}", 3)
+                            
                 else:
-                    current_orders.append(1.0)
+                    # No LP-in atom found - use default alternating pattern
+                    self.log(f"  No LP-in heteroatom, using default pattern", 3)
+                    pattern = [2.0, 1.0, 2.0, 1.0, 1.0]
+                    for k, (i, j) in enumerate(ring_edges):
+                        if G.has_edge(i, j):
+                            G.edges[i, j]['bond_order'] = pattern[k]
+                
+                initialized_rings += 1
+                self.log(f"✓ Applied 5-membered heterocycle pattern", 3)
+                continue
 
-            # Check for already-set edges (from previously processed fused rings)
-            set_edges = [(idx, bo) for idx, bo in enumerate(current_orders) if abs(bo - 1.0) > 0.01]
 
-            if len(set_edges) == 0:
-                # No constraints - apply pattern based on ring size
+            # --- 6-membered rings or carbon-only 5-membered rings ---
+            if len(anchors) == 0:
+                # No constraints, apply default alternating pattern
                 if len(cycle) == 6:
-                    # 6-ring: 1-2-1-2-1-2
                     for idx, (i, j) in enumerate(ring_edges):
                         if G.has_edge(i, j):
-                            bond_order = 2.0 if idx % 2 == 0 else 1.0
-                            G.edges[i, j]['bond_order'] = bond_order
+                            G.edges[i, j]['bond_order'] = 2.0 if idx % 2 == 0 else 1.0
                 elif len(cycle) == 5:
-                    # 5-ring: 2-1-2-1-1
+                    # Carbon-only: default 5-membered pattern
                     pattern = [2.0, 1.0, 2.0, 1.0, 1.0]
                     for idx, (i, j) in enumerate(ring_edges):
                         if G.has_edge(i, j):
                             G.edges[i, j]['bond_order'] = pattern[idx]
                 initialized_rings += 1
 
-            elif len(set_edges) == 1:
-                # One anchor - alternate from it
-                anchor_idx, anchor_bo = set_edges[0]
-
+            elif len(anchors) == 1:
+                # One anchor, alternate from it
+                anchor_idx, anchor_bo = anchors[0]
                 for idx, (i, j) in enumerate(ring_edges):
+                    if idx == anchor_idx:
+                        continue
+                    offset = (idx - anchor_idx) % len(cycle)
+                    bond_order = 2.0 if ((anchor_bo > 1.5) == (offset % 2 == 0)) else 1.0
                     if G.has_edge(i, j):
-                        if idx == anchor_idx:
-                            continue  # Keep anchor as is
-
-                        offset = (idx - anchor_idx) % len(cycle)
-                        if abs(anchor_bo - 2.0) < 0.1:
-                            bond_order = 2.0 if offset % 2 == 0 else 1.0
-                        else:
-                            bond_order = 1.0 if offset % 2 == 0 else 2.0
-
                         G.edges[i, j]['bond_order'] = bond_order
                 initialized_rings += 1
 
             else:
-                # Multiple constraints - verify consistency before applying
-                # Use first anchor to generate expected pattern
-                anchor_idx, anchor_bo = set_edges[0]
-
-                # Generate expected pattern based on first anchor
+                # Multiple anchors, check consistency
+                anchor_idx, anchor_bo = anchors[0]
                 expected = []
                 for idx in range(len(cycle)):
                     offset = (idx - anchor_idx) % len(cycle)
-                    if abs(anchor_bo - 2.0) < 0.1:
-                        expected.append(2.0 if offset % 2 == 0 else 1.0)
-                    else:
-                        expected.append(1.0 if offset % 2 == 0 else 2.0)
-
-                # Check if all set edges match expected pattern
-                consistent = True
-                for idx, bo in set_edges:
-                    if abs(expected[idx] - bo) > 0.1:
-                        consistent = False
-                        break
-
+                    expected.append(2.0 if ((anchor_bo > 1.5) == (offset % 2 == 0)) else 1.0)
+                consistent = all(abs(expected[idx] - bo) < 0.01 for idx, bo in anchors)
                 if consistent:
-                    # Apply pattern to unset edges only
                     for idx, (i, j) in enumerate(ring_edges):
-                        if G.has_edge(i, j):
-                            # Only set if currently at default (1.0)
-                            if abs(current_orders[idx] - 1.0) < 0.01:
-                                G.edges[i, j]['bond_order'] = expected[idx]
+                        if abs(current_orders[idx] - 1.0) < 0.01 and G.has_edge(i, j):
+                            G.edges[i, j]['bond_order'] = expected[idx]
                     initialized_rings += 1
                 else:
-                    # Conflict detected - skip this ring, let optimizer handle it
                     self.log("✗ Conflict in existing bond orders", 3)
 
         self.log("\n" + "-" * 80, 0)
         self.log(f"SUMMARY: Initialized {initialized_rings} ring(s) with Kekulé pattern", 1)
         self.log("-" * 80, 0)
-
         return initialized_rings
 
 # =============================================================================
@@ -2147,45 +2198,40 @@ class GraphBuilder:
             # Count π electrons (simplified)
             pi_electrons = 0
             pi_breakdown = []
-            
+            contrib, label = 0, None
             for idx in cycle:
                 sym = G.nodes[idx]['symbol']
                 fc = G.nodes[idx].get('formal_charge', 0)
-                contribution = 0
+                degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
                 
                 if sym == 'C':
-                    # sp2 carbon base contribution: 1 π electron
-                    contribution = 1
-                    # Negative charge adds to π system (e.g., Cp⁻)
-                    if fc < 0:
-                        contribution += abs(fc)
-                        pi_breakdown.append(f"{sym}{idx}:1+{abs(fc)}(charge)")
-                    # Positive charge removes from π system (e.g., tropylium⁺)
-                    elif fc > 0:
-                        contribution = max(0, 1 - fc)
-                        pi_breakdown.append(f"{sym}{idx}:{contribution}")
-                    else:
-                        pi_breakdown.append(f"{sym}{idx}:1")
+                    # Carbon: 1 π electron, adjusted by formal charge
+                    contrib = max(0, 1 - fc) if fc > 0 else 1 + abs(fc)
+                    label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
+                    
                 elif sym == 'B':
-                    # B with 3 bonds: empty p-orbital participates but contributes 0 π electrons
-                    contribution = 0
-                    pi_breakdown.append(f"{sym}{idx}:0(empty_p)")
+                    # Boron: empty p-orbital contributes 0 (or |fc| if charged)
+                    contrib = abs(fc) if fc < 0 else 0
+                    label = f"{sym}{idx}:0(empty_p)" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
+                    
                 elif sym == 'N':
-                    degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
+                    # Nitrogen: depends on degree and formal charge
                     if degree == 3:
-                        contribution = 2  # Pyrrole like: 3 bonds, LP in π system
-                        pi_breakdown.append(f"{sym}{idx}:2(LP)")
-                    elif degree == 2:
-                        contribution = 1  # Pyridine like: 2 bonds, LP not in π system
-                        pi_breakdown.append(f"{sym}{idx}:1")
+                        # Pyrrole-like: 2 π (LP) unless charged
+                        contrib = 1 if fc > 0 else 2
+                        label = f"{sym}{idx}:2(LP)" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
+                    else:  # degree == 2
+                        # Pyridine-like: 1 π normally, 2 π if negative
+                        contrib = 2 if fc < 0 else 1
+                        label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
+                        
                 elif sym in ('O', 'S'):
-                    # O/S with 2 neighbors contributes 2 (furan-like)
-                    degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
-                    if degree == 2:
-                        contribution = 2
-                        pi_breakdown.append(f"{sym}{idx}:2(LP)")
-                
-                pi_electrons += contribution
+                    # Oxygen/Sulfur: 2 π (LP) regardless of positive charge
+                    contrib = 2
+                    label = f"{sym}{idx}:2(LP)" if fc == 0 else f"{sym}{idx}:2(LP,fc={fc:+d})"
+                    
+                pi_electrons += contrib
+                pi_breakdown.append(label)
             
             self.log(f"π electrons: {pi_electrons} ({', '.join(pi_breakdown)})", 2)
             
