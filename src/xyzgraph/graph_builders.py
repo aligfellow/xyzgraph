@@ -284,8 +284,8 @@ class GraphBuilder:
                 # Check existing strong bonds to non-metals (excluding metals)
                 for X_atom in G.neighbors(nonmetal_atom):
                     X_sym = G.nodes[X_atom]['symbol']
-                    if X_sym in self.data.metals:
-                        continue  # Skip metal neighbors
+                    if X_sym in self.data.metals or X_sym == 'H':
+                        continue  # Skip metal neighbors and H-H
 
                     # Look up bond confidence
                     for conf, bi, bj, _, _ in baseline_bonds:
@@ -524,7 +524,7 @@ class GraphBuilder:
                     self.log(f"  3-ring via {sym_k}{k}: ratio={ratio:.3f}, threshold={diagonal_threshold:.3f}", 4)
                     
                     if ratio > diagonal_threshold:
-                        if has_metal:
+                        if has_metal and not has_H_in_ring:
                             self.log(f"  Bond {i}-{j}: diagonal (ratio={ratio:.2f}) across 3-ring via {k}, metal bond - allowed", 4)
                             continue
                         
