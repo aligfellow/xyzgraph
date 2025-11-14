@@ -1264,235 +1264,318 @@ class GraphBuilder:
 
     def _init_kekule_for_aromatic_rings(self, G: nx.Graph) -> int:
         """
-        Initialize alternating single/double bonds for 5 and 6-membered aromatic rings.
-            - Find 5/6-membered rings with aromatic atoms (C, N, O, S, B)
-            - Check planarity
-            - Estimate π electrons (use metal-bonding as hint)
-            - Check Hückel rule (4n+2)
-            - Apply alternating pattern as starting point
-            - Optimizer will refine based on formal charges, electronegativity, etc.
-
-        Parameters:
-        - G: NetworkX graph to modify in-place
+        Combined Kekulé initialization:
+        1) Validate rings (planarity, aromatic atoms, sp2 carbons, Huckel, Cp-like)
+        2) Initialize Kekulé patterns with propagation respecting fused rings
         """
         cycles = G.graph.get('_rings')
         if cycles is None:
             cycles = nx.cycle_basis(G)
             G.graph['_rings'] = cycles
 
-        initialized_rings = 0
-
-        # Atoms that can participate in conjugated ring systems
-        # Broader list for Kekulé initialization (gives optimizer a head start)
+        initialized = 0
         aromatic_atoms = {'C', 'N', 'O', 'S', 'B', 'P', 'Se'}
 
         self.log("\n" + "=" * 80, 0)
         self.log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
         self.log("=" * 80, 0)
 
-        for ring_idx, cycle in enumerate(cycles):
-            # Must be 5 or 6-membered
+        # --- Phase 0: Precompute edge info ---
+        edge_to_rings = {}
+        ring_edges = []
+        ring_symbols = []
+        for r_idx, cycle in enumerate(cycles):
+            edges = []
+            for k in range(len(cycle)):
+                a, b = cycle[k], cycle[(k+1) % len(cycle)]
+                edges.append((a, b))
+                key = frozenset((a, b))
+                edge_to_rings.setdefault(key, []).append(r_idx)
+            ring_edges.append(edges)
+            ring_symbols.append({G.nodes[i]['symbol'] for i in cycle})
+
+        ring_adj = {i: set() for i in range(len(cycles))}
+        for edge_key, rings_list in edge_to_rings.items():
+            if len(rings_list) > 1:
+                for a in rings_list:
+                    for b in rings_list:
+                        if a != b:
+                            ring_adj[a].add(b)
+
+        # --- Phase 1: Ring validation / logging ---
+        valid_rings = set()
+        for r_idx, cycle in enumerate(cycles):
             if len(cycle) not in (5, 6):
                 continue
 
             ring_atoms = [f"{G.nodes[i]['symbol']}{i}" for i in cycle]
-            self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 2)
+            self.log(f"\nRing {r_idx} ({len(cycle)}-membered): {ring_atoms}", 2)
 
-            ring_elements = {G.nodes[i]['symbol'] for i in cycle}  # Get UNIQUE symbols
-            if len(ring_elements) == 1 and list(ring_elements)[0] != 'C':
-                # Homogeneous non-carbon ring 
-                self.log(f"✗ Homogeneous {list(ring_elements)[0]} ring, skipping", 3)
-                continue
-
-            # Allow some heteroatoms for extended conjugation
+            # Must contain only aromatic atoms
             if not all(G.nodes[i]['symbol'] in aromatic_atoms for i in cycle):
                 self.log("✗ Contains non-aromatic atoms", 3)
                 continue
 
-            # Check planarity (aromatic rings are planar)
+            # Check planarity
             if not self._check_planarity(cycle, G, threshold=0.15):
                 self.log("✗ Not planar", 3)
                 continue
 
-            # Check for sp3 carbons
-            has_sp3_carbon = False
+            # Check for sp3 carbon
+            has_sp3 = False
             for idx in cycle:
                 sym = G.nodes[idx]['symbol']
                 if sym == 'C':
-                    # Count total degree (all bonds, including outside ring)
-                    degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in DATA.metals)
-                    if degree >= 4:  # sp3 or higher coordination
+                    degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]['symbol'] not in getattr(DATA, 'metals', {}))
+                    if degree >= 4:
                         self.log(f"✗ Contains non-sp2 carbon {sym}{idx}", 3)
-                        has_sp3_carbon = True
+                        has_sp3 = True
                         break
-            
-            if has_sp3_carbon:
+            if has_sp3:
                 continue
-            
-            # For 5-membered C-rings: Check if it's a Cp-like ring (all C bonded to same metal)
+
+            # Cp-like detection for 5-membered carbon rings
             if len(cycle) == 5 and all(G.nodes[i]['symbol'] == 'C' for i in cycle):
-                # Check if all carbons bond to the same metal
                 metal_neighbors = {}
                 for c in cycle:
                     for nbr in G.neighbors(c):
-                        if G.nodes[nbr]['symbol'] in DATA.metals:
-                            if nbr not in metal_neighbors:
-                                metal_neighbors[nbr] = []
-                            metal_neighbors[nbr].append(c)
-                
-                # Cp-like ring: all 5 carbons bonded to the SAME metal
+                        if G.nodes[nbr]['symbol'] in getattr(DATA, 'metals', {}):
+                            metal_neighbors.setdefault(nbr, []).append(c)
                 is_cp_like = any(len(carbons) == 5 for carbons in metal_neighbors.values())
-                
                 if is_cp_like:
                     metal_idx = [m for m, carbons in metal_neighbors.items() if len(carbons) == 5][0]
                     metal_sym = G.nodes[metal_idx]['symbol']
                     self.log(f"✓ Detected Cp-like ring (all 5 C bonded to {metal_sym}{metal_idx})", 3)
-            
-            # Estimate π electrons (use metal-bonding as hint)
+
+            # Estimate π electrons and Hückel rule
             pi_electrons = self._estimate_pi_electrons(G, cycle)
             self.log(f"π electrons estimate: {pi_electrons}", 3)
-            
-            # Check Hückel rule (n=1,2 most common: π=6,10)
             if pi_electrons not in (6, 10):
-                self.log(f"✗ Hückel rule violated (π={pi_electrons}, need 6 or 10)", 3)
+                self.log(f"✗ Hückel rule violated (π={pi_electrons})", 3)
                 continue
 
-            # Ring edges and current bond orders
-            ring_edges = [(cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))]
-            current_orders = [G.edges[i, j]['bond_order'] if G.has_edge(i, j) else 1.0 for i, j in ring_edges]
-            anchors = [(idx, bo) for idx, bo in enumerate(current_orders) if abs(bo - 1.0) > 0.01]
+            valid_rings.add(r_idx)
 
-            # --- 5-membered heterocycle logic ---
-            if len(cycle) == 5 and any(G.nodes[i]['symbol'] in ('N', 'O', 'S', 'B') for i in cycle):
-                
-                # Identify heteroatom with LP in p-orbital (needs single bonds on both sides)
-                lp_in_atom = None
-                
-                for idx in cycle:
-                    sym = G.nodes[idx]['symbol']
-                    if sym not in ('N', 'O', 'S', 'B'):
+        if not valid_rings:
+            self.log("No rings passed validation, skipping Kekulé init", 1)
+            return 0
+
+        self.log(f"{'-'*80}", 0)
+        self.log(f"Valid rings for Kekulé initialization: \n\t{sorted(valid_rings)}", 0)
+        
+        # --- Phase 2: Kekulé initialization ---
+        MAX_VALENCE = {'H':1, 'B':3, 'C':4, 'N':3, 'O':2, 'P':3, 'S':2, 'Se':2}
+        def max_val(n): return MAX_VALENCE.get(G.nodes[n].get('symbol'), 4)
+        def bond_sum(node, ignore_edge=None):
+            s = 0.0
+            for nbr in G.neighbors(node):
+                if ignore_edge is not None:
+                    a, b = ignore_edge
+                    if (node == a and nbr == b) or (node == b and nbr == a):
                         continue
-                    
-                    # Count total neighbors (including exocyclic bonds)
-                    total_neighbors = len(list(G.neighbors(idx)))
-                    
-                    if sym == 'N':
-                        if total_neighbors == 3:
-                            # N with exocyclic bond → LP in p-orbital
-                            lp_in_atom = idx
-                            self.log(f"  N{idx}: 3 neighbors → LP in p-orbital (pyrrole-like, needs single bonds)", 3)
-                            break  # Found it, no need to check others
-                        elif total_neighbors == 2:
-                            # N without exocyclic → LP in sp²
-                            self.log(f"  N{idx}: 2 neighbors → LP in sp² (pyridine-like, can accept double)", 3)
-                        else:
-                            self.log(f"  N{idx}: {total_neighbors} neighbors - unusual", 3)
-                            
-                    elif sym in ('O', 'S'):
-                        # O/S typically have LP in p-orbital in 5-rings
-                        if total_neighbors == 2:
-                            lp_in_atom = idx
-                            self.log(f"  {sym}{idx}: furan/thiophene-like (LP in p-orbital, needs single bonds)", 3)
-                            break
-                        else:
-                            self.log(f"  {sym}{idx}: {total_neighbors} neighbors - unusual", 3)
+                s += float(G.edges[node, nbr].get('bond_order', 1.0))
+            return s
+        def can_set_edge(i, j, new_bo):
+            return bond_sum(i, ignore_edge=(i,j)) + new_bo <= max_val(i) + 1e-9 and \
+                bond_sum(j, ignore_edge=(i,j)) + new_bo <= max_val(j) + 1e-9
+        def apply_pattern(r_idx, pattern):
+            if r_idx not in valid_rings:
+                return False
+            edges = ring_edges[r_idx]
+            assigns = []
+            for idx, (i,j) in enumerate(edges):
+                existing = float(G.edges[i,j].get('bond_order', 1.0))
+                desired = float(pattern[idx])
+                if abs(existing - 1.0) > 0.01 and ((existing > 1.5) != (desired > 1.5)):
+                    return False
+                if not can_set_edge(i,j,desired):
+                    if desired > 1.5 and can_set_edge(i,j,1.0):
+                        desired = 1.0
+                    else:
+                        return False
+                assigns.append((i,j,desired))
+            for i,j,bo in assigns:
+                G.edges[i,j]['bond_order'] = bo
+            return True
+        def alt_patterns(L, start_with_double=True):
+            return [2.0 if k % 2 == 0 else 1.0 for k in range(L)] if start_with_double else [1.0 if k % 2 == 0 else 2.0 for k in range(L)]
 
-                # Apply bonding pattern
-                if lp_in_atom is not None:
-                    self.log(f"  Strategy: Trace pattern from {G.nodes[lp_in_atom]['symbol']}{lp_in_atom}", 3)
-                    
-                    # Find position of LP-in atom in cycle
-                    lp_pos = cycle.index(lp_in_atom)
-                    
-                    # Pattern starting from LP atom going around ring: S-D-S-D-S
-                    # This ensures:
-                    # - Both edges touching LP atom are single
-                    # - Double bonds alternate (never adjacent)
-                    # - Total: 2 double bonds, 3 single bonds
-                    
-                    pattern = [1.0] * 5
-                    pattern[lp_pos] = 1.0                    # Edge FROM LP atom: single
-                    pattern[(lp_pos + 1) % 5] = 2.0          # Next edge: double
-                    pattern[(lp_pos + 2) % 5] = 1.0          # Next edge: single
-                    pattern[(lp_pos + 3) % 5] = 2.0          # Next edge: double
-                    pattern[(lp_pos + 4) % 5] = 1.0          # Edge TO LP atom: single
-                    
-                    # Apply the pattern
-                    for k, (i, j) in enumerate(ring_edges):
-                        if G.has_edge(i, j):
-                            G.edges[i, j]['bond_order'] = pattern[k]
-                    
-                    # Log the result
-                    bond_strs = []
-                    for k in range(5):
-                        i, j = ring_edges[k]
-                        if G.has_edge(i, j):
-                            bo = G.edges[i, j]['bond_order']
-                            sym_i = G.nodes[i]['symbol']
-                            sym_j = G.nodes[j]['symbol']
-                            bond_strs.append(f"{sym_i}{i}{'=' if bo > 1.5 else '-'}{sym_j}{j}")
-                    self.log(f"  Bond pattern: {' '.join(bond_strs)}", 3)
-                            
+        # --- Priority 1: Cp-like 5-membered rings ---
+        for r_idx in valid_rings:
+            if len(cycles[r_idx]) != 5: continue
+            if not all(G.nodes[i]['symbol']=='C' for i in cycles[r_idx]): continue
+            # Detect metal-bound Cp
+            metal_map = {}
+            for c in cycles[r_idx]:
+                for nbr in G.neighbors(c):
+                    if G.nodes[nbr]['symbol'] in getattr(DATA, 'metals', {}):
+                        metal_map.setdefault(nbr, []).append(c)
+            if any(len(cs)==5 for cs in metal_map.values()):
+                # Apply alternating pattern [1,2,1,2,1] rotated to best match existing anchors
+                L = 5
+                base = [1.0,2.0,1.0,2.0,1.0]
+                applied = False
+                for rot in range(L):
+                    p = base[-rot:] + base[:-rot]
+                    if apply_pattern(r_idx, p):
+                        initialized += 1
+                        applied = True
+                        self.log(f"✓ Cp-like 5-ring {r_idx} initialized (rotation {rot})", 3)
+                        break
+                if not applied:
+                    self.log(f"✗ Cp-like 5-ring {r_idx} could not be safely applied", 3)
+
+        # --- Priority 2: 5-membered heterocycles (LP-in) ---
+        hetero_initialized = set()
+        for r_idx in valid_rings:
+            if len(cycles[r_idx]) != 5: continue
+            if not any(G.nodes[i]['symbol'] in ('N','O','S','B') for i in cycles[r_idx]): continue
+            lp = None
+            for idx in cycles[r_idx]:
+                sym = G.nodes[idx]['symbol']
+                if sym not in ('N','O','S','B'): continue
+                neighbors = len(list(G.neighbors(idx)))
+                if sym=='N' and neighbors==3: lp=idx; break
+                if sym in ('O','S') and neighbors==2: lp=idx; break
+            if lp is not None:
+                cycle = cycles[r_idx]
+                pos = cycle.index(lp)
+                p = [1.0]*5
+                p[pos]=1.0
+                p[(pos+1)%5]=2.0
+                p[(pos+2)%5]=1.0
+                p[(pos+3)%5]=2.0
+                p[(pos+4)%5]=1.0
+                if apply_pattern(r_idx, p):
+                    initialized += 1
+                    hetero_initialized.add(r_idx)
+                    self.log(f"✓ 5-heterocycle {r_idx} (lp {lp}) initialized", 3)
                 else:
-                    # No LP-in atom found - use default alternating pattern
-                    self.log(f"  No LP-in heteroatom, using default pattern", 3)
-                    pattern = [2.0, 1.0, 2.0, 1.0, 1.0]
-                    for k, (i, j) in enumerate(ring_edges):
-                        if G.has_edge(i, j):
-                            G.edges[i, j]['bond_order'] = pattern[k]
-                
-                initialized_rings += 1
-                self.log(f"✓ Applied 5-membered heterocycle pattern", 3)
+                    self.log(f"✗ 5-heterocycle {r_idx} (lp {lp}) could not be safely applied", 3)
+
+        # --- Priority 2b: propagate to fused rings ---
+        to_propagate = set()
+        for r in hetero_initialized:
+            to_propagate |= ring_adj[r]
+        for r_idx in sorted(to_propagate):
+            if r_idx not in valid_rings or r_idx in hetero_initialized: continue
+            L = len(cycles[r_idx])
+            success=False
+            if L==6:
+                for start_double in (True, False):
+                    p = alt_patterns(6, start_with_double=start_double)
+                    if apply_pattern(r_idx, p):
+                        initialized+=1
+                        success=True
+                        self.log(f"✓ Propagated init to fused ring {r_idx} (6-ring)",3)
+                        break
+            elif L==5:
+                base=[2.0,1.0,2.0,1.0,1.0]
+                for rot in range(5):
+                    p=base[-rot:]+base[:-rot]
+                    if apply_pattern(r_idx, p):
+                        initialized+=1
+                        success=True
+                        self.log(f"✓ Propagated init to fused ring {r_idx} (5-ring rotation {rot})",3)
+                        break
+            if not success:
+                self.log(f"• Could not propagate safely to fused ring {r_idx}",4)
+
+        # --- Priority 3 & 4: fused benzene clusters + isolated 6-rings ---
+        six_ring_indices=[i for i in valid_rings if len(cycles[i])==6]
+        if six_ring_indices:
+            sub_adj={i:set() for i in six_ring_indices}
+            for i in six_ring_indices:
+                for j in ring_adj[i]:
+                    if j in sub_adj: sub_adj[i].add(j)
+            seen=set()
+            for start in six_ring_indices:
+                if start in seen: continue
+                comp=set()
+                stack=[start]
+                while stack:
+                    x=stack.pop()
+                    if x in comp: continue
+                    comp.add(x)
+                    for nb in sub_adj.get(x,()):
+                        if nb not in comp: stack.append(nb)
+                seen|=comp
+                if len(comp)==1:
+                    # isolated 6-ring: handle later
+                    continue
+                comp=sorted(comp)
+                # global propagation with two parity seeds
+                def try_component(seed_parity):
+                    assigned={comp[0]: alt_patterns(6,start_with_double=seed_parity)}
+                    queue=[comp[0]]
+                    while queue:
+                        r=queue.pop(0)
+                        patt=assigned[r]
+                        for nb in sub_adj[r]:
+                            if nb not in comp: continue
+                            shared_edges=[]
+                            for idx_e,(a,b) in enumerate(ring_edges[r]):
+                                key=frozenset((a,b))
+                                if nb in edge_to_rings.get(key,[]): shared_edges.append((idx_e,key))
+                            if nb in assigned:
+                                consistent=True
+                                for idx_e,key in shared_edges:
+                                    for idx_nb,(ua,ub) in enumerate(ring_edges[nb]):
+                                        if frozenset((ua,ub))==key and (assigned[nb][idx_nb]>1.5)!=(patt[idx_e]>1.5):
+                                            consistent=False; break
+                                    if not consistent: break
+                                if not consistent: return None
+                                continue
+                            ok=False
+                            for start_bool in (True,False):
+                                candidate=alt_patterns(6,start_with_double=start_bool)
+                                good=True
+                                for idx_e,key in shared_edges:
+                                    for idx_nb,(ua,ub) in enumerate(ring_edges[nb]):
+                                        if frozenset((ua,ub))==key and (candidate[idx_nb]>1.5)!=(patt[idx_e]>1.5):
+                                            good=False; break
+                                    if not good: break
+                                if good: assigned[nb]=candidate; queue.append(nb); ok=True; break
+                            if not ok: return None
+                    # valence check and commit
+                    for r in comp:
+                        patt=assigned[r]
+                        for idx_edge,(i,j) in enumerate(ring_edges[r]):
+                            bo=patt[idx_edge]
+                            if not can_set_edge(i,j,bo):
+                                if bo>1.5 and can_set_edge(i,j,1.0): bo=1.0
+                                else: return None
+                            G.edges[i,j]['bond_order']=bo
+                    return assigned
+                assigned=None
+                for seed in (True,False):
+                    assigned=try_component(seed)
+                    if assigned is not None:
+                        initialized+=len(comp)
+                        self.log(f"✓ Initialized fused benzene block rings {comp}",3)
+                        break
+                if assigned is None:
+                    self.log(f"✗ Could not find consistent Kekulé for fused benzene block {comp}",3)
+
+        # --- Priority 5: remaining carbon-only 5-membered rings ---
+        for r_idx in valid_rings:
+            if len(cycles[r_idx])!=5: continue
+            if any(G.nodes[i]['symbol']!='C' for i in cycles[r_idx]): continue
+            fused=any(len(edge_to_rings[frozenset((a,b))])>1 for a,b in ring_edges[r_idx])
+            if fused:
+                self.log(f"• Skipping fused carbon-5 ring {r_idx}",4)
                 continue
-
-
-            # --- 6-membered rings or carbon-only 5-membered rings ---
-            if len(anchors) == 0:
-                # No constraints, apply default alternating pattern
-                if len(cycle) == 6:
-                    for idx, (i, j) in enumerate(ring_edges):
-                        if G.has_edge(i, j):
-                            G.edges[i, j]['bond_order'] = 2.0 if idx % 2 == 0 else 1.0
-                elif len(cycle) == 5:
-                    # Carbon-only: default 5-membered pattern
-                    pattern = [2.0, 1.0, 2.0, 1.0, 1.0]
-                    for idx, (i, j) in enumerate(ring_edges):
-                        if G.has_edge(i, j):
-                            G.edges[i, j]['bond_order'] = pattern[idx]
-                initialized_rings += 1
-
-            elif len(anchors) == 1:
-                # One anchor, alternate from it
-                anchor_idx, anchor_bo = anchors[0]
-                for idx, (i, j) in enumerate(ring_edges):
-                    if idx == anchor_idx:
-                        continue
-                    offset = (idx - anchor_idx) % len(cycle)
-                    bond_order = 2.0 if ((anchor_bo > 1.5) == (offset % 2 == 0)) else 1.0
-                    if G.has_edge(i, j):
-                        G.edges[i, j]['bond_order'] = bond_order
-                initialized_rings += 1
-
+            pattern=[2.0,1.0,2.0,1.0,1.0]
+            if apply_pattern(r_idx,pattern):
+                initialized+=1
+                self.log(f"✓ Initialized isolated carbon-5 ring {r_idx}",3)
             else:
-                # Multiple anchors, check consistency
-                anchor_idx, anchor_bo = anchors[0]
-                expected = []
-                for idx in range(len(cycle)):
-                    offset = (idx - anchor_idx) % len(cycle)
-                    expected.append(2.0 if ((anchor_bo > 1.5) == (offset % 2 == 0)) else 1.0)
-                consistent = all(abs(expected[idx] - bo) < 0.01 for idx, bo in anchors)
-                if consistent:
-                    for idx, (i, j) in enumerate(ring_edges):
-                        if abs(current_orders[idx] - 1.0) < 0.01 and G.has_edge(i, j):
-                            G.edges[i, j]['bond_order'] = expected[idx]
-                    initialized_rings += 1
-                else:
-                    self.log("✗ Conflict in existing bond orders", 3)
+                self.log(f"• Could not safely init isolated carbon-5 ring {r_idx}",4)
 
-        self.log("\n" + "-" * 80, 0)
-        self.log(f"SUMMARY: Initialized {initialized_rings} ring(s) with Kekulé pattern", 1)
-        self.log("-" * 80, 0)
-        return initialized_rings
+        self.log("\n" + "-"*80,0)
+        self.log(f"SUMMARY: Initialized {initialized} ring(s) with Kekulé pattern",1)
+        self.log("-"*80,0)
+        return initialized
 
 # =============================================================================
 # QUICK MODE: Simple heuristic valence adjustment
@@ -2192,6 +2275,14 @@ class GraphBuilder:
                 self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
                 self.log("✗ Not planar, skipping aromaticity check", 2)
                 continue
+
+            for i in cycle:
+                atom = G.nodes[i]
+                if len(list(G.neighbors(i))) >= 4:
+                    self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
+                    self.log(f"✗ Contains sp3 character, skipping aromaticity check", 2)
+                    is_planar = False
+                    break
 
             self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
             
