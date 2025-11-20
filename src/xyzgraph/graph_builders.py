@@ -534,6 +534,11 @@ class GraphBuilder:
                         for atom in [i, j]:
                             atom_sym = G.nodes[atom]['symbol']
                             
+                            # Skip metals only when checking M-L bonds with H in ring
+                            # (these are handled permissively; don't reject based on metal valence)
+                            if atom_sym in self.data.metals and has_metal and has_H_in_ring:
+                                continue
+                            
                             if atom_sym not in DATA.valences:
                                 continue
                             
@@ -565,6 +570,11 @@ class GraphBuilder:
                 for atom in [i, j]:  # Only check the two atoms being bonded
                     atom_sym = G.nodes[atom]['symbol']
                     
+                    # Skip metals only when checking M-L bonds with H in ring
+                    # (these are handled permissively; don't reject based on metal valence)
+                    if atom_sym in self.data.metals and has_metal and has_H_in_ring:
+                        continue
+                    
                     # Skip if element not in valence dictionary (unknown chemistry)
                     if atom_sym not in DATA.valences:
                         continue
@@ -587,6 +597,9 @@ class GraphBuilder:
                         overflow_ok = True
                         for atom in [i, j]:
                             atom_sym = G.nodes[atom]['symbol']
+                            # Skip metals only when checking M-L bonds with H in ring
+                            if atom_sym in self.data.metals and has_metal and has_H_in_ring:
+                                continue
                             if atom_sym not in DATA.valences:
                                 continue
                             current_val = sum(
