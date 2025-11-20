@@ -1193,7 +1193,7 @@ class GraphBuilder:
                     continue
                 
                 # ALL extended bonds require geometric validation
-                if self._validate_bond_geometry(G, i, j, d, confidence):
+                if self._validate_bond_geometry(G, i, j, d, confidence, baseline_bonds):
                     G.add_edge(i, j,
                               bond_order=1.0,
                               distance=d,
