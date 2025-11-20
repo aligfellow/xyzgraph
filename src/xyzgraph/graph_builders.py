@@ -1186,7 +1186,7 @@ class GraphBuilder:
             
             for confidence, i, j, d, has_metal in extended_bonds:
                 si, sj = self.symbols[i], self.symbols[j]
-                self.log(f"  Evaluating extended bond {i}-{j} (d={d:.3f} Å, conf={confidence:.2f})", 3)
+                self.log(f"  Evaluating extended bond {si}{i}-{sj}{j} (d={d:.3f} Å, conf={confidence:.2f})", 3)
                 # Check metal bonding rules
                 if has_metal and not self._should_bond_metal(si, sj):
                     extended_rejected += 1
@@ -1206,7 +1206,7 @@ class GraphBuilder:
                         G.graph['_rings'].extend(new_rings)
                         new_rings_count += len(new_rings)
                         ring_size = len(new_rings[0])
-                        self.log(f"    Bond {i}-{j} creates new {ring_size}-ring", 3)
+                        self.log(f"    Bond {si}{i}-{sj}{j} creates new {ring_size}-ring", 3)
                     
                     # Update caches incrementally
                     G.graph['_neighbors'][i] = list(G.neighbors(i))
@@ -1222,13 +1222,17 @@ class GraphBuilder:
                 if not G.has_edge(i, j):
                     d = self._distance(pos[i], pos[j])
                     G.add_edge(i, j, bond_order=1, distance=d)
-                    self.log(f"Added user-specified bond {i}-{j} (d={d:.3f} Å)", 2)
+                    si = self.symbols[i]
+                    sj = self.symbols[j]
+                    self.log(f"Added user-specified bond {si}{i}-{sj}{j} (d={d:.3f} Å)", 2)
 
         if self.unbond:
             for i, j in self.unbond:
                 if G.has_edge(i, j):
                     G.remove_edge(i, j)
-                    self.log(f"Removed user-specified bond {i}-{j}", 2)
+                    si = self.symbols[i]
+                    sj = self.symbols[j]
+                    self.log(f"Removed user-specified bond {si}{i}-{sj}{j}", 2)
 
         # Final ring update if extended bonds were added
         if has_custom:
