@@ -164,59 +164,74 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
     return "\n".join(lines)
 
 
-def read_xyz_file(filepath: str, bohr_units: bool = False) -> List[Tuple[str, Tuple[float, float, float]]]:
-    """
-    Read XYZ file and return list of (symbol, (x, y, z)).
-    """
+def _count_frames_and_get_atom_count(filepath: str) -> tuple[int, int]:
+    """Scan XYZ file to count frames and atoms per frame."""
     with open(filepath, 'r') as f:
-        lines = f.readlines()
-
-    # Parse header
-    try:
-        num_atoms = int(lines[0].strip())
-    except ValueError:
-        raise ValueError(f"Invalid XYZ format: first line should be atom count")
-
-    # Skip comment line
-    atom_lines = lines[2:2+num_atoms]
-
-    atoms = []
-    for i, line in enumerate(atom_lines):
-        parts = line.strip().split()
-        if len(parts) < 4:
-            raise ValueError(f"Line {i+3}: expected at least 4 columns")
-
-        element_or_symbol = parts[0].strip()
+        line = f.readline()
+        if not line:
+            raise ValueError("Empty XYZ file")
         try:
-            x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
-        except ValueError as e:
-            raise ValueError(f"Line {i+3}: invalid coordinates") from e
+            num_atoms = int(line.strip())
+        except ValueError:
+            raise ValueError("Invalid XYZ format: first line should be atom count")
+        
+        frame_size = num_atoms + 2
+        f.seek(0)
+        total_lines = sum(1 for _ in f)
+        
+        if total_lines % frame_size != 0:
+            raise ValueError(f"File has {total_lines} lines, not evenly divisible by frame size {frame_size}")
+        
+        return total_lines // frame_size, num_atoms
 
-        # Determine symbol - if it's an atomic number, convert to symbol
-        if element_or_symbol.isdigit():
-            atomic_num = int(element_or_symbol)
-            if atomic_num in DATA.n2s:
+
+def read_xyz_file(filepath: str, bohr_units: bool = False, frame: int = 0) -> List[Tuple[str, Tuple[float, float, float]]]:
+    """
+    Read XYZ file and return list of (symbol, (x, y, z)) for specified frame.
+    Supports single and multi-frame (trajectory) files. Streams to requested frame.
+    """
+    num_frames, num_atoms = _count_frames_and_get_atom_count(filepath)
+    
+    if frame < 0 or frame >= num_frames:
+        raise ValueError(f"Frame {frame} out of range. File has {num_frames} frame(s).")
+    
+    start_line = frame * (num_atoms + 2)
+    
+    with open(filepath, 'r') as f:
+        for _ in range(start_line):
+            f.readline()
+        f.readline()  # Skip header
+        f.readline()  # Skip comment
+        
+        atoms = []
+        for i in range(num_atoms):
+            parts = f.readline().strip().split()
+            if len(parts) < 4:
+                raise ValueError(f"Frame {frame}, atom {i}: expected at least 4 columns")
+            
+            elem = parts[0]
+            try:
+                x, y, z = map(float, parts[1:4])
+            except ValueError as e:
+                raise ValueError(f"Frame {frame}, atom {i}: invalid coordinates") from e
+            
+            # Convert atomic number to symbol if needed
+            if elem.isdigit():
+                atomic_num = int(elem)
+                if atomic_num not in DATA.n2s:
+                    raise ValueError(f"Frame {frame}, atom {i}: unknown atomic number {atomic_num}")
                 symbol = DATA.n2s[atomic_num]
             else:
-                raise ValueError(f"Line {i+3}: unknown atomic number {atomic_num}")
-        else:
-            # Assume it's already a symbol
-            symbol = element_or_symbol
-
-        if symbol not in DATA.s2n:
-            raise ValueError(f"Line {i+3}: unknown element symbol '{symbol}'")
-
-        # Convert Bohr to Angstrom if needed
-        if bohr_units:
-            x *= BOHR_TO_ANGSTROM
-            y *= BOHR_TO_ANGSTROM
-            z *= BOHR_TO_ANGSTROM
-
-        atoms.append((symbol, (x, y, z)))
-
-    if len(atoms) != num_atoms:
-        raise ValueError(f"Expected {num_atoms} atoms, found {len(atoms)}")
-
+                symbol = elem
+            
+            if symbol not in DATA.s2n:
+                raise ValueError(f"Frame {frame}, atom {i}: unknown element symbol '{symbol}'")
+            
+            if bohr_units:
+                x, y, z = x * BOHR_TO_ANGSTROM, y * BOHR_TO_ANGSTROM, z * BOHR_TO_ANGSTROM
+            
+            atoms.append((symbol, (x, y, z)))
+    
     return atoms
 
 def _parse_pairs(arg_value: str):

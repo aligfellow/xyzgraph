@@ -114,6 +114,16 @@ xyzgraph molecule.xyz --orca-out molecule.out
 xyzgraph molecule.xyz --orca-out molecule.out --compare-rdkit
 ```
 
+**Multi-frame trajectory files**:
+
+```bash
+# Process specific frame from trajectory (0-indexed)
+xyzgraph trajectory.xyz --frame 2
+
+# Process all frames for quick topological overview
+xyzgraph trajectory.xyz --all-frames
+```
+
 ### Python Example
 
 **Basic usage**:
@@ -133,6 +143,24 @@ G_orca = build_graph_orca("structure.out", bond_threshold=0.5)
 # Print ASCII structure
 from xyzgraph import graph_to_ascii
 print(graph_to_ascii(G_cheminf, scale=3.0, include_h=False))
+```
+
+**Multi-frame trajectory files**:
+
+```python
+from xyzgraph import read_xyz_file, build_graph
+
+# Read specific frame from trajectory
+atoms = read_xyz_file("trajectory.xyz", frame=2)
+G = build_graph(atoms, charge=0)
+
+# Process all frames
+from xyzgraph.utils import _count_frames_and_get_atom_count
+num_frames, _ = _count_frames_and_get_atom_count("trajectory.xyz")
+for i in range(num_frames):
+    atoms = read_xyz_file("trajectory.xyz", frame=i)
+    G = build_graph(atoms, charge=0)
+    # ... analyze G
 ```
 
 **Comparing methods**:
