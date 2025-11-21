@@ -313,7 +313,7 @@ class GraphBuilder:
         else:
             # Strict thresholds (current default behavior)
             acute_threshold_metal = 15.0
-            acute_threshold_nonmetal = 30.0
+            acute_threshold_nonmetal = 35.0
             angle_threshold_h_ring = 95.0
             angle_threshold_base = 110.0  # Will add Z-factor: 110 + (avg_z - 6) * 2
             diagonal_ratio_initial = 0.65
@@ -378,7 +378,7 @@ class GraphBuilder:
             if angle < acute_threshold:
                 self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{i}", 4)
                 return False
-            
+
             # Nearly collinear - check if spurious or valid geometry
             if angle > 160.0:
                 # If bond involves metal (at either end), be lenient with collinearity
@@ -501,6 +501,11 @@ class GraphBuilder:
                         continue  # Skip validation for this 3-ring, check next common neighbor
                 
                 # === 3-RING VALIDATION ===
+                is_metal_k = sym_k in self.data.metals
+                if is_metal_k:
+                    if "H" not in (sym_i, sym_j):
+                        self.log(f"  3-ring formation via {sym_k}{k} involves metal, low confidence L-L, rejected", 4)
+                        return False
                 
                 # M-L BOND PRIORITY CHECK: Reject weak M-ligand bonds if 3-ring crosses stronger M-donor bond
                 # Similar to agostic H-M filtering, but applies to any ligand forming 3-ring via metal
@@ -515,10 +520,15 @@ class GraphBuilder:
                     for conf, bi, bj, _, _ in baseline_bonds:
                         if metal_atom in (bi, bj) and k in (bi, bj):
                             # Found existing M-k bond - compare confidences
-                            if conf / max(confidence, 0.01) > 3.0:
-                                self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
-                                return False
-                               
+                            if "H" in (sym_i, sym_j, sym_k):
+                                if conf / max(confidence, 0.01) > 1.5:
+                                    self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring via {sym_k}{k}, existing M-{sym_k}{k} bond stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
+                                    return False
+                            else:
+                                if conf / max(confidence, 0.01) > 3.0:
+                                    self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
+                                    return False
+                            
                 # ANGLE CHECK (metal-aware, then H-aware)
                 angle_i = self._calculate_angle(k, i, j, G)
                 angle_j = self._calculate_angle(k, j, i, G)
@@ -604,11 +614,44 @@ class GraphBuilder:
                             # Both at limit + bad ratio = spurious diagonal
                             self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal across 3-ring via {sym_k}{k} (ratio={ratio:.2f}, threshold={diagonal_threshold:.2f}) and both atoms at valence limit", 4)
                             return False
-                        elif ratio > diagonal_ratio_hard and atoms_at_limit == 1:
+                        elif ratio > diagonal_ratio_hard:
                             # Even with valence capacity, ratio > hard threshold is too suspicious
                             self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal ratio too high (ratio={ratio:.2f} > {diagonal_ratio_hard:.2f}) even with valence capacity", 4)
                             return False
                         else:
+                            for atom in [i, j]:
+                                if G.nodes[atom]['symbol'] != 'C' or G.degree(atom) <= 3:
+                                    continue
+                                
+                                # Carbon would become 5-coordinate - verify out-of-plane approach
+                                other = j if atom == i else i
+                                neighbors = list(G.neighbors(atom))[:3]  # First 3 for plane definition
+                                
+                                # Position vectors relative to carbon
+                                pos_C = np.array(G.nodes[atom]['position'])
+                                vec_new = np.array(G.nodes[other]['position']) - pos_C
+                                vec_nb = [np.array(G.nodes[n]['position']) - pos_C for n in neighbors]
+                                
+                                # Plane normal from first 2 neighbor vectors
+                                normal = np.cross(vec_nb[0], vec_nb[1])
+                                norm_mag = np.linalg.norm(normal)
+                                
+                                if norm_mag < 1e-6:  # Collinear neighbors - skip check
+                                    continue
+                                
+                                # Normalize vectors
+                                normal /= norm_mag
+                                vec_new /= np.linalg.norm(vec_new)
+                                
+                                # Angle between new bond and plane normal
+                                angle_to_normal = np.arccos(np.clip(np.abs(np.dot(vec_new, normal)), 0, 1)) * 180/np.pi
+                                
+                                # Reject if in-plane (real TS should approach from out-of-plane)
+                                if angle_to_normal < 60:
+                                    self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: C hypervalent but in-plane "
+                                            f"(angle to normal={angle_to_normal:.1f}°, need >60°)", 4)
+                                    return False
+
                             # At least one has valence capacity + reasonable ratio = likely real 3-ring (e.g., epoxide)
                             self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: suspicious ratio ({ratio:.2f}) but valence allows - likely real 3-ring", 4)
                             # Continue to next common neighbor check
