@@ -515,10 +515,9 @@ class GraphBuilder:
                     for conf, bi, bj, _, _ in baseline_bonds:
                         if metal_atom in (bi, bj) and k in (bi, bj):
                             # Found existing M-k bond - compare confidences
-                            if conf / max(confidence, 0.01) > 2.0:
+                            if conf / max(confidence, 0.01) > 3.0:
                                 self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
                                 return False
-                            break  # Only need to check one existing M-k bond
                                
                 # ANGLE CHECK (metal-aware, then H-aware)
                 angle_i = self._calculate_angle(k, i, j, G)
@@ -546,7 +545,7 @@ class GraphBuilder:
                     ring_type = 'non-H'
                 
                 if max_angle > angle_threshold:
-                    self.log(f"  Rejected bond {i}-{j}: 3-ring angle {max_angle:.1f}° > {angle_threshold:.1f}° ({ring_type})", 4)
+                    self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring angle {max_angle:.1f}° > {angle_threshold:.1f}° ({ring_type})", 4)
                     return False
                 
                 # DISTANCE RATIO CHECK (diagonal detection)
