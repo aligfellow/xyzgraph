@@ -18,7 +18,7 @@ from .graph_builders import compute_metadata
 from .utils import _parse_pairs
 
 
-def print_header(input_file, params_used):
+def print_header(input_file, params_used, frame_info=None):
     """Print formatted header with version, citation, and parameter information."""
     import textwrap
     import os
@@ -35,7 +35,11 @@ def print_header(input_file, params_used):
                                      initial_indent="Citation:       ",
                                      subsequent_indent="                ")
     print(wrapped_citation)
-    print(f"Input:          {os.path.basename(input_file)}")
+    
+    input_str = os.path.basename(input_file)
+    if frame_info is not None:
+        input_str += f" (frame {frame_info})"
+    print(f"Input:          {input_str}")
     
     if params_used:
         params_str = ", ".join(f"{k}={v}" for k, v in params_used.items())
@@ -138,6 +142,8 @@ def main():
     p.add_argument("-c", "--charge", type=int, default=0, help="Total molecular charge (default: 0)")
     p.add_argument("-m", "--multiplicity", type=int, default=None, help="Spin multiplicity (auto-detected if not specified)")
     p.add_argument("-b", "--bohr", action="store_true", default=False, help="XYZ file in Bohr units (default is Angstrom)")
+    p.add_argument("--frame", type=int, default=0, help="Frame index for multi-frame XYZ trajectory files (0-indexed, default: 0)")
+    p.add_argument("--all-frames", action="store_true", default=False, help="Process all frames in trajectory file (CLI convenience wrapper)")
     
     # Output control
     p.add_argument("-d", "--debug", action="store_true", help="Enable debug output")
@@ -235,105 +241,124 @@ def main():
         period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds
     )
     
-    print_header(args.input_file, metadata)
+    # Determine frames to process
+    from .utils import _count_frames_and_get_atom_count
+    num_frames, _ = _count_frames_and_get_atom_count(args.input_file)
     
-    # Build primary graph (cheminf or xtb)
-    atoms = read_xyz_file(args.input_file, bohr_units=args.bohr)
-    print(f"# Building {args.method} graph from {args.input_file}...")
-    G_primary = build_graph(
-        atoms=atoms, method=args.method, charge=args.charge, multiplicity=args.multiplicity,
-        quick=args.quick, optimizer=args.optimizer, max_iter=args.max_iter,
-        edge_per_iter=args.edge_per_iter, beam_width=args.beam_width,
-        bond=bond, unbond=unbond, clean_up=not args.no_clean, debug=args.debug,
-        threshold=args.threshold, threshold_h_h=args.threshold_h_h,
-        threshold_h_nonmetal=args.threshold_h_nonmetal, threshold_h_metal=args.threshold_h_metal,
-        threshold_metal_ligand=args.threshold_metal_ligand,
-        threshold_nonmetal_nonmetal=args.threshold_nonmetal,
-        relaxed=args.relaxed,
-        allow_metal_metal_bonds=args.allow_metal_metal_bonds,
-        threshold_metal_metal_self=args.threshold_metal_metal_self,
-        period_scaling_h_bonds=args.period_scaling_h_bonds,
-        period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
-        metadata=metadata
-    )
-    print(f"Constructed graph with chemical formula: {G_primary.graph['formula']}")
+    if args.all_frames:
+        frames_to_process = list(range(num_frames))
+        print_header(args.input_file, metadata, frame_info=f"0-{num_frames-1}")
+        print(f"# Processing all {num_frames} frames from trajectory file...\n")
+    else:
+        # Show frame info if multi-frame file
+        frame_info = args.frame if num_frames > 1 else None
+        print_header(args.input_file, metadata, frame_info=frame_info)
+        frames_to_process = [args.frame]
+    
+    # Process each frame
+    for frame_idx in frames_to_process:
+        if args.all_frames and frame_idx > 0:
+            print(f"\n{'='*80}")
+            print(f"Frame {frame_idx}")
+            print(f"{'='*80}\n")
+        
+        # Build primary graph (cheminf or xtb)
+        atoms = read_xyz_file(args.input_file, bohr_units=args.bohr, frame=frame_idx)
+        print(f"# Building {args.method} graph from {args.input_file}...")
+        G_primary = build_graph(
+            atoms=atoms, method=args.method, charge=args.charge, multiplicity=args.multiplicity,
+            quick=args.quick, optimizer=args.optimizer, max_iter=args.max_iter,
+            edge_per_iter=args.edge_per_iter, beam_width=args.beam_width,
+            bond=bond, unbond=unbond, clean_up=not args.no_clean, debug=args.debug,
+            threshold=args.threshold, threshold_h_h=args.threshold_h_h,
+            threshold_h_nonmetal=args.threshold_h_nonmetal, threshold_h_metal=args.threshold_h_metal,
+            threshold_metal_ligand=args.threshold_metal_ligand,
+            threshold_nonmetal_nonmetal=args.threshold_nonmetal,
+            relaxed=args.relaxed,
+            allow_metal_metal_bonds=args.allow_metal_metal_bonds,
+            threshold_metal_metal_self=args.threshold_metal_metal_self,
+            period_scaling_h_bonds=args.period_scaling_h_bonds,
+            period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
+            metadata=metadata
+        )
+        print(f"Constructed graph with chemical formula: {G_primary.graph['formula']}")
 
-    # Build comparison graphs if requested
-    G_orca = None
-    G_rdkit = None
-    G_rdkit_tm = None
-    
-    if args.orca_out:
-        print(f"# Building ORCA graph from {args.orca_out}...")
-        try:
-            G_orca = build_graph_orca(args.orca_out, bond_threshold=args.orca_threshold, debug=args.debug)
-        except Exception as e:
-            print(f"Error parsing ORCA output: {e}")
-    
-    if args.compare_rdkit:
-        print(f"# Building RDKit graph from {args.input_file}...")
-        try:
-            G_rdkit = build_graph_rdkit(args.input_file, charge=args.charge, bohr_units=args.bohr)
-        except ValueError as e:
-            print(f"# Failed to build RDKit graph: {e}")
-    
-    if args.compare_rdkit_tm:
-        print(f"# Building RDKit-TM graph from {args.input_file}...")
-        try:
-            G_rdkit_tm = build_graph_rdkit_tm(args.input_file, charge=args.charge, bohr_units=args.bohr)
-        except (ValueError, ImportError) as e:
-            print(f"# Failed to build RDKit-TM graph: {e}")
-    
-    # Display primary graph
-    show_ascii = display_graph(G_primary, args, show_h_indices, label=args.method)
-    
-    # Compare with ORCA if available
-    if G_orca:
-        compare_graphs(G_primary, G_orca, args.method, "ORCA")
+        # Build comparison graphs if requested
+        G_orca = None
+        G_rdkit = None
+        G_rdkit_tm = None
         
-        if args.debug:
-            print(f"\n{'=' * 80}")
-            print("# ORCA GRAPH DETAILS")
-            print("=" * 80)
-            print(graph_debug_report(G_orca, include_h=args.show_h, show_h_indices=show_h_indices))
+        if args.orca_out:
+            print(f"# Building ORCA graph from {args.orca_out}...")
+            try:
+                G_orca = build_graph_orca(args.orca_out, bond_threshold=args.orca_threshold, debug=args.debug)
+            except Exception as e:
+                print(f"Error parsing ORCA output: {e}")
         
-        if show_ascii:
-            print(f"\n{'=' * 80}\n# ASCII Depiction (ORCA, aligned)\n{'=' * 80}\n")
-            _, layout = graph_to_ascii(G_primary, scale=max(0.2, args.ascii_scale),
-                                      include_h=args.show_h, show_h_indices=show_h_indices,
-                                      return_layout=True)
-            ascii_orca = graph_to_ascii(G_orca, scale=max(0.2, args.ascii_scale),
-                                       include_h=args.show_h, show_h_indices=show_h_indices,
-                                       reference_layout=layout)
-            print(ascii_orca)
-    
-    # Compare with RDKit if available
-    if G_rdkit:
-        print(compare_with_rdkit(
-            reference_graph=G_primary, rdkit_graph=G_rdkit,
-            verbose=args.debug, ascii=show_ascii,
-            ascii_scale=args.ascii_scale, ascii_include_h=args.show_h
-        ).rstrip())
-    
-    # Compare with RDKit-TM if available
-    if G_rdkit_tm:
-        compare_graphs(G_primary, G_rdkit_tm, args.method, "RDKit-TM")
+        if args.compare_rdkit:
+            print(f"# Building RDKit graph from {args.input_file}...")
+            try:
+                G_rdkit = build_graph_rdkit(args.input_file, charge=args.charge, bohr_units=args.bohr)
+            except ValueError as e:
+                print(f"# Failed to build RDKit graph: {e}")
         
-        if args.debug:
-            print(f"\n{'=' * 80}")
-            print("# RDKIT-TM GRAPH DETAILS")
-            print("=" * 80)
-            print(graph_debug_report(G_rdkit_tm, include_h=args.show_h, show_h_indices=show_h_indices))
+        if args.compare_rdkit_tm:
+            print(f"# Building RDKit-TM graph from {args.input_file}...")
+            try:
+                G_rdkit_tm = build_graph_rdkit_tm(args.input_file, charge=args.charge, bohr_units=args.bohr)
+            except (ValueError, ImportError) as e:
+                print(f"# Failed to build RDKit-TM graph: {e}")
         
-        if show_ascii:
-            print(f"\n{'=' * 80}\n# ASCII Depiction (RDKit-TM, aligned)\n{'=' * 80}\n")
-            _, layout = graph_to_ascii(G_primary, scale=max(0.2, args.ascii_scale),
-                                      include_h=args.show_h, show_h_indices=show_h_indices,
-                                      return_layout=True)
-            ascii_rdkit_tm = graph_to_ascii(G_rdkit_tm, scale=max(0.2, args.ascii_scale),
+        # Display primary graph
+        show_ascii = display_graph(G_primary, args, show_h_indices, label=args.method)
+        
+        # Compare with ORCA if available
+        if G_orca:
+            compare_graphs(G_primary, G_orca, args.method, "ORCA")
+            
+            if args.debug:
+                print(f"\n{'=' * 80}")
+                print("# ORCA GRAPH DETAILS")
+                print("=" * 80)
+                print(graph_debug_report(G_orca, include_h=args.show_h, show_h_indices=show_h_indices))
+            
+            if show_ascii:
+                print(f"\n{'=' * 80}\n# ASCII Depiction (ORCA, aligned)\n{'=' * 80}\n")
+                _, layout = graph_to_ascii(G_primary, scale=max(0.2, args.ascii_scale),
+                                          include_h=args.show_h, show_h_indices=show_h_indices,
+                                          return_layout=True)
+                ascii_orca = graph_to_ascii(G_orca, scale=max(0.2, args.ascii_scale),
                                            include_h=args.show_h, show_h_indices=show_h_indices,
                                            reference_layout=layout)
-            print(ascii_rdkit_tm)
+                print(ascii_orca)
+        
+        # Compare with RDKit if available
+        if G_rdkit:
+            print(compare_with_rdkit(
+                reference_graph=G_primary, rdkit_graph=G_rdkit,
+                verbose=args.debug, ascii=show_ascii,
+                ascii_scale=args.ascii_scale, ascii_include_h=args.show_h
+            ).rstrip())
+        
+        # Compare with RDKit-TM if available
+        if G_rdkit_tm:
+            compare_graphs(G_primary, G_rdkit_tm, args.method, "RDKit-TM")
+            
+            if args.debug:
+                print(f"\n{'=' * 80}")
+                print("# RDKIT-TM GRAPH DETAILS")
+                print("=" * 80)
+                print(graph_debug_report(G_rdkit_tm, include_h=args.show_h, show_h_indices=show_h_indices))
+            
+            if show_ascii:
+                print(f"\n{'=' * 80}\n# ASCII Depiction (RDKit-TM, aligned)\n{'=' * 80}\n")
+                _, layout = graph_to_ascii(G_primary, scale=max(0.2, args.ascii_scale),
+                                          include_h=args.show_h, show_h_indices=show_h_indices,
+                                          return_layout=True)
+                ascii_rdkit_tm = graph_to_ascii(G_rdkit_tm, scale=max(0.2, args.ascii_scale),
+                                               include_h=args.show_h, show_h_indices=show_h_indices,
+                                               reference_layout=layout)
+                print(ascii_rdkit_tm)
 
 
 if __name__ == "__main__":

@@ -114,6 +114,16 @@ xyzgraph molecule.xyz --orca-out molecule.out
 xyzgraph molecule.xyz --orca-out molecule.out --compare-rdkit
 ```
 
+**Multi-frame trajectory files**:
+
+```bash
+# Process specific frame from trajectory (0-indexed)
+xyzgraph trajectory.xyz --frame 2
+
+# Process all frames for quick topological overview
+xyzgraph trajectory.xyz --all-frames
+```
+
 ### Python Example
 
 **Basic usage**:
