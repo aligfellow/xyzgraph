@@ -308,6 +308,8 @@ class GraphBuilder:
             diagonal_ratio_max = 0.85
             diagonal_ratio_hard = 0.90
             allow_same_ring_diagonal_size = 6  # Allow diagonals only in rings >= 6
+            STRENGTH_RATIO = 5
+            conf_threshold = 0.5
         else:
             # Strict thresholds (current default behavior)
             acute_threshold_metal = 15.0
@@ -318,7 +320,54 @@ class GraphBuilder:
             diagonal_ratio_max = 0.75
             diagonal_ratio_hard = 0.80
             allow_same_ring_diagonal_size = 5  # Reject diagonals in all rings >= 5
+            STRENGTH_RATIO = 20
+            conf_threshold = 0.75
         
+        if confidence < conf_threshold and not has_metal and baseline_bonds is not None:
+            # Get neighbors of i and j
+            neighbors_i = set(G.neighbors(i))
+            neighbors_j = set(G.neighbors(j))
+            
+            # Check if any neighbor of i connects to any neighbor of j
+            # This would form 4-ring: i-ni-nj-j
+            forms_4ring = any(
+                G.has_edge(ni, nj) 
+                for ni in neighbors_i 
+                for nj in neighbors_j 
+                if ni != nj
+            )
+            
+            if forms_4ring:
+                # Check if either atom would exceed valence AND all existing bonds are much stronger
+                for atom in [i, j]:
+                    atom_sym = G.nodes[atom]['symbol']
+                    
+                    # Skip if no valence data
+                    if atom_sym not in DATA.valences:
+                        continue
+                    
+                    # Check current valence (excluding metals)
+                    current_val = sum(
+                        G[atom][nbr].get('bond_order', 1.0)
+                        for nbr in G.neighbors(atom)
+                        if G.nodes[nbr]['symbol'] not in self.data.metals
+                    )
+                    max_val = max(DATA.valences[atom_sym])
+                    
+                    # Only check if atom would exceed valence
+                    if current_val + 1.0 > max_val:
+                        # Check if ALL existing bonds to this atom are much stronger
+                        all_bonds_stronger = all(
+                            conf_baseline / max(confidence, 0.001) > STRENGTH_RATIO
+                            for conf_baseline, bi, bj, _, _ in baseline_bonds
+                            if atom in (bi, bj)
+                        )
+                        
+                        # Reject only if ALL existing bonds are much stronger
+                        if all_bonds_stronger:
+                            self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: weak 4-ring closure (conf={confidence:.2f}), ALL existing bonds much stronger", 4)
+                            return False
+
         # Check angles at atom i with existing neighbors
         for existing_neighbor in G.neighbors(i):
             angle = self._calculate_angle(existing_neighbor, i, j, G)
@@ -327,7 +376,7 @@ class GraphBuilder:
             acute_threshold = acute_threshold_metal if has_metal else acute_threshold_nonmetal
             
             if angle < acute_threshold:
-                self.log(f"  Rejected bond {i}-{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{i}", 4)
+                self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{i}", 4)
                 return False
             
             # Nearly collinear - check if spurious or valid geometry
@@ -356,11 +405,11 @@ class GraphBuilder:
                     
                     # Same direction (bond behind another) - spurious
                     if dot_product > 0.9:
-                        self.log(f"  Rejected bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{i}", 4)
+                        self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{i}", 4)
                         return False
                     # Opposite direction (trans/linear) - valid
                     elif dot_product < -0.9:
-                        self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{i} - valid trans/linear", 4)
+                        self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{i} - valid trans/linear", 4)
                         continue
                     # Not truly collinear - allow
                     else:
@@ -374,14 +423,14 @@ class GraphBuilder:
             acute_threshold = acute_threshold_metal if has_metal else acute_threshold_nonmetal
             
             if angle < acute_threshold:
-                self.log(f"  Rejected bond {i}-{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{j}", 4)
+                self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{j}", 4)
                 return False
             
             # Nearly collinear - check if spurious or valid geometry
             if angle > 160.0:
                 # If bond involves metal, be lenient
                 if has_metal:
-                    self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, involves metal ({sym_i}-{sym_j}) - allowed", 4)
+                    self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, involves metal - allowed", 4)
                     continue
                 
                 # For non-metal bonds: check direction
@@ -399,10 +448,10 @@ class GraphBuilder:
                     dot_product = np.dot(v_existing, v_new)
                     
                     if dot_product > 0.9:
-                        self.log(f"  Rejected bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{j}", 4)
+                        self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{j}", 4)
                         return False
                     elif dot_product < -0.9:
-                        self.log(f"  Bond {i}-{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{j} - valid trans/linear", 4)
+                        self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{j} - valid trans/linear", 4)
                         continue
                     else:
                         continue
@@ -419,19 +468,19 @@ class GraphBuilder:
                     elem = list(ring_elements)[0]
                     elem_count = G.graph.get('_element_counts', {}).get(elem, 0)
                     if elem_count >= 8:
-                        self.log(f"  Bond {i}-{j}: diagonal in homogeneous {elem} cluster ring - allowed", 4)
+                        self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: diagonal in homogeneous {elem} cluster ring - allowed", 4)
                         continue  # Skip this ring check, continue to next ring
                 
                 # Allow for very small rings (3-4) if metal involved
                 if len(ring) <= 4 and has_metal:
-                    self.log(f"  Bond {i}-{j}: diagonal in existing {len(ring)}-ring involves metal - allowed", 4)
+                    self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: diagonal in existing {len(ring)}-ring involves metal - allowed", 4)
                     continue
                 # Reject diagonals in small rings (would create impossible geometry)
                 if len(ring) <= 4:
-                    self.log(f"  Rejected bond {i}-{j}: would create diagonal in existing {len(ring)}-ring", 4)
+                    self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: would create diagonal in existing {len(ring)}-ring", 4)
                     return False
                 if len(ring) >= 5:
-                    self.log(f"  Rejected bond {i}-{j}: would create diagonal in existing {len(ring)}-ring", 4)
+                    self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: would create diagonal in existing {len(ring)}-ring", 4)
                     return False
         
         # Check for diagonal bonds across existing rings (creates spurious 3-rings)
@@ -448,7 +497,7 @@ class GraphBuilder:
                     elem = list(ring_elements)[0]
                     elem_count = G.graph.get('_element_counts', {}).get(elem, 0)
                     if elem_count >= 8:
-                        self.log(f"  Bond {i}-{j}: 3-ring in homogeneous {elem} cluster - bypassing validation", 4)
+                        self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: 3-ring in homogeneous {elem} cluster - bypassing validation", 4)
                         continue  # Skip validation for this 3-ring, check next common neighbor
                 
                 # === 3-RING VALIDATION ===
@@ -467,7 +516,7 @@ class GraphBuilder:
                         if metal_atom in (bi, bj) and k in (bi, bj):
                             # Found existing M-k bond - compare confidences
                             if conf / max(confidence, 0.01) > 2.0:
-                                self.log(f"  Rejected bond {i}-{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
+                                self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})", 4)
                                 return False
                             break  # Only need to check one existing M-k bond
                                
@@ -525,7 +574,7 @@ class GraphBuilder:
                     
                     if ratio > diagonal_threshold:
                         if has_metal and not has_H_in_ring:
-                            self.log(f"  Bond {i}-{j}: diagonal (ratio={ratio:.2f}) across 3-ring via {k}, metal bond - allowed", 4)
+                            self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: diagonal (ratio={ratio:.2f}) across 3-ring via {sym_k}{k}, metal bond - allowed", 4)
                             continue
                         
                         # Before rejecting, check valence as fallback
@@ -554,15 +603,15 @@ class GraphBuilder:
                         
                         if atoms_at_limit > 1:
                             # Both at limit + bad ratio = spurious diagonal
-                            self.log(f"  Rejected bond {i}-{j}: diagonal across 3-ring via {k} (ratio={ratio:.2f}, threshold={diagonal_threshold:.2f}) and both atoms at valence limit", 4)
+                            self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal across 3-ring via {sym_k}{k} (ratio={ratio:.2f}, threshold={diagonal_threshold:.2f}) and both atoms at valence limit", 4)
                             return False
                         elif ratio > diagonal_ratio_hard and atoms_at_limit == 1:
                             # Even with valence capacity, ratio > hard threshold is too suspicious
-                            self.log(f"  Rejected bond {i}-{j}: diagonal ratio too high (ratio={ratio:.2f} > {diagonal_ratio_hard:.2f}) even with valence capacity", 4)
+                            self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal ratio too high (ratio={ratio:.2f} > {diagonal_ratio_hard:.2f}) even with valence capacity", 4)
                             return False
                         else:
                             # At least one has valence capacity + reasonable ratio = likely real 3-ring (e.g., epoxide)
-                            self.log(f"  Bond {i}-{j}: suspicious ratio ({ratio:.2f}) but valence allows - likely real 3-ring", 4)
+                            self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: suspicious ratio ({ratio:.2f}) but valence allows - likely real 3-ring", 4)
                             # Continue to next common neighbor check
                 
                 # VALENCE CHECK (focus on bonding atoms i-j)
@@ -614,13 +663,13 @@ class GraphBuilder:
                                 break
                         
                         if overflow_ok:
-                            self.log(f"  Bond {i}-{j}: both atoms would exceed valence but overflow ≤1.0 - allowed in relaxed mode", 4)
+                            self.log(f"  Bond {sym_i}{i}-{sym_j}{j}: both atoms would exceed valence but overflow ≤1.0 - allowed in relaxed mode", 4)
                         else:
-                            self.log(f"  Rejected bond {i}-{j}: both bonding atoms would exceed valence by >1.0 (even in relaxed mode)", 4)
+                            self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: both bonding atoms would exceed valence by >1.0 (even in relaxed mode)", 4)
                             return False
                     else:
-                        # Both bonding atoms would exceed → reject
-                        self.log(f"  Rejected bond {i}-{j}: both bonding atoms would exceed valence", 4)
+                        # Both bonding atoms would exceed - reject
+                        self.log(f"  Rejected bond {sym_i}{i}-{sym_j}{j}: both bonding atoms would exceed valence", 4)
                         return False
                 
         # All checks passed → allow this 3-ring bond
@@ -1193,7 +1242,7 @@ class GraphBuilder:
                     continue
                 
                 # ALL extended bonds require geometric validation
-                if self._validate_bond_geometry(G, i, j, d, confidence):
+                if self._validate_bond_geometry(G, i, j, d, confidence, baseline_bonds):
                     G.add_edge(i, j,
                               bond_order=1.0,
                               distance=d,
