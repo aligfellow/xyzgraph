@@ -145,6 +145,24 @@ from xyzgraph import graph_to_ascii
 print(graph_to_ascii(G_cheminf, scale=3.0, include_h=False))
 ```
 
+**Multi-frame trajectory files**:
+
+```python
+from xyzgraph import read_xyz_file, build_graph
+
+# Read specific frame from trajectory
+atoms = read_xyz_file("trajectory.xyz", frame=2)
+G = build_graph(atoms, charge=0)
+
+# Process all frames
+from xyzgraph.utils import _count_frames_and_get_atom_count
+num_frames, _ = _count_frames_and_get_atom_count("trajectory.xyz")
+for i in range(num_frames):
+    atoms = read_xyz_file("trajectory.xyz", frame=i)
+    G = build_graph(atoms, charge=0)
+    # ... analyze G
+```
+
 **Comparing methods**:
 
 ```python
