@@ -1055,7 +1055,7 @@ class GraphBuilder:
                 if metal_ionic:
                     sorted_ionic = sorted(metal_ionic, key=lambda x: x[2])
                     for entry in sorted_ionic:
-                        m, donor, chg, ligand_type = entry if len(entry) == 4 else (*entry, "unknown")
+                        _m, donor, chg, ligand_type = entry if len(entry) == 4 else (*entry, "unknown")
                         d_sym = G.nodes[donor]["symbol"]
                         charge_str = f"{chg:+d}" if chg != 0 else " 0"
                         self.log(
@@ -1773,7 +1773,7 @@ class GraphBuilder:
                 comp = sorted(comp)
 
                 # global propagation with two parity seeds
-                def try_component(seed_parity):
+                def try_component(seed_parity, comp):
                     assigned = {comp[0]: alt_patterns(6, start_with_double=seed_parity)}
                     queue = [comp[0]]
                     while queue:
@@ -1836,7 +1836,7 @@ class GraphBuilder:
 
                 assigned = None
                 for seed in (True, False):
-                    assigned = try_component(seed)
+                    assigned = try_component(seed, comp)
                     if assigned is not None:
                         initialized += len(comp)
                         self.log(f"✓ Initialized fused benzene block rings {comp}", 3)
@@ -2083,7 +2083,7 @@ class GraphBuilder:
 
         # --- Lock metal bonds ---
         metal_count = 0
-        for i, j, data in G.edges(data=True):
+        for _i, _j, data in G.edges(data=True):
             if data.get("metal_coord", False):
                 data["bond_order"] = 1.0
                 metal_count += 1
@@ -2391,7 +2391,7 @@ class GraphBuilder:
 
         # Lock metal bonds
         metal_count = 0
-        for i, j, data in G.edges(data=True):
+        for _i, _j, data in G.edges(data=True):
             if data.get("metal_coord", False):
                 data["bond_order"] = 1.0
                 metal_count += 1
@@ -2855,7 +2855,7 @@ class GraphBuilder:
             except:
                 Chem.SanitizeMol(mol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_PROPERTIES)
 
-            Chem.AllChem.ComputeGasteigerCharges(mol)
+            Chem.AllChem.ComputeGasteigerCharges(mol)  # ty: ignore
 
             charges = []
             for atom in mol.GetAtoms():
