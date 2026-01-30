@@ -1346,7 +1346,11 @@ To develop with `xyzgraph`, you can clone the repo and use
 ```bash
 just setup
 ```
-TODO: setup CI and pre-commits.
+The cli can be used with:
+```bash
+uv run xyzgraph filename.xyz
+```
+
 Run the checks using:
 ```bash
 just check
