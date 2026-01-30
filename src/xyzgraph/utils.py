@@ -182,7 +182,7 @@ def _count_frames_and_get_atom_count(filepath: str) -> tuple[int, int]:
         try:
             num_atoms = int(line.strip())
         except ValueError:
-            raise ValueError("Invalid XYZ format: first line should be atom count")
+            raise ValueError("Invalid XYZ format: first line should be atom count") from None
 
         frame_size = num_atoms + 2
         f.seek(0)

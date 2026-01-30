@@ -2852,7 +2852,7 @@ class GraphBuilder:
 
             try:
                 Chem.SanitizeMol(mol)
-            except:
+            except Exception:
                 Chem.SanitizeMol(mol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_PROPERTIES)
 
             Chem.AllChem.ComputeGasteigerCharges(mol)  # ty: ignore
@@ -2863,7 +2863,7 @@ class GraphBuilder:
                     c = float(atom.GetProp("_GasteigerCharge"))
                     if np.isnan(c):
                         c = 0.0
-                except:
+                except Exception:
                     c = 0.0
                 charges.append(c)
 
@@ -3248,8 +3248,8 @@ def build_graph_rdkit(
     except Exception as e:
         # Check for metals
         if any(s in DATA.metals for s in symbols):
-            raise ValueError(f"RDKit DetermineBonds failed (metal atoms detected): {e}")
-        raise ValueError(f"RDKit DetermineBonds failed: {e}")
+            raise ValueError(f"RDKit DetermineBonds failed (metal atoms detected): {e}") from e
+        raise ValueError(f"RDKit DetermineBonds failed: {e}") from e
 
     if mol.GetNumBonds() == 0:
         raise ValueError("RDKit DetermineBonds produced no bonds")
@@ -3394,7 +3394,7 @@ def build_graph_rdkit_tm(
     except ImportError:
         raise ImportError(
             "xyz2mol_tm not found. Install via:\npip install git+https://github.com/jensengroup/xyz2mol_tm.git"
-        )
+        ) from None
 
     # ===== STEP 1: Parse XYZ coordinates =====
     if isinstance(xyz_file, str):
@@ -3753,7 +3753,7 @@ def build_graph_orca(
     try:
         orca_data = parse_orca_output(orca_file)
     except OrcaParseError as e:
-        raise OrcaParseError(f"Failed to parse ORCA output: {e}")
+        raise OrcaParseError(f"Failed to parse ORCA output: {e}") from e
 
     atoms = orca_data["atoms"]
     bonds = orca_data["bonds"]
