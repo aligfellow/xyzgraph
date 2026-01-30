@@ -3,6 +3,13 @@
 **xyzgraph** is a Python toolkit for building molecular graphs (bond connectivity, bond orders, formal charges, and partial charges) directly from 3D atomic coordinates in XYZ format. It provides both **cheminformatics-based** and **quantum chemistry-based** (xTB) workflows.
 
 [![PyPI Downloads](https://static.pepy.tech/badge/xyzgraph)](https://pepy.tech/projects/xyzgraph)
+[![License](https://img.shields.io/github/license/aligfellow/xyzgraph)](https://github.com/aligfellow/xyzgraph/blob/main/LICENSE)
+[![Powered by: uv](https://img.shields.io/badge/-uv-purple)](https://docs.astral.sh/uv)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Typing: ty](https://img.shields.io/badge/typing-ty-EFC621.svg)](https://github.com/astral-sh/ty)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/aligfellow/xyzgraph/test.yml?branch=main&logo=github-actions)](https://github.com/aligfellow/xyzgraph/actions)
+[![Codecov](https://img.shields.io/codecov/c/github/aligfellow/xyzgraph)](https://codecov.io/gh/aligfellow/xyzgraph)
+
 
 ---
 
