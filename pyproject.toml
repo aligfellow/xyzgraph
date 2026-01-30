@@ -69,6 +69,7 @@ select = [
     "ICN001", # unconventional-import-alias
 ]
 ignore = [
+    "B905",    # zip() without strict= (ty doesn't support strict parameter)
     "N803",    # Argument name should be lowercase (G for graph is standard)
     "N806",    # Non-lowercase variable in function
     "PLR0911", # Too many returns

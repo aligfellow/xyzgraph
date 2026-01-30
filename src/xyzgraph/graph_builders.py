@@ -3624,6 +3624,7 @@ def _partial_graph_matching(G_rdkit: nx.Graph, G_xyz: nx.Graph) -> dict:
 
     import networkx as nx
     import numpy as np
+
     try:
         from scipy.optimize import linear_sum_assignment  # ty: ignore
     except ImportError:
