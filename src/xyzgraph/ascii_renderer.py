@@ -1,13 +1,13 @@
-from typing import List, Dict, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
+
 import networkx as nx
 from rdkit import Chem
+
 from .utils import _visible_nodes
 
 
 # --- special edge glyph helper ---
-def _edge_char(
-    attrs: Dict[str, any], bo: float, orient: str, dx: int, dy: int
-) -> Tuple[str, bool, str]:
+def _edge_char(attrs: Dict[str, any], bo: float, orient: str, dx: int, dy: int) -> Tuple[str, bool, str]:
     """
     Return (glyph, special_flag, bond_type).
     special_flag True => skip multi-line double/triple drawing.
@@ -144,9 +144,7 @@ class GraphToASCII:
         mult_x = int(max(1, round(mult_x * scale)))
         mult_y = int(max(1, round(mult_y * scale)))
 
-        coords = [
-            (conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y) for i in range(n)
-        ]
+        coords = [(conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y) for i in range(n)]
         xs = [c[0] for c in coords]
         ys = [c[1] for c in coords]
         span_x = max(max(xs) - min(xs), 1e-3)
@@ -235,13 +233,12 @@ class GraphToASCII:
                 elif orient == "v":
                     # Vertical: add line to the right
                     draw_parallel(x1, y1, x2, y2, 1, 0, "‖")
+                # Diagonal: use improved double diagonal rendering
+                # Draw second parallel line with better spacing
+                elif glyph == "/":
+                    draw_parallel(x1, y1, x2, y2, 1, 0, "/")
                 else:
-                    # Diagonal: use improved double diagonal rendering
-                    # Draw second parallel line with better spacing
-                    if glyph == "/":
-                        draw_parallel(x1, y1, x2, y2, 1, 0, "/")
-                    else:
-                        draw_parallel(x1, y1, x2, y2, 1, 0, "\\")
+                    draw_parallel(x1, y1, x2, y2, 1, 0, "\\")
 
             # Triple bonds: just draw single '#' (no additional lines)
         # --- end improved edge drawing ---
@@ -296,24 +293,17 @@ class GraphToASCII:
                 if include_h
                 or graph.nodes[n].get("symbol") != "H"
                 or n in show_h_set
-                or any(
-                    graph.nodes[nbr].get("symbol") != "C" for nbr in graph.neighbors(n)
-                )
+                or any(graph.nodes[nbr].get("symbol") != "C" for nbr in graph.neighbors(n))
             ]
         if not nodes:
             return "<no heavy atoms>", {}
         nodes = sorted(nodes)
-        mol, idx_map = self._build_rdkit_mol(
-            graph, nodes, reference_layout=reference_layout
-        )
+        mol, idx_map = self._build_rdkit_mol(graph, nodes, reference_layout=reference_layout)
         try:
             conf = mol.GetConformer()
-            layout = {
-                orig: (conf.GetAtomPosition(new).x, conf.GetAtomPosition(new).y)
-                for orig, new in idx_map.items()
-            }
+            layout = {orig: (conf.GetAtomPosition(new).x, conf.GetAtomPosition(new).y) for orig, new in idx_map.items()}
         except Exception:
-            layout = {orig: (0.0, 0.0) for orig in nodes}
+            layout = dict.fromkeys(nodes, (0.0, 0.0))
         bond_orders_map: Dict[Tuple[int, int], float] = {}
         edge_attr_map: Dict[Tuple[int, int], Dict[str, any]] = {}
         for i, j, data in graph.edges(data=True):
@@ -323,9 +313,7 @@ class GraphToASCII:
                 bond_orders_map[(j, i)] = bo
                 edge_attr_map[(i, j)] = data
                 edge_attr_map[(j, i)] = data
-        ascii_str = self._mol_to_ascii(
-            mol, nodes, bond_orders_map, edge_attr_map, scale=scale
-        )
+        ascii_str = self._mol_to_ascii(mol, nodes, bond_orders_map, edge_attr_map, scale=scale)
         return ascii_str, layout
 
 
@@ -369,9 +357,7 @@ def graph_to_ascii(
     if layout is not None:
         allowed = set(layout.keys())
         if target_nodes is None:
-            target_nodes = sorted(
-                n for n in _visible_nodes(G, include_h, show_h_indices) if n in allowed
-            )
+            target_nodes = sorted(n for n in _visible_nodes(G, include_h, show_h_indices) if n in allowed)
         else:
             target_nodes = [n for n in target_nodes if n in allowed]
         if not target_nodes:
@@ -390,4 +376,4 @@ def graph_to_ascii(
     return ascii_out
 
 
-__all__ = ["graph_to_ascii", "GraphToASCII"]
+__all__ = ["GraphToASCII", "graph_to_ascii"]

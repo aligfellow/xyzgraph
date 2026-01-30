@@ -1,17 +1,17 @@
 import argparse
+
 from . import (
+    __citation__,
+    __version__,
     build_graph,
+    build_graph_orca,
     build_graph_rdkit,
     build_graph_rdkit_tm,
-    build_graph_orca,
     compare_with_rdkit,
     graph_debug_report,
     graph_to_ascii,
     read_xyz_file,
-    __version__,
-    __citation__,
 )
-
 from .config import DEFAULT_PARAMS
 from .graph_builders import compute_metadata
 from .utils import _parse_pairs
@@ -19,8 +19,8 @@ from .utils import _parse_pairs
 
 def print_header(input_file, params_used, frame_info=None):
     """Print formatted header with version, citation, and parameter information."""
-    import textwrap
     import os
+    import textwrap
 
     print("=" * 80)
     print(" " * 31 + "XYZGRAPH")
@@ -65,18 +65,10 @@ def display_graph(G, args, show_h_indices, label=""):
             print(f"\n{'=' * 80}")
             print(f"# {label.upper()} GRAPH DETAILS")
             print("=" * 80)
-        print(
-            graph_debug_report(G, include_h=args.show_h, show_h_indices=show_h_indices)
-        )
+        print(graph_debug_report(G, include_h=args.show_h, show_h_indices=show_h_indices))
 
     # Determine if ASCII should be shown
-    has_explicit_output = (
-        args.debug
-        or args.ascii
-        or args.compare_rdkit
-        or args.compare_rdkit_tm
-        or args.orca_out
-    )
+    has_explicit_output = args.debug or args.ascii or args.compare_rdkit or args.compare_rdkit_tm or args.orca_out
     show_ascii = args.ascii or not has_explicit_output
 
     if show_ascii:
@@ -128,18 +120,12 @@ def compare_graphs(G1, G2, label1, label2):
 
 
 def main():
-    p = argparse.ArgumentParser(
-        description="Build molecular graph from XYZ or ORCA output."
-    )
+    p = argparse.ArgumentParser(description="Build molecular graph from XYZ or ORCA output.")
     p.add_argument("input_file", nargs="?", help="Input file (XYZ or ORCA .out)")
 
     # Version and citation flags
-    p.add_argument(
-        "--version", action="store_true", help="Print version information and exit"
-    )
-    p.add_argument(
-        "--citation", action="store_true", help="Print citation information and exit"
-    )
+    p.add_argument("--version", action="store_true", help="Print version information and exit")
+    p.add_argument("--citation", action="store_true", help="Print citation information and exit")
 
     # Method and quality
     p.add_argument(
@@ -194,12 +180,8 @@ def main():
         default=DEFAULT_PARAMS["beam_width"],
         help=f"Beam width for beam search (default: {DEFAULT_PARAMS['beam_width']})",
     )
-    p.add_argument(
-        "--bond", type=str, help="Force specific bonds. Example: --bond 0,1 2,3"
-    )
-    p.add_argument(
-        "--unbond", type=str, help="Prevent specific bonds. Example: --unbond 0,1 1,2"
-    )
+    p.add_argument("--bond", type=str, help="Force specific bonds. Example: --bond 0,1 2,3")
+    p.add_argument("--unbond", type=str, help="Prevent specific bonds. Example: --unbond 0,1 1,2")
 
     # Molecular properties
     p.add_argument(
@@ -259,9 +241,7 @@ def main():
     )
 
     # Comparison
-    p.add_argument(
-        "--compare-rdkit", action="store_true", help="Compare with RDKit graph"
-    )
+    p.add_argument("--compare-rdkit", action="store_true", help="Compare with RDKit graph")
     p.add_argument(
         "--compare-rdkit-tm",
         action="store_true",
@@ -372,16 +352,12 @@ def main():
     # MODE 1: ORCA-only (input is .out file, no --orca-out flag)
     if is_orca_file and not args.orca_out:
         try:
-            G = build_graph_orca(
-                args.input_file, bond_threshold=args.orca_threshold, debug=args.debug
-            )
+            G = build_graph_orca(args.input_file, bond_threshold=args.orca_threshold, debug=args.debug)
         except Exception as e:
             print(f"Error parsing ORCA output: {e}")
             return
 
-        print_header(
-            args.input_file, {"method": "orca", "bond_threshold": args.orca_threshold}
-        )
+        print_header(args.input_file, {"method": "orca", "bond_threshold": args.orca_threshold})
         display_graph(G, args, show_h_indices, label="ORCA")
         return
 
@@ -473,27 +449,21 @@ def main():
         if args.orca_out:
             print(f"# Building ORCA graph from {args.orca_out}...")
             try:
-                G_orca = build_graph_orca(
-                    args.orca_out, bond_threshold=args.orca_threshold, debug=args.debug
-                )
+                G_orca = build_graph_orca(args.orca_out, bond_threshold=args.orca_threshold, debug=args.debug)
             except Exception as e:
                 print(f"Error parsing ORCA output: {e}")
 
         if args.compare_rdkit:
             print(f"# Building RDKit graph from {args.input_file}...")
             try:
-                G_rdkit = build_graph_rdkit(
-                    args.input_file, charge=args.charge, bohr_units=args.bohr
-                )
+                G_rdkit = build_graph_rdkit(args.input_file, charge=args.charge, bohr_units=args.bohr)
             except ValueError as e:
                 print(f"# Failed to build RDKit graph: {e}")
 
         if args.compare_rdkit_tm:
             print(f"# Building RDKit-TM graph from {args.input_file}...")
             try:
-                G_rdkit_tm = build_graph_rdkit_tm(
-                    args.input_file, charge=args.charge, bohr_units=args.bohr
-                )
+                G_rdkit_tm = build_graph_rdkit_tm(args.input_file, charge=args.charge, bohr_units=args.bohr)
             except (ValueError, ImportError) as e:
                 print(f"# Failed to build RDKit-TM graph: {e}")
 
@@ -508,11 +478,7 @@ def main():
                 print(f"\n{'=' * 80}")
                 print("# ORCA GRAPH DETAILS")
                 print("=" * 80)
-                print(
-                    graph_debug_report(
-                        G_orca, include_h=args.show_h, show_h_indices=show_h_indices
-                    )
-                )
+                print(graph_debug_report(G_orca, include_h=args.show_h, show_h_indices=show_h_indices))
 
             if show_ascii:
                 print(f"\n{'=' * 80}\n# ASCII Depiction (ORCA, aligned)\n{'=' * 80}\n")
@@ -553,16 +519,10 @@ def main():
                 print(f"\n{'=' * 80}")
                 print("# RDKIT-TM GRAPH DETAILS")
                 print("=" * 80)
-                print(
-                    graph_debug_report(
-                        G_rdkit_tm, include_h=args.show_h, show_h_indices=show_h_indices
-                    )
-                )
+                print(graph_debug_report(G_rdkit_tm, include_h=args.show_h, show_h_indices=show_h_indices))
 
             if show_ascii:
-                print(
-                    f"\n{'=' * 80}\n# ASCII Depiction (RDKit-TM, aligned)\n{'=' * 80}\n"
-                )
+                print(f"\n{'=' * 80}\n# ASCII Depiction (RDKit-TM, aligned)\n{'=' * 80}\n")
                 _, layout = graph_to_ascii(
                     G_primary,
                     scale=max(0.2, args.ascii_scale),

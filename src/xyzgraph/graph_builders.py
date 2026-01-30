@@ -1,14 +1,14 @@
 import os
-import numpy as np
+from typing import Any, Dict, List, Optional, Tuple
+
 import networkx as nx
-from typing import List, Tuple, Dict, Any, Optional
-from rdkit import Chem
-from rdkit import RDLogger
+import numpy as np
+from rdkit import Chem, RDLogger
 
 RDLogger.DisableLog("rdApp.*")  # Try to suppress RDKit warnings
 
-from .data_loader import DATA
 from .config import DEFAULT_PARAMS
+from .data_loader import DATA
 from .utils import read_xyz_file
 
 # =============================================================================
@@ -126,18 +126,12 @@ class GraphBuilder:
         threshold_h_nonmetal: float = DEFAULT_PARAMS["threshold_h_nonmetal"],
         threshold_h_metal: float = DEFAULT_PARAMS["threshold_h_metal"],
         threshold_metal_ligand: float = DEFAULT_PARAMS["threshold_metal_ligand"],
-        threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS[
-            "threshold_nonmetal_nonmetal"
-        ],
+        threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS["threshold_nonmetal_nonmetal"],
         relaxed: bool = DEFAULT_PARAMS["relaxed"],
         allow_metal_metal_bonds: bool = DEFAULT_PARAMS["allow_metal_metal_bonds"],
-        threshold_metal_metal_self: float = DEFAULT_PARAMS[
-            "threshold_metal_metal_self"
-        ],
+        threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
         period_scaling_h_bonds: float = DEFAULT_PARAMS["period_scaling_h_bonds"],
-        period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS[
-            "period_scaling_nonmetal_bonds"
-        ],
+        period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
     ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
         self.charge = charge
@@ -153,9 +147,7 @@ class GraphBuilder:
         self.debug = debug
 
         if self.optimizer not in ("greedy", "beam"):
-            raise ValueError(
-                f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam'"
-            )
+            raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam'")
 
         # Auto-detect multiplicity
         if multiplicity is None:
@@ -213,9 +205,7 @@ class GraphBuilder:
     def _distance(a: np.ndarray, b: np.ndarray) -> float:
         return float(np.linalg.norm(a - b))
 
-    def _calculate_angle(
-        self, atom1: int, center: int, atom2: int, G: nx.Graph
-    ) -> float:
+    def _calculate_angle(self, atom1: int, center: int, atom2: int, G: nx.Graph) -> float:
         """
         Calculate angle (in degrees) between three atoms: atom1-center-atom2
         """
@@ -271,7 +261,8 @@ class GraphBuilder:
         Check if adding bond i-j creates geometrically valid configuration.
         Used for low-confidence (long) bonds from extended thresholds.
 
-        Parameters:
+        Parameters
+        ----------
         - confidence: bond confidence score (0.0 = at threshold, 1.0 = very short)
                      Used to set adaptive thresholds for diagonal detection
         - baseline_bonds: Optional list of (confidence, i, j, distance, has_metal) tuples
@@ -279,7 +270,6 @@ class GraphBuilder:
 
         Returns True if bond should be added, False if it's spurious.
         """
-
         # If neither atom has neighbors yet, bond is valid
         if G.degree(i) == 0 and G.degree(j) == 0:
             return True
@@ -355,12 +345,7 @@ class GraphBuilder:
 
             # Check if any neighbor of i connects to any neighbor of j
             # This would form 4-ring: i-ni-nj-j
-            forms_4ring = any(
-                G.has_edge(ni, nj)
-                for ni in neighbors_i
-                for nj in neighbors_j
-                if ni != nj
-            )
+            forms_4ring = any(G.has_edge(ni, nj) for ni in neighbors_i for nj in neighbors_j if ni != nj)
 
             if forms_4ring:
                 # Check if either atom would exceed valence AND all existing bonds are much stronger
@@ -401,9 +386,7 @@ class GraphBuilder:
             angle = self._calculate_angle(existing_neighbor, i, j, G)
 
             # Variable acute angle threshold: metals more lenient vs non-metals
-            acute_threshold = (
-                acute_threshold_metal if has_metal else acute_threshold_nonmetal
-            )
+            acute_threshold = acute_threshold_metal if has_metal else acute_threshold_nonmetal
 
             if angle < acute_threshold:
                 self.log(
@@ -462,9 +445,7 @@ class GraphBuilder:
             angle = self._calculate_angle(existing_neighbor, j, i, G)
 
             # Use configured threshold (same as for atom i)
-            acute_threshold = (
-                acute_threshold_metal if has_metal else acute_threshold_nonmetal
-            )
+            acute_threshold = acute_threshold_metal if has_metal else acute_threshold_nonmetal
 
             if angle < acute_threshold:
                 self.log(
@@ -601,13 +582,12 @@ class GraphBuilder:
                                         4,
                                     )
                                     return False
-                            else:
-                                if conf / max(confidence, 0.01) > 3.0:
-                                    self.log(
-                                        f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})",
-                                        4,
-                                    )
-                                    return False
+                            elif conf / max(confidence, 0.01) > 3.0:
+                                self.log(
+                                    f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})",
+                                    4,
+                                )
+                                return False
 
                 # ANGLE CHECK (metal-aware, then H-aware)
                 angle_i = self._calculate_angle(k, i, j, G)
@@ -616,9 +596,7 @@ class GraphBuilder:
                 max_angle = max(angle_i, angle_j, angle_k)
 
                 has_H_in_ring = "H" in (sym_i, sym_j, sym_k)
-                has_metal_in_ring = any(
-                    s in self.data.metals for s in (sym_i, sym_j, sym_k)
-                )
+                has_metal_in_ring = any(s in self.data.metals for s in (sym_i, sym_j, sym_k))
 
                 # Priority: Metal > H > others
                 if has_metal_in_ring:
@@ -694,11 +672,7 @@ class GraphBuilder:
 
                             # Skip metals only when checking M-L bonds with H in ring
                             # (these are handled permissively; don't reject based on metal valence)
-                            if (
-                                atom_sym in self.data.metals
-                                and has_metal
-                                and has_H_in_ring
-                            ):
+                            if atom_sym in self.data.metals and has_metal and has_H_in_ring:
                                 continue
 
                             if atom_sym not in DATA.valences:
@@ -730,25 +704,17 @@ class GraphBuilder:
                             return False
                         else:
                             for atom in [i, j]:
-                                if (
-                                    G.nodes[atom]["symbol"] != "C"
-                                    or G.degree(atom) <= 3
-                                ):
+                                if G.nodes[atom]["symbol"] != "C" or G.degree(atom) <= 3:
                                     continue
 
                                 # Carbon would become 5-coordinate - verify out-of-plane approach
                                 other = j if atom == i else i
-                                neighbors = list(G.neighbors(atom))[
-                                    :3
-                                ]  # First 3 for plane definition
+                                neighbors = list(G.neighbors(atom))[:3]  # First 3 for plane definition
 
                                 # Position vectors relative to carbon
                                 pos_C = np.array(G.nodes[atom]["position"])
                                 vec_new = np.array(G.nodes[other]["position"]) - pos_C
-                                vec_nb = [
-                                    np.array(G.nodes[n]["position"]) - pos_C
-                                    for n in neighbors
-                                ]
+                                vec_nb = [np.array(G.nodes[n]["position"]) - pos_C for n in neighbors]
 
                                 # Plane normal from first 2 neighbor vectors
                                 normal = np.cross(vec_nb[0], vec_nb[1])
@@ -763,11 +729,7 @@ class GraphBuilder:
 
                                 # Angle between new bond and plane normal
                                 angle_to_normal = (
-                                    np.arccos(
-                                        np.clip(np.abs(np.dot(vec_new, normal)), 0, 1)
-                                    )
-                                    * 180
-                                    / np.pi
+                                    np.arccos(np.clip(np.abs(np.dot(vec_new, normal)), 0, 1)) * 180 / np.pi
                                 )
 
                                 # Reject if in-plane (real TS should approach from out-of-plane)
@@ -819,11 +781,7 @@ class GraphBuilder:
                         for atom in [i, j]:
                             atom_sym = G.nodes[atom]["symbol"]
                             # Skip metals only when checking M-L bonds with H in ring
-                            if (
-                                atom_sym in self.data.metals
-                                and has_metal
-                                and has_H_in_ring
-                            ):
+                            if atom_sym in self.data.metals and has_metal and has_H_in_ring:
                                 continue
                             if atom_sym not in DATA.valences:
                                 continue
@@ -872,9 +830,7 @@ class GraphBuilder:
             return []
 
         # Work on metal-free subgraph
-        non_metal_nodes = [
-            n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals
-        ]
+        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals]
         G_no_metals = G.subgraph(non_metal_nodes).copy()
 
         # Check if i and j are in the metal-free graph
@@ -924,7 +880,8 @@ class GraphBuilder:
         Heavier elements need looser thresholds because VDW/covalent
         ratio increases down the periodic table.
 
-        Parameters:
+        Parameters
+        ----------
         - base_threshold: Base threshold value
         - z_i, z_j: Atomic numbers of the two atoms
         - has_hydrogen: Whether bond involves hydrogen
@@ -948,9 +905,7 @@ class GraphBuilder:
             if both_nonmetal and self.period_scaling_nonmetal_bonds != 0.0:
                 # Both nonmetals: use nonmetal scaling
                 max_period = max(self._get_period(z_i), self._get_period(z_j))
-                period_factor = (
-                    1.0 + (max_period - 2) * self.period_scaling_nonmetal_bonds
-                )
+                period_factor = 1.0 + (max_period - 2) * self.period_scaling_nonmetal_bonds
                 return base_threshold * period_factor
             else:
                 # Metal bond: no period scaling
@@ -996,13 +951,9 @@ class GraphBuilder:
     @staticmethod
     def _valence_sum(G: nx.Graph, node: int) -> float:
         """Sum bond orders around a node"""
-        return sum(
-            G.edges[node, nbr].get("bond_order", 1.0) for nbr in G.neighbors(node)
-        )
+        return sum(G.edges[node, nbr].get("bond_order", 1.0) for nbr in G.neighbors(node))
 
-    def _compute_formal_charge_value(
-        self, symbol: str, valence_electrons: int, bond_order_sum: float
-    ) -> int:
+    def _compute_formal_charge_value(self, symbol: str, valence_electrons: int, bond_order_sum: float) -> int:
         """Compute formal charge for an atom"""
         if symbol == "H":
             return valence_electrons - int(bond_order_sum)
@@ -1042,9 +993,7 @@ class GraphBuilder:
 
             # Special case: H bonded only to metal(s) is hydride (H⁻)
             if sym == "H" and bond_sum == 0:
-                if all(
-                    G.nodes[nbr]["symbol"] in DATA.metals for nbr in G.neighbors(node)
-                ):
+                if all(G.nodes[nbr]["symbol"] in DATA.metals for nbr in G.neighbors(node)):
                     fc = -1  # Hydride
                     formal.append(fc)
                     continue
@@ -1067,23 +1016,13 @@ class GraphBuilder:
             # Compute ligand classification inline, passing formal charges
             ligand_classification = self._classify_metal_ligands(G, formal)
 
-            for metal_idx, ox_state in sorted(
-                ligand_classification["metal_ox_states"].items()
-            ):
+            for metal_idx, ox_state in sorted(ligand_classification["metal_ox_states"].items()):
                 metal_sym = G.nodes[metal_idx]["symbol"]
                 coord_num = len(list(G.neighbors(metal_idx)))
 
                 # Get ligands for this metal
-                metal_dative = [
-                    entry
-                    for entry in ligand_classification["dative_bonds"]
-                    if entry[0] == metal_idx
-                ]
-                metal_ionic = [
-                    entry
-                    for entry in ligand_classification["ionic_bonds"]
-                    if entry[0] == metal_idx
-                ]
+                metal_dative = [entry for entry in ligand_classification["dative_bonds"] if entry[0] == metal_idx]
+                metal_ionic = [entry for entry in ligand_classification["ionic_bonds"] if entry[0] == metal_idx]
 
                 self.log(
                     f"\n[{metal_idx:>3}] {metal_sym}  oxidation_state={ox_state:+d}  coordination={coord_num}",
@@ -1094,9 +1033,7 @@ class GraphBuilder:
                 if metal_ionic:
                     sorted_ionic = sorted(metal_ionic, key=lambda x: x[2])
                     for entry in sorted_ionic:
-                        m, donor, chg, ligand_type = (
-                            entry if len(entry) == 4 else (*entry, "unknown")
-                        )
+                        m, donor, chg, ligand_type = entry if len(entry) == 4 else (*entry, "unknown")
                         d_sym = G.nodes[donor]["symbol"]
                         charge_str = f"{chg:+d}" if chg != 0 else " 0"
                         self.log(
@@ -1107,18 +1044,12 @@ class GraphBuilder:
                 # Display neutral ligands
                 if metal_dative:
                     for entry in metal_dative:
-                        m, donor, ligand_type = (
-                            entry if len(entry) == 3 else (*entry, "unknown")
-                        )
+                        m, donor, ligand_type = entry if len(entry) == 3 else (*entry, "unknown")
                         d_sym = G.nodes[donor]["symbol"]
-                        self.log(
-                            f"  • {ligand_type:>6} ( 0)  [donor: {d_sym}{donor}]", 4
-                        )
+                        self.log(f"  • {ligand_type:>6} ( 0)  [donor: {d_sym}{donor}]", 4)
         else:
             # No metals - show traditional formal charge list
-            charged_atoms = [
-                (i, formal[i]) for i in range(len(formal)) if formal[i] != 0
-            ]
+            charged_atoms = [(i, formal[i]) for i in range(len(formal)) if formal[i] != 0]
             if charged_atoms:
                 self.log("  Charged atoms:", 3)
                 for i, fc in charged_atoms:
@@ -1149,9 +1080,7 @@ class GraphBuilder:
 
                 # Skip atoms bonded to metals (their charge is balanced by metal coordination)
                 # This preserves ligand charges: Cp⁻, CO, etc.
-                bonded_to_metal = any(
-                    G.nodes[nbr]["symbol"] in DATA.metals for nbr in G.neighbors(i)
-                )
+                bonded_to_metal = any(G.nodes[nbr]["symbol"] in DATA.metals for nbr in G.neighbors(i))
                 if bonded_to_metal:
                     continue
 
@@ -1173,9 +1102,7 @@ class GraphBuilder:
             for score, idx in candidates[:10]:
                 sym = G.nodes[idx]["symbol"]
                 current_fc = formal[idx]
-                self.log(
-                    f"    {sym}{idx}: score={score}, current_fc={current_fc:+d}", 4
-                )
+                self.log(f"    {sym}{idx}: score={score}, current_fc={current_fc:+d}", 4)
 
             # Distribute charge
             sign = 1 if residual > 0 else -1
@@ -1192,13 +1119,9 @@ class GraphBuilder:
                 self.log(f"    {sym}{idx}: {new_fc:+d}", 4)
         elif residual != 0 and has_metals:
             self.log("\nMetal complex detected: ", 2)
-            self.log(
-                f"  Residual: {residual:+d} (represents metal oxidation states)", 3
-            )
+            self.log(f"  Residual: {residual:+d} (represents metal oxidation states)", 3)
         else:
-            self.log(
-                "\nNo residual charge distribution needed (sum matches target)", 2
-            )
+            self.log("\nNo residual charge distribution needed (sum matches target)", 2)
 
         return formal
 
@@ -1214,9 +1137,7 @@ class GraphBuilder:
             if sym in limits:
                 # Exclude metal bonds from valence (like formal charge calculation)
                 val = sum(
-                    G[i][j].get("bond_order", 1.0)
-                    for j in G.neighbors(i)
-                    if G.nodes[j]["symbol"] not in DATA.metals
+                    G[i][j].get("bond_order", 1.0) for j in G.neighbors(i) if G.nodes[j]["symbol"] not in DATA.metals
                 )
                 if val > limits[sym] + tol:
                     return True
@@ -1231,10 +1152,7 @@ class GraphBuilder:
         mode = "QUICK" if self.quick else "FULL"
         self.log(f"\n{'=' * 80}")
         self.log(f"BUILDING GRAPH ({self.method.upper()}, {mode} MODE)")
-        self.log(
-            f"Atoms: {len(self.atoms)}, Charge: {self.charge}, "
-            f"Multiplicity: {self.multiplicity}"
-        )
+        self.log(f"Atoms: {len(self.atoms)}, Charge: {self.charge}, Multiplicity: {self.multiplicity}")
         self.log(f"{'=' * 80}\n")
 
         if self.method == "cheminf":
@@ -1268,12 +1186,8 @@ class GraphBuilder:
         pos = np.array(self.positions)
 
         # Add nodes
-        for i, atomic_num, symbol in zip(
-            range(len(self.atoms)), self.atomic_numbers, self.symbols
-        ):
-            G.add_node(
-                i, symbol=symbol, atomic_number=atomic_num, position=tuple(pos[i])
-            )
+        for i, atomic_num, symbol in zip(range(len(self.atoms)), self.atomic_numbers, self.symbols):
+            G.add_node(i, symbol=symbol, atomic_number=atomic_num, position=tuple(pos[i]))
 
         self.log(f"Added {len(self.atoms)} atoms", 1)
 
@@ -1286,20 +1200,12 @@ class GraphBuilder:
         # Generate chemical formula (sorted by Hill system: C, H, then alphabetical)
         formula_parts = []
         if "C" in element_counts:
-            formula_parts.append(
-                f"C{element_counts['C']}" if element_counts["C"] > 1 else "C"
-            )
+            formula_parts.append(f"C{element_counts['C']}" if element_counts["C"] > 1 else "C")
         if "H" in element_counts:
-            formula_parts.append(
-                f"H{element_counts['H']}" if element_counts["H"] > 1 else "H"
-            )
+            formula_parts.append(f"H{element_counts['H']}" if element_counts["H"] > 1 else "H")
         for elem in sorted(element_counts.keys()):
             if elem not in ("C", "H"):
-                formula_parts.append(
-                    f"{elem}{element_counts[elem]}"
-                    if element_counts[elem] > 1
-                    else elem
-                )
+                formula_parts.append(f"{elem}{element_counts[elem]}" if element_counts[elem] > 1 else elem)
         G.graph["formula"] = "".join(formula_parts)
 
         self.log(f"Chemical formula: {G.graph['formula']}", 1)
@@ -1311,8 +1217,7 @@ class GraphBuilder:
             or self.threshold_h_nonmetal != DEFAULT_PARAMS["threshold_h_nonmetal"]
             or self.threshold_h_metal != DEFAULT_PARAMS["threshold_h_metal"]
             or self.threshold_metal_ligand != DEFAULT_PARAMS["threshold_metal_ligand"]
-            or self.threshold_nonmetal_nonmetal
-            != DEFAULT_PARAMS["threshold_nonmetal_nonmetal"]
+            or self.threshold_nonmetal_nonmetal != DEFAULT_PARAMS["threshold_nonmetal_nonmetal"]
         )
 
         if has_custom:
@@ -1337,36 +1242,18 @@ class GraphBuilder:
 
                 # Use DEFAULT thresholds for baseline
                 if si == "H" and sj == "H":
-                    baseline_threshold = (
-                        DEFAULT_PARAMS["threshold_h_h"]
-                        * r_sum
-                        * DEFAULT_PARAMS["threshold"]
-                    )
+                    baseline_threshold = DEFAULT_PARAMS["threshold_h_h"] * r_sum * DEFAULT_PARAMS["threshold"]
                 elif has_h and has_metal:
-                    baseline_threshold = (
-                        DEFAULT_PARAMS["threshold_h_metal"]
-                        * r_sum
-                        * DEFAULT_PARAMS["threshold"]
-                    )
+                    baseline_threshold = DEFAULT_PARAMS["threshold_h_metal"] * r_sum * DEFAULT_PARAMS["threshold"]
                 elif has_h and not has_metal:
-                    baseline_threshold = (
-                        DEFAULT_PARAMS["threshold_h_nonmetal"]
-                        * r_sum
-                        * DEFAULT_PARAMS["threshold"]
-                    )
+                    baseline_threshold = DEFAULT_PARAMS["threshold_h_nonmetal"] * r_sum * DEFAULT_PARAMS["threshold"]
                 elif is_metal_metal_self:
-                    baseline_threshold = (
-                        DEFAULT_PARAMS["threshold_metal_metal_self"] * r_sum
-                    )
+                    baseline_threshold = DEFAULT_PARAMS["threshold_metal_metal_self"] * r_sum
                 elif has_metal:
-                    baseline_threshold = (
-                        DEFAULT_PARAMS["threshold_metal_ligand"] * r_sum
-                    )
+                    baseline_threshold = DEFAULT_PARAMS["threshold_metal_ligand"] * r_sum
                 else:
                     baseline_threshold = (
-                        DEFAULT_PARAMS["threshold_nonmetal_nonmetal"]
-                        * r_sum
-                        * DEFAULT_PARAMS["threshold"]
+                        DEFAULT_PARAMS["threshold_nonmetal_nonmetal"] * r_sum * DEFAULT_PARAMS["threshold"]
                     )
 
                 # Apply period scaling using DEFAULT scaling factors
@@ -1409,35 +1296,25 @@ class GraphBuilder:
                 edge_count += 1
                 self.log("  Added high-confidence bond", 4)
             # Low confidence: validate geometry
+            elif self._validate_bond_geometry(G, i, j, d, confidence, baseline_bonds):
+                G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
+                edge_count += 1
+                self.log("  Added validated bond", 4)
             else:
-                if self._validate_bond_geometry(G, i, j, d, confidence, baseline_bonds):
-                    G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
-                    edge_count += 1
-                    self.log("  Added validated bond", 4)
-                else:
-                    rejected_count += 1
+                rejected_count += 1
 
-        self.log(
-            f"Step 1: {edge_count} baseline bonds added, {rejected_count} rejected", 1
-        )
+        self.log(f"Step 1: {edge_count} baseline bonds added, {rejected_count} rejected", 1)
 
         # Compute rings from baseline structure
-        non_metal_nodes = [
-            n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals
-        ]
+        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals]
         G_no_metals = G.subgraph(non_metal_nodes).copy()
         rings = nx.cycle_basis(G_no_metals)
 
         G.graph["_rings"] = rings
         G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
-        G.graph["_has_H"] = {
-            n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n))
-            for n in G.nodes()
-        }
+        G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
-        self.log(
-            f"Found {len(rings)} rings from initial bonding (excluding metal cycles)", 1
-        )
+        self.log(f"Found {len(rings)} rings from initial bonding (excluding metal cycles)", 1)
 
         # ===== STEP 2: Extended bonds (CUSTOM thresholds if modified) =====
         if has_custom:
@@ -1465,19 +1342,13 @@ class GraphBuilder:
                     if si == "H" and sj == "H":
                         custom_threshold = self.threshold_h_h * r_sum * self.threshold
                     elif has_h and has_metal:
-                        custom_threshold = (
-                            self.threshold_h_metal * r_sum * self.threshold
-                        )
+                        custom_threshold = self.threshold_h_metal * r_sum * self.threshold
                     elif has_h and not has_metal:
-                        custom_threshold = (
-                            self.threshold_h_nonmetal * r_sum * self.threshold
-                        )
+                        custom_threshold = self.threshold_h_nonmetal * r_sum * self.threshold
                     elif has_metal:
                         custom_threshold = self.threshold_metal_ligand * r_sum
                     else:
-                        custom_threshold = (
-                            self.threshold_nonmetal_nonmetal * r_sum * self.threshold
-                        )
+                        custom_threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
 
                     # Apply period scaling using CUSTOM scaling factors
                     z_i = self.atomic_numbers[i]
@@ -1525,9 +1396,7 @@ class GraphBuilder:
                         G.graph["_rings"].extend(new_rings)
                         new_rings_count += len(new_rings)
                         ring_size = len(new_rings[0])
-                        self.log(
-                            f"    Bond {si}{i}-{sj}{j} creates new {ring_size}-ring", 3
-                        )
+                        self.log(f"    Bond {si}{i}-{sj}{j} creates new {ring_size}-ring", 3)
 
                     # Update caches incrementally
                     G.graph["_neighbors"][i] = list(G.neighbors(i))
@@ -1548,9 +1417,7 @@ class GraphBuilder:
                     G.add_edge(i, j, bond_order=1, distance=d)
                     si = self.symbols[i]
                     sj = self.symbols[j]
-                    self.log(
-                        f"Added user-specified bond {si}{i}-{sj}{j} (d={d:.3f} Å)", 2
-                    )
+                    self.log(f"Added user-specified bond {si}{i}-{sj}{j} (d={d:.3f} Å)", 2)
 
         if self.unbond:
             for i, j in self.unbond:
@@ -1562,9 +1429,7 @@ class GraphBuilder:
 
         # Final ring update if extended bonds were added
         if has_custom:
-            non_metal_nodes = [
-                n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals
-            ]
+            non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals]
             G_no_metals = G.subgraph(non_metal_nodes).copy()
             rings = nx.cycle_basis(G_no_metals)
             G.graph["_rings"] = rings
@@ -1582,10 +1447,7 @@ class GraphBuilder:
         Heuristic: 5-membered C-ring bonded to metal → likely Cp⁻ → π=6
         """
         pi_electrons = 0
-        bonded_to_metal = any(
-            any(G.nodes[nbr]["symbol"] in DATA.metals for nbr in G.neighbors(c))
-            for c in cycle
-        )
+        bonded_to_metal = any(any(G.nodes[nbr]["symbol"] in DATA.metals for nbr in G.neighbors(c)) for c in cycle)
 
         for idx in cycle:
             sym = G.nodes[idx]["symbol"]
@@ -1593,11 +1455,7 @@ class GraphBuilder:
                 pi_electrons += 1
             elif sym == "N":
                 # Use TOTAL degree, not in-ring degree
-                degree = sum(
-                    1
-                    for nbr in G.neighbors(idx)
-                    if G.nodes[nbr]["symbol"] not in DATA.metals
-                )
+                degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]["symbol"] not in DATA.metals)
                 if degree == 3:
                     pi_electrons += 2  # Pyrrole-like: 3 bonds, LP in π system
                 elif degree == 2:
@@ -1676,9 +1534,7 @@ class GraphBuilder:
                 sym = G.nodes[idx]["symbol"]
                 if sym == "C":
                     degree = sum(
-                        1
-                        for nbr in G.neighbors(idx)
-                        if G.nodes[nbr]["symbol"] not in getattr(DATA, "metals", {})
+                        1 for nbr in G.neighbors(idx) if G.nodes[nbr]["symbol"] not in getattr(DATA, "metals", {})
                     )
                     if degree >= 4:
                         self.log(f"✗ Contains non-sp2 carbon {sym}{idx}", 3)
@@ -1694,13 +1550,9 @@ class GraphBuilder:
                     for nbr in G.neighbors(c):
                         if G.nodes[nbr]["symbol"] in getattr(DATA, "metals", {}):
                             metal_neighbors.setdefault(nbr, []).append(c)
-                is_cp_like = any(
-                    len(carbons) == 5 for carbons in metal_neighbors.values()
-                )
+                is_cp_like = any(len(carbons) == 5 for carbons in metal_neighbors.values())
                 if is_cp_like:
-                    metal_idx = [
-                        m for m, carbons in metal_neighbors.items() if len(carbons) == 5
-                    ][0]
+                    metal_idx = [m for m, carbons in metal_neighbors.items() if len(carbons) == 5][0]
                     metal_sym = G.nodes[metal_idx]["symbol"]
                     self.log(
                         f"✓ Detected Cp-like ring (all 5 C bonded to {metal_sym}{metal_idx})",
@@ -1794,9 +1646,7 @@ class GraphBuilder:
                     if apply_pattern(r_idx, p):
                         initialized += 1
                         applied = True
-                        self.log(
-                            f"✓ Cp-like 5-ring {r_idx} initialized (rotation {rot})", 3
-                        )
+                        self.log(f"✓ Cp-like 5-ring {r_idx} initialized (rotation {rot})", 3)
                         break
                 if not applied:
                     self.log(f"✗ Cp-like 5-ring {r_idx} could not be safely applied", 3)
@@ -1806,9 +1656,7 @@ class GraphBuilder:
         for r_idx in valid_rings:
             if len(cycles[r_idx]) != 5:
                 continue
-            if not any(
-                G.nodes[i]["symbol"] in ("N", "O", "S", "B") for i in cycles[r_idx]
-            ):
+            if not any(G.nodes[i]["symbol"] in ("N", "O", "S", "B") for i in cycles[r_idx]):
                 continue
             lp = None
             for idx in cycles[r_idx]:
@@ -1920,9 +1768,9 @@ class GraphBuilder:
                                 consistent = True
                                 for idx_e, key in shared_edges:
                                     for idx_nb, (ua, ub) in enumerate(ring_edges[nb]):
-                                        if frozenset((ua, ub)) == key and (
-                                            assigned[nb][idx_nb] > 1.5
-                                        ) != (patt[idx_e] > 1.5):
+                                        if frozenset((ua, ub)) == key and (assigned[nb][idx_nb] > 1.5) != (
+                                            patt[idx_e] > 1.5
+                                        ):
                                             consistent = False
                                             break
                                     if not consistent:
@@ -1932,15 +1780,13 @@ class GraphBuilder:
                                 continue
                             ok = False
                             for start_bool in (True, False):
-                                candidate = alt_patterns(
-                                    6, start_with_double=start_bool
-                                )
+                                candidate = alt_patterns(6, start_with_double=start_bool)
                                 good = True
                                 for idx_e, key in shared_edges:
                                     for idx_nb, (ua, ub) in enumerate(ring_edges[nb]):
-                                        if frozenset((ua, ub)) == key and (
-                                            candidate[idx_nb] > 1.5
-                                        ) != (patt[idx_e] > 1.5):
+                                        if frozenset((ua, ub)) == key and (candidate[idx_nb] > 1.5) != (
+                                            patt[idx_e] > 1.5
+                                        ):
                                             good = False
                                             break
                                     if not good:
@@ -1984,9 +1830,7 @@ class GraphBuilder:
                 continue
             if any(G.nodes[i]["symbol"] != "C" for i in cycles[r_idx]):
                 continue
-            fused = any(
-                len(edge_to_rings[frozenset((a, b))]) > 1 for a, b in ring_edges[r_idx]
-            )
+            fused = any(len(edge_to_rings[frozenset((a, b))]) > 1 for a, b in ring_edges[r_idx])
             if fused:
                 self.log(f"• Skipping fused carbon-5 ring {r_idx}", 4)
                 continue
@@ -2055,9 +1899,7 @@ class GraphBuilder:
                 di, dj = deficits[i], deficits[j]
 
                 # Check geometry
-                dist_ratio = data["distance"] / (
-                    DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
-                )
+                dist_ratio = data["distance"] / (DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0))
                 if dist_ratio > 0.60:
                     continue
 
@@ -2099,9 +1941,7 @@ class GraphBuilder:
     def _ekey(self, i: int, j: int) -> Tuple[int, int]:
         return (i, j) if i < j else (j, i)
 
-    def _edge_likelihood(
-        self, G: nx.Graph, *, init: bool = False, touch_nodes: Optional[set] = None
-    ):
+    def _edge_likelihood(self, G: nx.Graph, *, init: bool = False, touch_nodes: Optional[set] = None):
         """
         Cache-aware candidate selection:
         - init=True: build score map for all edges once
@@ -2125,9 +1965,7 @@ class GraphBuilder:
                         self._edge_score_map[e] = self._edge_score(G, *e)
         # Return top-k edges
         items = [(s, e) for e, s in self._edge_score_map.items() if s != float("-inf")]
-        items.sort(
-            key=lambda t: (-t[0], t[1][0], t[1][1])
-        )  # sort by score desc, then by edge
+        items.sort(key=lambda t: (-t[0], t[1][0], t[1][1]))  # sort by score desc, then by edge
         top = [e for _, e in items[: self.edge_per_iter]]
         self.edge_scores_cache = top
         return top
@@ -2155,9 +1993,7 @@ class GraphBuilder:
             exocyclic_double = 0
 
             # --- Bonds within the ring ---
-            ring_edges = [
-                (ring[k], ring[(k + 1) % len(ring)]) for k in range(len(ring))
-            ]
+            ring_edges = [(ring[k], ring[(k + 1) % len(ring)]) for k in range(len(ring))]
             for i, j in ring_edges:
                 bo = G[i][j].get("bond_order", 1.0)
                 if bo > 1.3:
@@ -2176,9 +2012,7 @@ class GraphBuilder:
 
                         bo = data.get("bond_order", 1.0)
                         if bo >= 1.8:
-                            if (ring_sym == "C" and nbr_sym != "O") or (
-                                ring_sym == "N" and nbr_sym in ("C", "P", "S")
-                            ):
+                            if (ring_sym == "C" and nbr_sym != "O") or (ring_sym == "N" and nbr_sym in ("C", "P", "S")):
                                 exocyclic_double += 1
 
             # --- Scoring logic (unchanged) ---
@@ -2215,22 +2049,16 @@ class GraphBuilder:
         rings = G.graph.get("_rings") or nx.cycle_basis(G)
         G.graph["_rings"] = rings
 
-        neighbor_cache = G.graph.get("_neighbors") or {
-            n: list(G.neighbors(n)) for n in G.nodes()
-        }
+        neighbor_cache = G.graph.get("_neighbors") or {n: list(G.neighbors(n)) for n in G.nodes()}
         G.graph["_neighbors"] = neighbor_cache
 
-        has_H = G.graph.get("_has_H") or {
-            n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G[n]) for n in G.nodes()
-        }
+        has_H = G.graph.get("_has_H") or {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G[n]) for n in G.nodes()}
         G.graph["_has_H"] = has_H
 
         # Build valence cache excluding metal bonds (coordination bonds don't count)
         valence_cache = {
             n: sum(
-                G[n][nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(n)
-                if G.nodes[nbr]["symbol"] not in DATA.metals
+                G[n][nbr].get("bond_order", 1.0) for nbr in G.neighbors(n) if G.nodes[nbr]["symbol"] not in DATA.metals
             )
             for n in G.nodes()
         }
@@ -2382,15 +2210,11 @@ class GraphBuilder:
         Rebuild cached graph properties after modifications.
         Called after applying bond order changes.
         """
-
         # Update neighbor cache
         G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
 
         # Update H-neighbor cache
-        G.graph["_has_H"] = {
-            n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n))
-            for n in G.nodes()
-        }
+        G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
     def _copy_graph_state(self, G: nx.Graph) -> nx.Graph:
         """
@@ -2419,9 +2243,7 @@ class GraphBuilder:
 
         return G_new
 
-    def _score_assignment(
-        self, G: nx.Graph, rings: Optional[List[List[int]]] = None
-    ) -> Tuple[float, List[int]]:
+    def _score_assignment(self, G: nx.Graph, rings: Optional[List[List[int]]] = None) -> Tuple[float, List[int]]:
         """
         Scoring that uses pre-computed valence cache.
         """
@@ -2446,17 +2268,12 @@ class GraphBuilder:
             rings = G.graph.get("_rings", nx.cycle_basis(G))
 
         # Neighbor cache
-        neighbor_cache = G.graph.get(
-            "_neighbors", {n: list(G.neighbors(n)) for n in G.nodes()}
-        )
+        neighbor_cache = G.graph.get("_neighbors", {n: list(G.neighbors(n)) for n in G.nodes()})
 
         # H-neighbor cache
         has_H = G.graph.get(
             "_has_H",
-            {
-                n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n))
-                for n in G.nodes()
-            },
+            {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()},
         )
 
         penalties = {
@@ -2505,13 +2322,9 @@ class GraphBuilder:
                 if fc == 0:
                     for nbr in nb:
                         if G.nodes[nbr]["symbol"] != "H":
-                            other_fc = get_formal(
-                                G.nodes[nbr]["symbol"], self.valence_cache[nbr]
-                            )
+                            other_fc = get_formal(G.nodes[nbr]["symbol"], self.valence_cache[nbr])
                             if other_fc > 0:
-                                penalties["protonation"] += (
-                                    8.0 if sym in ("N", "O") else 3.0
-                                )
+                                penalties["protonation"] += 8.0 if sym in ("N", "O") else 3.0
                 elif fc > 0 and sym in ("N", "O", "S"):
                     penalties["en"] -= 1.5
 
@@ -2528,9 +2341,7 @@ class GraphBuilder:
             # Electronegativity penalty
             en = EN.get(sym, 2.5)
             if fc != 0:
-                penalties["en"] += (
-                    abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
-                )
+                penalties["en"] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
 
         # Total score
         charge_error = abs(sum(formal_charges) - self.charge)
@@ -2563,10 +2374,7 @@ class GraphBuilder:
         # Use cached graph info (don't recompute - preserves metal-free rings)
         rings = G.graph.get("_rings", nx.cycle_basis(G))
         G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
-        G.graph["_has_H"] = {
-            n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n))
-            for n in G.nodes()
-        }
+        G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
         # Lock metal bonds
         metal_count = 0
@@ -2580,9 +2388,7 @@ class GraphBuilder:
         # Build initial valence cache excluding metal bonds (shared starting point)
         base_valence_cache = {
             n: sum(
-                G[n][nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(n)
-                if G.nodes[nbr]["symbol"] not in DATA.metals
+                G[n][nbr].get("bond_order", 1.0) for nbr in G.neighbors(n) if G.nodes[nbr]["symbol"] not in DATA.metals
             )
             for n in G.nodes()
         }
@@ -2687,8 +2493,7 @@ class GraphBuilder:
             )
 
             beam = [
-                (score, graph, cache, history)
-                for score, graph, cache, edge, history in candidates[: self.beam_width]
+                (score, graph, cache, history) for score, graph, cache, edge, history in candidates[: self.beam_width]
             ]
 
             # Track best ever
@@ -2764,19 +2569,13 @@ class GraphBuilder:
             aromatic_atoms = {"C", "N", "O", "S", "B"}
 
             if not all(G.nodes[i]["symbol"] in aromatic_atoms for i in cycle):
-                non_aromatic = [
-                    G.nodes[i]["symbol"]
-                    for i in cycle
-                    if G.nodes[i]["symbol"] not in aromatic_atoms
-                ]
+                non_aromatic = [G.nodes[i]["symbol"] for i in cycle if G.nodes[i]["symbol"] not in aromatic_atoms]
                 self.log(f"✗ Contains non-aromatic atoms: {non_aromatic}", 2)
                 continue
 
             is_planar = self._check_planarity(cycle, G)
             if not is_planar:
-                self.log(
-                    f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1
-                )
+                self.log(f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}", 1)
                 self.log("✗ Not planar, skipping aromaticity check", 2)
                 continue
 
@@ -2800,57 +2599,33 @@ class GraphBuilder:
             for idx in cycle:
                 sym = G.nodes[idx]["symbol"]
                 fc = G.nodes[idx].get("formal_charge", 0)
-                degree = sum(
-                    1
-                    for nbr in G.neighbors(idx)
-                    if G.nodes[nbr]["symbol"] not in DATA.metals
-                )
+                degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]["symbol"] not in DATA.metals)
 
                 if sym == "C":
                     # Carbon: 1 π electron, adjusted by formal charge
                     contrib = max(0, 1 - fc) if fc > 0 else 1 + abs(fc)
-                    label = (
-                        f"{sym}{idx}:1"
-                        if fc == 0
-                        else f"{sym}{idx}:{contrib}(fc={fc:+d})"
-                    )
+                    label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
 
                 elif sym == "B":
                     # Boron: empty p-orbital contributes 0 (or |fc| if charged)
                     contrib = abs(fc) if fc < 0 else 0
-                    label = (
-                        f"{sym}{idx}:0(empty_p)"
-                        if fc == 0
-                        else f"{sym}{idx}:{contrib}(fc={fc:+d})"
-                    )
+                    label = f"{sym}{idx}:0(empty_p)" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
 
                 elif sym == "N":
                     # Nitrogen: depends on degree and formal charge
                     if degree == 3:
                         # Pyrrole-like: 2 π (LP) unless charged
                         contrib = 1 if fc > 0 else 2
-                        label = (
-                            f"{sym}{idx}:2(LP)"
-                            if fc == 0
-                            else f"{sym}{idx}:{contrib}(fc={fc:+d})"
-                        )
+                        label = f"{sym}{idx}:2(LP)" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
                     else:  # degree == 2
                         # Pyridine-like: 1 π normally, 2 π if negative
                         contrib = 2 if fc < 0 else 1
-                        label = (
-                            f"{sym}{idx}:1"
-                            if fc == 0
-                            else f"{sym}{idx}:{contrib}(fc={fc:+d})"
-                        )
+                        label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
 
                 elif sym in ("O", "S"):
                     # Oxygen/Sulfur: 2 π (LP) regardless of positive charge
                     contrib = 2
-                    label = (
-                        f"{sym}{idx}:2(LP)"
-                        if fc == 0
-                        else f"{sym}{idx}:2(LP,fc={fc:+d})"
-                    )
+                    label = f"{sym}{idx}:2(LP)" if fc == 0 else f"{sym}{idx}:2(LP,fc={fc:+d})"
 
                 pi_electrons += contrib
                 pi_breakdown.append(label)
@@ -2864,9 +2639,7 @@ class GraphBuilder:
                 n = (pi_electrons - 2) // 4
                 self.log(f"✓ AROMATIC (4n+2 rule: n={n})", 2)
                 # Set all ring edges to 1.5
-                ring_edges = [
-                    (cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))
-                ]
+                ring_edges = [(cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))]
 
                 bonds_set = 0
                 for i, j in ring_edges:
@@ -2891,9 +2664,7 @@ class GraphBuilder:
 
         return aromatic_count
 
-    def _check_planarity(
-        self, cycle: List[int], G: nx.Graph, threshold: float = 0.15
-    ) -> bool:
+    def _check_planarity(self, cycle: List[int], G: nx.Graph, threshold: float = 0.15) -> bool:
         """
         Check if a ring is approximately planar.
         """
@@ -2916,9 +2687,7 @@ class GraphBuilder:
 
         return max_deviation < threshold
 
-    def _get_ligand_unit_info(
-        self, G: nx.Graph, metal_idx: int, start_atom: int
-    ) -> Tuple[int, str]:
+    def _get_ligand_unit_info(self, G: nx.Graph, metal_idx: int, start_atom: int) -> Tuple[int, str]:
         """
         Get charge and identity for a ligand unit by following linear chain from start_atom.
 
@@ -2933,11 +2702,7 @@ class GraphBuilder:
 
         # Follow linear chain
         while True:
-            neighbors = [
-                n
-                for n in G.neighbors(current)
-                if n != prev and G.nodes[n]["symbol"] not in DATA.metals
-            ]
+            neighbors = [n for n in G.neighbors(current) if n != prev and G.nodes[n]["symbol"] not in DATA.metals]
             if len(neighbors) != 1:
                 break  # Not linear or branch point
             next_atom = neighbors[0]
@@ -2962,14 +2727,13 @@ class GraphBuilder:
 
         return charge, ligand_id
 
-    def _classify_metal_ligands(
-        self, G: nx.Graph, formal_charges: Optional[List[int]] = None
-    ) -> Dict[str, Any]:
+    def _classify_metal_ligands(self, G: nx.Graph, formal_charges: Optional[List[int]] = None) -> Dict[str, Any]:
         """
         Infer ligand types and metal oxidation state from formal charges.
         Handles: monatomic (H⁻, Cl⁻), linear chains (CO, CN⁻), rings (Cp⁻).
 
-        Parameters:
+        Parameters
+        ----------
         - G: Graph with molecular structure
         - formal_charges: Optional list of formal charges (if not stored in nodes yet)
 
@@ -2998,20 +2762,14 @@ class GraphBuilder:
             processed_atoms = set()  # Track atoms already assigned to ligands
 
             # First pass: detect ring-based ligands (Cp⁻)
-            metal_bonded_atoms = [
-                n
-                for n in G.neighbors(metal_idx)
-                if G.nodes[n]["symbol"] not in DATA.metals
-            ]
+            metal_bonded_atoms = [n for n in G.neighbors(metal_idx) if G.nodes[n]["symbol"] not in DATA.metals]
 
             for ring in rings:
                 # Check if entire ring bonds to this metal
                 ring_set = set(ring)
                 bonded_ring_atoms = [a for a in metal_bonded_atoms if a in ring_set]
 
-                if (
-                    len(bonded_ring_atoms) >= len(ring) / 2
-                ):  # At least half the ring bonded
+                if len(bonded_ring_atoms) >= len(ring) / 2:  # At least half the ring bonded
                     # Sum charges for entire ring
                     ring_charge = sum(get_fc(a) for a in ring)
                     ligand_charge_sum += ring_charge
@@ -3024,13 +2782,9 @@ class GraphBuilder:
                     ligand_type = f"{len(ring)}-ring"
 
                     if ring_charge == 0:
-                        classification["dative_bonds"].append(
-                            (metal_idx, rep_atom, ligand_type)
-                        )
+                        classification["dative_bonds"].append((metal_idx, rep_atom, ligand_type))
                     else:
-                        classification["ionic_bonds"].append(
-                            (metal_idx, rep_atom, ring_charge, ligand_type)
-                        )
+                        classification["ionic_bonds"].append((metal_idx, rep_atom, ring_charge, ligand_type))
 
             # Second pass: handle remaining ligands
             for donor_atom in metal_bonded_atoms:
@@ -3040,11 +2794,7 @@ class GraphBuilder:
                 donor_sym = G.nodes[donor_atom]["symbol"]
 
                 # Check if monatomic (H, halides)
-                non_metal_neighbors = [
-                    n
-                    for n in G.neighbors(donor_atom)
-                    if G.nodes[n]["symbol"] not in DATA.metals
-                ]
+                non_metal_neighbors = [n for n in G.neighbors(donor_atom) if G.nodes[n]["symbol"] not in DATA.metals]
 
                 if len(non_metal_neighbors) == 0:
                     # Monatomic ligand (H⁻, Cl⁻, etc.)
@@ -3052,20 +2802,14 @@ class GraphBuilder:
                     ligand_type = f"{donor_sym}"
                 else:
                     # Linear chain ligand (CO, CN⁻, etc.)
-                    ligand_charge, ligand_type = self._get_ligand_unit_info(
-                        G, metal_idx, donor_atom
-                    )
+                    ligand_charge, ligand_type = self._get_ligand_unit_info(G, metal_idx, donor_atom)
 
                 ligand_charge_sum += ligand_charge
 
                 if ligand_charge == 0:
-                    classification["dative_bonds"].append(
-                        (metal_idx, donor_atom, ligand_type)
-                    )
+                    classification["dative_bonds"].append((metal_idx, donor_atom, ligand_type))
                 else:
-                    classification["ionic_bonds"].append(
-                        (metal_idx, donor_atom, ligand_charge, ligand_type)
-                    )
+                    classification["ionic_bonds"].append((metal_idx, donor_atom, ligand_charge, ligand_type))
 
             # Infer oxidation state: opposite of ligand charge sum
             ox_state = -ligand_charge_sum
@@ -3097,9 +2841,7 @@ class GraphBuilder:
             try:
                 Chem.SanitizeMol(mol)
             except:
-                Chem.SanitizeMol(
-                    mol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_PROPERTIES
-                )
+                Chem.SanitizeMol(mol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_PROPERTIES)
 
             Chem.AllChem.ComputeGasteigerCharges(mol)
 
@@ -3127,7 +2869,6 @@ class GraphBuilder:
         """
         Build molecular graph using cheminformatics approach.
         """
-
         if self.multiplicity is None:
             total_electrons = sum(self.atomic_numbers) - self.charge
             self.multiplicity = 1 if total_electrons % 2 == 0 else 2
@@ -3198,7 +2939,6 @@ class GraphBuilder:
 
     def _build_xtb(self) -> nx.Graph:
         """Build graph using xTB quantum chemistry calculations"""
-
         if self.multiplicity is None:
             total_electrons = sum(self.atomic_numbers) - self.charge
             self.multiplicity = 1 if total_electrons % 2 == 0 else 2
@@ -3206,9 +2946,7 @@ class GraphBuilder:
         work = "xtb_tmp_local"
         basename = "xtb"
         if os.system("which xtb > /dev/null 2>&1") != 0:
-            raise RuntimeError(
-                "xTB not found in PATH - install xTB or use 'cheminf' method"
-            )
+            raise RuntimeError("xTB not found in PATH - install xTB or use 'cheminf' method")
 
         os.makedirs(work, exist_ok=True)
 
@@ -3238,9 +2976,7 @@ class GraphBuilder:
                 for line in f:
                     parts = line.split()
                     if len(parts) == 3 and float(parts[2]) > 0.5:  # bonding threshold
-                        bonds.append(
-                            (int(parts[0]) - 1, int(parts[1]) - 1)
-                        )  # xTB uses 1-indexed
+                        bonds.append((int(parts[0]) - 1, int(parts[1]) - 1))  # xTB uses 1-indexed
                         bond_orders.append(float(parts[2]))
             self.log(f"Parsed {len(bonds)} bonds from xTB WBO", 1)
         except FileNotFoundError:
@@ -3249,9 +2985,7 @@ class GraphBuilder:
         # Parse charges
         charges = []
         charges_file = os.path.join(work, f"{basename}_charges")
-        if not os.path.exists(charges_file) and os.path.exists(
-            os.path.join(work, "charges")
-        ):
+        if not os.path.exists(charges_file) and os.path.exists(os.path.join(work, "charges")):
             os.rename(os.path.join(work, "charges"), charges_file)
 
         try:
@@ -3344,9 +3078,7 @@ def build_graph(
     allow_metal_metal_bonds: bool = DEFAULT_PARAMS["allow_metal_metal_bonds"],
     threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
     period_scaling_h_bonds: float = DEFAULT_PARAMS["period_scaling_h_bonds"],
-    period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS[
-        "period_scaling_nonmetal_bonds"
-    ],
+    period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
     metadata: Optional[Dict[str, Any]] = None,
 ) -> nx.Graph:
     """Convenience function that wraps GraphBuilder.
@@ -3415,7 +3147,7 @@ def build_graph(
     G = builder.build()
 
     # Add metadata to graph (with version/citation info)
-    from . import __version__, __citation__
+    from . import __citation__, __version__
 
     G.graph["metadata"] = {
         "version": __version__,
@@ -3464,7 +3196,7 @@ def build_graph_rdkit(
     Examples
     --------
     >>> from xyzgraph import build_graph_rdkit
-    >>> G = build_graph_rdkit('structure.xyz', charge=-1)
+    >>> G = build_graph_rdkit("structure.xyz", charge=-1)
     >>> print(f"Graph has {G.number_of_nodes()} atoms and {G.number_of_edges()} bonds")
 
     Notes
@@ -3587,7 +3319,7 @@ def build_graph_rdkit(
         G.nodes[node]["agg_charge"] = agg_charge
 
     # Add metadata
-    from . import __version__, __citation__
+    from . import __citation__, __version__
 
     G.graph["metadata"] = {
         "version": __version__,
@@ -3634,11 +3366,13 @@ def build_graph_rdkit_tm(
         Molecular graph with nodes containing symbol, atomic_number, position,
         formal_charge, valence, and charges (empty dict).
     """
+    import tempfile
+
     import networkx as nx
     import numpy as np
-    import tempfile
-    from rdkit import Chem
     from networkx.algorithms import isomorphism
+    from rdkit import Chem
+
     from . import BOHR_TO_ANGSTROM, DATA
 
     # Import xyz2mol_tm
@@ -3646,8 +3380,7 @@ def build_graph_rdkit_tm(
         from xyz2mol_tm import xyz2mol_tmc
     except ImportError:
         raise ImportError(
-            "xyz2mol_tm not found. Install via:\n"
-            "pip install git+https://github.com/jensengroup/xyz2mol_tm.git"
+            "xyz2mol_tm not found. Install via:\npip install git+https://github.com/jensengroup/xyz2mol_tm.git"
         )
 
     # ===== STEP 1: Parse XYZ coordinates =====
@@ -3671,10 +3404,7 @@ def build_graph_rdkit_tm(
     elif isinstance(xyz_file, list):
         atoms = xyz_file
         if bohr_units:
-            atoms = [
-                (s, (x * BOHR_TO_ANGSTROM, y * BOHR_TO_ANGSTROM, z * BOHR_TO_ANGSTROM))
-                for s, (x, y, z) in atoms
-            ]
+            atoms = [(s, (x * BOHR_TO_ANGSTROM, y * BOHR_TO_ANGSTROM, z * BOHR_TO_ANGSTROM)) for s, (x, y, z) in atoms]
     else:
         raise TypeError("xyz_file must be a path or list of (symbol, position) tuples")
 
@@ -3700,9 +3430,7 @@ def build_graph_rdkit_tm(
         try:
             mol = xyz2mol_tmc.get_tmc_mol(tmp.name, overall_charge=charge)
         except TimeoutError:
-            print(
-                f"[Warning] xyz2mol_tmc timed out for {xyz_file}. Skipping RDKit-TM graph."
-            )
+            print(f"[Warning] xyz2mol_tmc timed out for {xyz_file}. Skipping RDKit-TM graph.")
             mol = None  # gracefully skip
         except Exception as e:
             print(f"[Warning] xyz2mol_tmc failed for {xyz_file}: {e}")
@@ -3744,10 +3472,7 @@ def build_graph_rdkit_tm(
     edges_to_keep = [
         (i, j)
         for i, j in G_xyz_relabeled.edges()
-        if frozenset(
-            [G_xyz_relabeled.nodes[i]["symbol"], G_xyz_relabeled.nodes[j]["symbol"]]
-        )
-        in allowed_pairs
+        if frozenset([G_xyz_relabeled.nodes[i]["symbol"], G_xyz_relabeled.nodes[j]["symbol"]]) in allowed_pairs
     ]
 
     G_xyz_simple = nx.Graph()
@@ -3765,12 +3490,8 @@ def build_graph_rdkit_tm(
     else:
         # Graphs differ - use partial matching
         print("Warning: Graphs not perfectly isomorphic.")
-        print(
-            f"  RDKit: {G_rdkit.number_of_nodes()} nodes, {G_rdkit.number_of_edges()} edges"
-        )
-        print(
-            f"  XYZ:   {G_xyz_simple.number_of_nodes()} nodes, {G_xyz_simple.number_of_edges()} edges"
-        )
+        print(f"  RDKit: {G_rdkit.number_of_nodes()} nodes, {G_rdkit.number_of_edges()} edges")
+        print(f"  XYZ:   {G_xyz_simple.number_of_nodes()} nodes, {G_xyz_simple.number_of_edges()} edges")
         print("  Attempting partial matching based on connectivity similarity...")
 
         rdkit_to_xyz = _partial_graph_matching(G_rdkit, G_xyz_simple)
@@ -3785,9 +3506,7 @@ def build_graph_rdkit_tm(
                 mapped_edges += 1
 
         overlap = mapped_edges / total_rdkit_edges if total_rdkit_edges > 0 else 0
-        print(
-            f"  Mapping quality: {mapped_edges}/{total_rdkit_edges} edges match ({overlap * 100:.1f}%)"
-        )
+        print(f"  Mapping quality: {mapped_edges}/{total_rdkit_edges} edges match ({overlap * 100:.1f}%)")
 
         if overlap < 0.75:
             raise ValueError(
@@ -3833,20 +3552,14 @@ def build_graph_rdkit_tm(
             bond_order=bo,
             distance=float(np.linalg.norm(pos_i - pos_j)),
             bond_type=(G.nodes[i_xyz]["symbol"], G.nodes[j_xyz]["symbol"]),
-            metal_coord=(
-                G.nodes[i_xyz]["symbol"] in DATA.metals
-                or G.nodes[j_xyz]["symbol"] in DATA.metals
-            ),
+            metal_coord=(G.nodes[i_xyz]["symbol"] in DATA.metals or G.nodes[j_xyz]["symbol"] in DATA.metals),
         )
 
     # Connect hydrogens to nearest heavy atom (geometrically)
     for idx, (sym, pos) in enumerate(atoms):
         if sym == "H":
             pos_arr = np.array(pos)
-            dists = [
-                np.linalg.norm(pos_arr - np.array(G.nodes[i]["position"]))
-                for i in heavy_idx
-            ]
+            dists = [np.linalg.norm(pos_arr - np.array(G.nodes[i]["position"])) for i in heavy_idx]
             nearest = heavy_idx[int(np.argmin(dists))]
             G.add_edge(
                 idx,
@@ -3859,17 +3572,13 @@ def build_graph_rdkit_tm(
 
     # --- Update valences and formal charges ---
     for node in G.nodes():
-        G.nodes[node]["valence"] = sum(
-            G.edges[node, nbr]["bond_order"] for nbr in G.neighbors(node)
-        )
+        G.nodes[node]["valence"] = sum(G.edges[node, nbr]["bond_order"] for nbr in G.neighbors(node))
 
     for rdkit_idx, xyz_idx in rdkit_to_xyz.items():
-        G.nodes[xyz_idx]["formal_charge"] = mol.GetAtomWithIdx(
-            rdkit_idx
-        ).GetFormalCharge()
+        G.nodes[xyz_idx]["formal_charge"] = mol.GetAtomWithIdx(rdkit_idx).GetFormalCharge()
 
     # --- Metadata ---
-    from . import __version__, __citation__
+    from . import __citation__, __version__
 
     G.graph["metadata"] = {
         "version": __version__,
@@ -3898,10 +3607,11 @@ def _partial_graph_matching(G_rdkit: nx.Graph, G_xyz: nx.Graph) -> dict:
     dict
         Mapping {rdkit_node -> xyz_node}
     """
+    from collections import defaultdict
+
+    import networkx as nx
     import numpy as np
     from scipy.optimize import linear_sum_assignment
-    from collections import defaultdict
-    import networkx as nx
 
     print("  Starting graph-distance + neighbor-symbol partial matching...")
 
@@ -3943,9 +3653,7 @@ def _partial_graph_matching(G_rdkit: nx.Graph, G_xyz: nx.Graph) -> dict:
         n_r, n_x = len(rdkit_list), len(xyz_list)
         min_count = min(n_r, n_x)
         if n_r != n_x:
-            print(
-                f"   Warning: Element {elem} count mismatch: RDKit={n_r}, XYZ={n_x}. Matching {min_count} atoms."
-            )
+            print(f"   Warning: Element {elem} count mismatch: RDKit={n_r}, XYZ={n_x}. Matching {min_count} atoms.")
 
         # Build score matrix
         scores = np.zeros((n_r, n_x))
@@ -4022,10 +3730,10 @@ def build_graph_orca(
     Examples
     --------
     >>> from xyzgraph import build_graph_from_orca
-    >>> G = build_graph_from_orca('structure.out')
+    >>> G = build_graph_from_orca("structure.out")
     >>> print(f"Graph has {G.number_of_nodes()} atoms and {G.number_of_edges()} bonds")
     """
-    from .orca_parser import parse_orca_output, OrcaParseError
+    from .orca_parser import OrcaParseError, parse_orca_output
 
     # Parse ORCA output
     try:
@@ -4040,9 +3748,7 @@ def build_graph_orca(
     multiplicity = orca_data["multiplicity"]
 
     if debug:
-        print(
-            f"Parsed ORCA output: {len(atoms)} atoms, {len(bonds)} bonds (before threshold)"
-        )
+        print(f"Parsed ORCA output: {len(atoms)} atoms, {len(bonds)} bonds (before threshold)")
         print(f"Charge: {charge}, Multiplicity: {multiplicity}")
 
     # Build graph
@@ -4105,15 +3811,14 @@ def build_graph_orca(
             V = DATA.electrons.get(sym, 0)
             if V == 0:
                 formal_charge = 0
+            # Use simple formal charge calculation
+            elif sym == "H":
+                formal_charge = int(V - valence)
             else:
-                # Use simple formal charge calculation
-                if sym == "H":
-                    formal_charge = int(V - valence)
-                else:
-                    B = 2 * valence
-                    target = 8
-                    L = max(0, target - B)
-                    formal_charge = int(round(V - L - B / 2))
+                B = 2 * valence
+                target = 8
+                L = max(0, target - B)
+                formal_charge = int(round(V - L - B / 2))
 
         G.nodes[node]["formal_charge"] = formal_charge
 
@@ -4125,7 +3830,7 @@ def build_graph_orca(
         G.nodes[node]["agg_charge"] = agg_charge
 
     # Add graph metadata
-    from . import __version__, __citation__
+    from . import __citation__, __version__
 
     G.graph["metadata"] = {
         "version": __version__,
@@ -4139,8 +3844,6 @@ def build_graph_orca(
     G.graph["method"] = "orca"
 
     if debug:
-        print(
-            f"\nFinal graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds"
-        )
+        print(f"\nFinal graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds")
 
     return G

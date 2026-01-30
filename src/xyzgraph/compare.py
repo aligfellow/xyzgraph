@@ -1,4 +1,5 @@
 from typing import Optional
+
 import networkx as nx
 from rdkit import Chem
 
@@ -54,8 +55,8 @@ def compare_with_rdkit(
     Examples
     --------
     >>> from xyzgraph import build_graph, build_graph_rdkit, compare_with_rdkit
-    >>> G_cheminf = build_graph('structure.xyz')
-    >>> G_rdkit = build_graph_rdkit('structure.xyz')
+    >>> G_cheminf = build_graph("structure.xyz")
+    >>> G_rdkit = build_graph_rdkit("structure.xyz")
     >>> print(compare_with_rdkit(G_cheminf, G_rdkit))
     """
     # If no RDKit graph provided, build it from reference graph nodes
@@ -63,14 +64,13 @@ def compare_with_rdkit(
         from .graph_builders import build_graph_rdkit
 
         atoms = [
-            (reference_graph.nodes[i]["symbol"], reference_graph.nodes[i]["position"])
-            for i in reference_graph.nodes()
+            (reference_graph.nodes[i]["symbol"], reference_graph.nodes[i]["position"]) for i in reference_graph.nodes()
         ]
         charge = reference_graph.graph.get("total_charge", 0)
         try:
             rdkit_graph = build_graph_rdkit(atoms, charge=charge)
         except ValueError as e:
-            return f"\n{'=' * 60}\nRDKIT COMPARISON\n{'=' * 60}\n# {str(e)}\n"
+            return f"\n{'=' * 60}\nRDKIT COMPARISON\n{'=' * 60}\n# {e!s}\n"
 
     out = []
     out.append("\n" + "=" * 60)
@@ -133,9 +133,7 @@ def compare_with_rdkit(
         out.append("#   bond_order_diffs (Δ≥0.25):")
         for e, r, rd, delta in bo_diffs[:40]:
             a, b = e
-            out.append(
-                f"#     {a:>3}-{b:<3}   native={r:>4.2f}   rdkit={rd:>4.2f}   Δ={delta:+6.2f}"
-            )
+            out.append(f"#     {a:>3}-{b:<3}   native={r:>4.2f}   rdkit={rd:>4.2f}   Δ={delta:+6.2f}")
 
         if len(bo_diffs) > 40:
             out.append("#     ...")

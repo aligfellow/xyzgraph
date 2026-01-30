@@ -1,6 +1,6 @@
 import json
-from importlib import resources
 from dataclasses import dataclass
+from importlib import resources
 from typing import Dict, List, Set
 
 BOHR_TO_ANGSTROM = 0.5291772105
@@ -50,9 +50,7 @@ class MolecularData:
             with valence_file.open("r") as f:
                 valence_data = json.load(f)
             expected_valences = {
-                element: valence_data[element]
-                for element in valence_data
-                if not element.startswith("_")
+                element: valence_data[element] for element in valence_data if not element.startswith("_")
             }
         except Exception as e:
             print(f"Warning: Could not load valences file: {e}, using fallback")
@@ -84,13 +82,9 @@ class MolecularData:
             ve_file = data_path / "valence_electrons.json"
             with ve_file.open("r") as f:
                 ve_data = json.load(f)
-            valence_electrons = {
-                el: ve_data[el] for el in ve_data if not el.startswith("_")
-            }
+            valence_electrons = {el: ve_data[el] for el in ve_data if not el.startswith("_")}
         except Exception as e:
-            print(
-                f"Warning: Could not load valence electrons file: {e}, using fallback"
-            )
+            print(f"Warning: Could not load valence electrons file: {e}, using fallback")
             valence_electrons = {
                 "H": 1,
                 "C": 4,

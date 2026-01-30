@@ -1,6 +1,8 @@
-import networkx as nx
 from typing import List, Optional, Tuple
-from .data_loader import DATA, BOHR_TO_ANGSTROM
+
+import networkx as nx
+
+from .data_loader import BOHR_TO_ANGSTROM, DATA
 
 PREF_CHARGE_ORDER = ["gasteiger", "mulliken", "gasteiger_raw"]
 
@@ -12,9 +14,7 @@ def _pick_charge(d):
     return next(iter(d.get("charges", {}).values()), 0.0)
 
 
-def _visible_nodes(
-    G: nx.Graph, include_h: bool, show_h_indices: Optional[List[int]] = None
-) -> List[int]:
+def _visible_nodes(G: nx.Graph, include_h: bool, show_h_indices: Optional[List[int]] = None) -> List[int]:
     """
     Return node indices to display.
 
@@ -75,9 +75,7 @@ def _visible_nodes(
 # -----------------------------
 # Debug (tabular) representation
 # -----------------------------
-def graph_debug_report(
-    G: nx.Graph, include_h: bool = False, show_h_indices: Optional[List[int]] = None
-) -> str:
+def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Optional[List[int]] = None) -> str:
     """
     Debug listing (optionally hides hydrogens / C–H bonds if include_h=False).
     Valence shown is the full valence (including hidden H contributions).
@@ -97,9 +95,7 @@ def graph_debug_report(
         Formatted debug report
     """
     lines = []
-    lines.append(
-        f"# Molecular Graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds"
-    )
+    lines.append(f"# Molecular Graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds")
     if "total_charge" in G.graph or "multiplicity" in G.graph:
         # gather charge sums
         def sum_method(m):
@@ -124,20 +120,10 @@ def graph_debug_report(
             meta.append(f"sum({raw_sum[0]})={raw_sum[1]:+.3f}")
         lines.append("# " + "  ".join(meta))
     if not include_h:
-        lines.append(
-            "# (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)"
-        )
-    lines.append(
-        "# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)"
-    )
-    lines.append(
-        "# (val = organic valence excluding metal bonds; metal = metal coordination bonds)"
-    )
-    arom_edges = {
-        tuple(sorted((i, j)))
-        for i, j, d in G.edges(data=True)
-        if 1.4 < d.get("bond_order", 1.0) < 1.6
-    }
+        lines.append("# (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)")
+    lines.append("# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)")
+    lines.append("# (val = organic valence excluding metal bonds; metal = metal coordination bonds)")
+    arom_edges = {tuple(sorted((i, j))) for i, j, d in G.edges(data=True) if 1.4 < d.get("bond_order", 1.0) < 1.6}
     visible = set(_visible_nodes(G, include_h, show_h_indices))
     for idx, data in G.nodes(data=True):
         if idx not in visible:
@@ -166,8 +152,7 @@ def graph_debug_report(
             nbrs.append(f"{n}({bo:.2f}{arom})")
         lines.append(
             f"[{idx:>3}] {data.get('symbol', '?'):>2}  val={organic_val:.2f}  metal={metal_val:.2f}  "
-            f"formal={formal_str}  chg={chg:+.3f}  agg={agg:+.3f} | "
-            + (" ".join(nbrs) if nbrs else "-")
+            f"formal={formal_str}  chg={chg:+.3f}  agg={agg:+.3f} | " + (" ".join(nbrs) if nbrs else "-")
         )
     # Edge summary (filtered)
     lines.append("")
@@ -178,9 +163,7 @@ def graph_debug_report(
         idx_width = max(2, len(str(max_idx)))
         for i, j, d in sorted(G.edges(data=True)):
             if i in visible and j in visible:
-                lines.append(
-                    f"[{i:>{idx_width}}-{j:>{idx_width}}]: {d.get('bond_order', 1.0):>4.2f}"
-                )
+                lines.append(f"[{i:>{idx_width}}-{j:>{idx_width}}]: {d.get('bond_order', 1.0):>4.2f}")
     else:
         lines.append("# (no bonds detected)")
 
@@ -203,9 +186,7 @@ def _count_frames_and_get_atom_count(filepath: str) -> tuple[int, int]:
         total_lines = sum(1 for _ in f)
 
         if total_lines % frame_size != 0:
-            raise ValueError(
-                f"File has {total_lines} lines, not evenly divisible by frame size {frame_size}"
-            )
+            raise ValueError(f"File has {total_lines} lines, not evenly divisible by frame size {frame_size}")
 
         return total_lines // frame_size, num_atoms
 
@@ -234,9 +215,7 @@ def read_xyz_file(
         for i in range(num_atoms):
             parts = f.readline().strip().split()
             if len(parts) < 4:
-                raise ValueError(
-                    f"Frame {frame}, atom {i}: expected at least 4 columns"
-                )
+                raise ValueError(f"Frame {frame}, atom {i}: expected at least 4 columns")
 
             elem = parts[0]
             try:
@@ -248,17 +227,13 @@ def read_xyz_file(
             if elem.isdigit():
                 atomic_num = int(elem)
                 if atomic_num not in DATA.n2s:
-                    raise ValueError(
-                        f"Frame {frame}, atom {i}: unknown atomic number {atomic_num}"
-                    )
+                    raise ValueError(f"Frame {frame}, atom {i}: unknown atomic number {atomic_num}")
                 symbol = DATA.n2s[atomic_num]
             else:
                 symbol = elem
 
             if symbol not in DATA.s2n:
-                raise ValueError(
-                    f"Frame {frame}, atom {i}: unknown element symbol '{symbol}'"
-                )
+                raise ValueError(f"Frame {frame}, atom {i}: unknown element symbol '{symbol}'")
 
             if bohr_units:
                 x, y, z = (

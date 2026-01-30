@@ -95,22 +95,6 @@ docstring-code-format = true
 [tool.ty]
 # ty auto-detects src/ directory
 
-[[tool.ty.overrides]]
-module = "scipy.*"
-exclude = true
-
-[[tool.ty.overrides]]
-module = "networkx.*"
-exclude = true
-
-[[tool.ty.overrides]]
-module = "rdkit.*"
-exclude = true
-
-[[tool.ty.overrides]]
-module = "numpy.*"
-exclude = true
-
 # ===== Pytest =====
 [tool.pytest.ini_options]
 testpaths = ["tests"]

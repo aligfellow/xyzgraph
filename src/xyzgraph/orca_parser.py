@@ -9,13 +9,11 @@ Extracts:
 """
 
 import re
-from typing import List, Tuple, Dict, Any
+from typing import Any, Dict, List, Tuple
 
 
 class OrcaParseError(Exception):
     """Raised when ORCA output cannot be parsed"""
-
-    pass
 
 
 def parse_orca_output(filepath: str) -> Dict[str, Any]:
@@ -65,9 +63,7 @@ def parse_orca_output(filepath: str) -> Dict[str, Any]:
         raise OrcaParseError("No Mayer bond orders found in ORCA output")
 
     if len(mulliken_charges) != len(atoms):
-        raise OrcaParseError(
-            f"Mismatch: {len(atoms)} atoms but {len(mulliken_charges)} charges"
-        )
+        raise OrcaParseError(f"Mismatch: {len(atoms)} atoms but {len(mulliken_charges)} charges")
 
     return {
         "atoms": atoms,
@@ -120,9 +116,7 @@ def _parse_coordinates(content: str) -> List[Tuple[str, Tuple[float, float, floa
     )
 
     if not coord_section:
-        raise OrcaParseError(
-            "Could not find 'CARTESIAN COORDINATES (ANGSTROEM)' section"
-        )
+        raise OrcaParseError("Could not find 'CARTESIAN COORDINATES (ANGSTROEM)' section")
 
     atoms = []
     for line in coord_section.group(1).strip().split("\n"):

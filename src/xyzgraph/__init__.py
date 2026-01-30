@@ -4,27 +4,26 @@ __version__ = version("xyzgraph")
 __citation__ = f"A. S. Goodfellow, xyzgraph: Molecular Graph Construction from Cartesian Coordinates, v{__version__}, 2025, https://github.com/aligfellow/xyzgraph.git."
 
 # Eagerly load data
-from .data_loader import DATA, BOHR_TO_ANGSTROM
+# Utilities
+from .ascii_renderer import graph_to_ascii
+from .compare import compare_with_rdkit
 
 # Import default parameters from config
 from .config import DEFAULT_PARAMS
+from .data_loader import BOHR_TO_ANGSTROM, DATA
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
 from .graph_builders import (
     GraphBuilder,
     build_graph,
+    build_graph_orca,
     build_graph_rdkit,
     build_graph_rdkit_tm,
-    build_graph_orca,
 )
 
 # ORCA parser
-from .orca_parser import parse_orca_output, OrcaParseError
-
-# Utilities
-from .ascii_renderer import graph_to_ascii
+from .orca_parser import OrcaParseError, parse_orca_output
 from .utils import graph_debug_report, read_xyz_file
-from .compare import compare_with_rdkit
 
 __all__ = [
     # Main interfaces
