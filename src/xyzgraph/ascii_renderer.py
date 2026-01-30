@@ -10,8 +10,8 @@ from .utils import _visible_nodes
 
 # --- special edge glyph helper ---
 def _edge_char(attrs: Dict[str, Any], bo: float, orient: str, dx: int, dy: int) -> Tuple[str, bool, str]:
-    """
-    Return (glyph, special_flag, bond_type).
+    """Return (glyph, special_flag, bond_type).
+
     special_flag True => skip multi-line double/triple drawing.
     bond_type in ['single', 'double', 'triple'] for parallel line logic.
     Precedence: TS > NCI > normal.
@@ -67,8 +67,8 @@ def _edge_char(attrs: Dict[str, Any], bo: float, orient: str, dx: int, dy: int) 
 # 2D depiction (RDKit-based)
 # -----------------------------
 class GraphToASCII:
-    """
-    Core renderer (public but light): build RDKit 2D layout and rasterize to ASCII.
+    """Core renderer: build RDKit 2D layout and rasterize to ASCII.
+
     Prefer using graph_to_ascii() unless you need layout reuse across many graphs.
     """
 

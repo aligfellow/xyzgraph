@@ -7,7 +7,8 @@ import networkx as nx
 import numpy as np
 from rdkit import Chem, RDLogger
 
-RDLogger.DisableLog("rdApp.*")  # Try to suppress RDKit warnings
+# Try to suppress RDKit warnings   
+RDLogger.DisableLog("rdApp.*") # ty: ignore 
 
 from .config import DEFAULT_PARAMS
 from .data_loader import DATA
@@ -103,8 +104,8 @@ def compute_metadata(
 
 
 class GraphBuilder:
-    """
-    Molecular graph construction with integrated state management.
+    """Molecular graph construction with integrated state management.
+
     atoms: List of (symbol, (x, y, z)) tuples.
     """
 
@@ -255,18 +256,23 @@ class GraphBuilder:
         confidence: float,
         baseline_bonds=None,
     ) -> bool:
-        """
-        Check if adding bond i-j creates geometrically valid configuration.
+        """Check if adding bond i-j creates geometrically valid configuration.
+
         Used for low-confidence (long) bonds from extended thresholds.
 
         Parameters
         ----------
-        - confidence: bond confidence score (0.0 = at threshold, 1.0 = very short)
-                     Used to set adaptive thresholds for diagonal detection
-        - baseline_bonds: Optional list of (confidence, i, j, distance, has_metal) tuples
-                         Used for agostic H-M bond filtering
+        confidence : float
+            Bond confidence score (0.0 = at threshold, 1.0 = very short).
+            Used to set adaptive thresholds for diagonal detection.
+        baseline_bonds : list, optional
+            List of (confidence, i, j, distance, has_metal) tuples.
+            Used for agostic H-M bond filtering.
 
-        Returns True if bond should be added, False if it's spurious.
+        Returns
+        -------
+        bool
+            True if bond should be added, False if it's spurious.
         """
         # If neither atom has neighbors yet, bond is valid
         if G.degree(i) == 0 and G.degree(j) == 0:
@@ -814,11 +820,9 @@ class GraphBuilder:
         return True
 
     def _find_new_rings_from_edge(self, G: nx.Graph, i: int, j: int) -> List[List[int]]:
-        """
-        Efficiently detect new rings formed by adding edge (i, j).
-        Find shortest path from i to j.
+        """Efficiently detect new rings formed by adding edge (i, j).
 
-        Returns list of new rings
+        Find shortest path from i to j. Returns list of new rings.
         """
         # Skip if either atom is a metal (no organic rings to track)
         if G.nodes[i]["symbol"] in DATA.metals or G.nodes[j]["symbol"] in DATA.metals:
@@ -1171,9 +1175,9 @@ class GraphBuilder:
     # =========================================================================
 
     def _build_initial_graph(self) -> nx.Graph:
-        """
-        Build initial graph with 2-phase construction:
-        Step 1: Baseline bonds (DEFAULT thresholds), compute rings from baseline structure
+        """Build initial graph with 2-phase construction.
+
+        Step 1: Baseline bonds (DEFAULT thresholds), compute rings from baseline structure.
         Step 2: Extended bonds (CUSTOM thresholds if modified, strict validation).
         """
         G = nx.Graph()
@@ -1465,9 +1469,9 @@ class GraphBuilder:
         return pi_electrons
 
     def _init_kekule_for_aromatic_rings(self, G: nx.Graph) -> int:
-        """
-        Combined Kekulé initialization:
-        1) Validate rings (planarity, aromatic atoms, sp2 carbons, Huckel, Cp-like)
+        """Initialize Kekulé patterns for aromatic rings.
+
+        1) Validate rings (planarity, aromatic atoms, sp2 carbons, Huckel, Cp-like).
         2) Initialize Kekulé patterns with propagation respecting fused rings.
         """
         cycles = G.graph.get("_rings")
@@ -1846,8 +1850,8 @@ class GraphBuilder:
     # =============================================================================
 
     def _quick_valence_adjust(self, G: nx.Graph) -> Dict[str, int]:
-        """
-        Fast heuristic bond order adjustment.
+        """Perform fast heuristic bond order adjustment.
+
         No formal charge optimization - just satisfy valences.
         """
         stats = {"iterations": 0, "promotions": 0}
@@ -1937,10 +1941,10 @@ class GraphBuilder:
         return (i, j) if i < j else (j, i)
 
     def _edge_likelihood(self, G: nx.Graph, *, init: bool = False, touch_nodes: Optional[set] = None):
-        """
-        Cache-aware candidate selection:
-        - init=True: build score map for all edges once
-        - touch_nodes={u,v}: update edges belonging to these nodes
+        """Select candidate edges for bond order optimization.
+
+        - init=True: build score map for all edges once.
+        - touch_nodes={u,v}: update edges belonging to these nodes.
         - return current top-k edges as a list [(i,j), ...].
         """
         # Build / refresh full score map
@@ -1970,8 +1974,8 @@ class GraphBuilder:
     # =============================================================================
 
     def _ring_conjugation_penalty(self, G: nx.Graph, rings) -> float:
-        """
-        Assess conjugation and exocyclic double penalties in aromatic rings (5-6 members).
+        """Assess conjugation penalties in aromatic rings (5-6 members).
+
         Returns a numeric penalty (larger = worse).
         """
         conjugation_penalty = 0.0
@@ -2025,16 +2029,10 @@ class GraphBuilder:
         return conjugation_penalty
 
     def _full_valence_optimize(self, G: nx.Graph) -> Dict[str, Any]:
-        """
-        Full bond order optimization with formal charge minimization and
-        detailed debugging.
+        """Optimize bond orders with formal charge minimization.
 
-        Returns a stats dict containing:
-            - iterations
-            - improvements
-            - initial_score
-            - final_score
-            - final formal_charges
+        Returns a stats dict containing iterations, improvements,
+        initial_score, final_score, and final formal_charges.
         """
         self.log(f"\n{'=' * 80}", 0)
         self.log("FULL VALENCE OPTIMIZATION", 1)
@@ -2177,8 +2175,8 @@ class GraphBuilder:
         return stats
 
     def _update_valence_cache(self, G: nx.Graph, nodes: Optional[set] = None) -> None:
-        """
-        Update valence cache for specific nodes or all nodes.
+        """Update valence cache for specific nodes or all nodes.
+
         Excludes metal bonds to match behavior in optimization methods.
         """
         if nodes is None:
@@ -2201,8 +2199,8 @@ class GraphBuilder:
                 )
 
     def _restore_graph_caches(self, G: nx.Graph) -> None:
-        """
-        Rebuild cached graph properties after modifications.
+        """Rebuild cached graph properties after modifications.
+
         Called after applying bond order changes.
         """
         # Update neighbor cache
@@ -2536,11 +2534,10 @@ class GraphBuilder:
     # =============================================================================
 
     def _detect_aromatic_rings(self, G: nx.Graph) -> int:
-        """
-        Detect aromatic rings using Hückel rule (4n+2 π electrons).
-        Only performed on 5 and 6 mem rings, with 'C', 'N', 'O', 'S', 'P' # NOTE: possible limitation
-            Reduces to C only for now.
-        This only sets bond orders to 1.5 for aromatic rings - kekule structure is still a valid solution.
+        """Detect aromatic rings using Hückel rule (4n+2 π electrons).
+
+        Only performed on 5 and 6 member rings with C, N, O, S, P atoms.
+        Sets bond orders to 1.5 for aromatic rings.
         """
         self.log(f"\n{'=' * 80}", 0)
         self.log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
@@ -2717,19 +2714,21 @@ class GraphBuilder:
         return charge, ligand_id
 
     def _classify_metal_ligands(self, G: nx.Graph, formal_charges: Optional[List[int]] = None) -> Dict[str, Any]:
-        """
-        Infer ligand types and metal oxidation state from formal charges.
+        """Infer ligand types and metal oxidation state from formal charges.
+
         Handles: monatomic (H⁻, Cl⁻), linear chains (CO, CN⁻), rings (Cp⁻).
 
         Parameters
         ----------
-        - G: Graph with molecular structure
-        - formal_charges: Optional list of formal charges (if not stored in nodes yet)
+        G : nx.Graph
+            Graph with molecular structure.
+        formal_charges : list, optional
+            List of formal charges (if not stored in nodes yet).
 
-        Returns classification dict with:
-        - dative_bonds: [(metal, representative_atom, ligand_type)] neutral ligands
-        - ionic_bonds: [(metal, representative_atom, charge, ligand_type)] charged ligands
-        - metal_ox_states: {metal_idx: oxidation_state}
+        Returns
+        -------
+        dict
+            Classification with dative_bonds, ionic_bonds, and metal_ox_states.
         """
 
         # Helper to get formal charge

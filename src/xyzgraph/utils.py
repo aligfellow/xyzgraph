@@ -78,23 +78,24 @@ def _visible_nodes(G: nx.Graph, include_h: bool, show_h_indices: Optional[List[i
 # Debug (tabular) representation
 # -----------------------------
 def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Optional[List[int]] = None) -> str:
-    """
-    Debug listing (optionally hides hydrogens / C–H bonds if include_h=False).
+    """Generate debug listing of molecular graph.
+
+    Optionally hides hydrogens / C-H bonds if include_h=False.
     Valence shown is the full valence (including hidden H contributions).
 
     Parameters
     ----------
     G : nx.Graph
-        Molecular graph to report
+        Molecular graph to report.
     include_h : bool, default=False
-        If True, show all hydrogen atoms
-    show_h_indices : Optional[List[int]], default=None
-        List of specific hydrogen atom indices to show
+        If True, show all hydrogen atoms.
+    show_h_indices : list of int, optional
+        List of specific hydrogen atom indices to show.
 
     Returns
     -------
     str
-        Formatted debug report
+        Formatted debug report.
     """
     lines = []
     lines.append(f"# Molecular Graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds")
@@ -196,8 +197,8 @@ def _count_frames_and_get_atom_count(filepath: str) -> tuple[int, int]:
 def read_xyz_file(
     filepath: str, bohr_units: bool = False, frame: int = 0
 ) -> List[Tuple[str, Tuple[float, float, float]]]:
-    """
-    Read XYZ file and return list of (symbol, (x, y, z)) for specified frame.
+    """Read XYZ file and return list of (symbol, (x, y, z)) for specified frame.
+
     Supports single and multi-frame (trajectory) files. Streams to requested frame.
     """
     num_frames, num_atoms = _count_frames_and_get_atom_count(filepath)

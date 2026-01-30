@@ -10,8 +10,8 @@ BOHR_TO_ANGSTROM = 0.5291772105
 
 @dataclass
 class MolecularData:
-    """
-    Singleton container for molecular reference data.
+    """Container for molecular reference data.
+
     Loaded once on import and accessible globally.
     """
 
@@ -26,7 +26,7 @@ class MolecularData:
 
     @classmethod
     def get_instance(cls) -> "MolecularData":
-        """Get or create singleton instance."""
+        """Get or create instance."""
         if cls._instance is None:
             cls._instance = cls._load_data()
         return cls._instance
@@ -173,5 +173,5 @@ class MolecularData:
         )
 
 
-# Eagerly instantiate singleton on module import
+# Eagerly instantiate on module import
 DATA = MolecularData.get_instance()
