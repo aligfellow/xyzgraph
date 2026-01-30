@@ -1,5 +1,38 @@
-# Centralized default parameters for graph building
-DEFAULT_PARAMS = {
+"""Default configuration parameters."""
+
+from typing import TypedDict
+
+
+class DefaultParamsType(TypedDict):
+    """Type definition for DEFAULT_PARAMS."""
+
+    method: str
+    charge: int
+    multiplicity: int | None
+    quick: bool
+    optimizer: str
+    max_iter: int
+    edge_per_iter: int
+    beam_width: int
+    bond: list[tuple[int, int]] | None
+    unbond: list[tuple[int, int]] | None
+    clean_up: bool
+    debug: bool
+    threshold: float
+    threshold_h_h: float
+    threshold_h_nonmetal: float
+    threshold_h_metal: float
+    threshold_metal_ligand: float
+    threshold_nonmetal_nonmetal: float
+    threshold_metal_metal_self: float
+    relaxed: bool
+    allow_metal_metal_bonds: bool
+    period_scaling_h_bonds: float
+    period_scaling_nonmetal_bonds: float
+    orca_bond_threshold: float
+
+
+DEFAULT_PARAMS: DefaultParamsType = {
     "method": "cheminf",
     "charge": 0,
     "multiplicity": None,
