@@ -23,7 +23,7 @@ jobs:
           ruff format --check src/
 
       - name: Type check
-        run: ty check src/
+        run: python -m ty check src/
 
       - name: Test
         run: pytest --cov --cov-branch --cov-report=xml
