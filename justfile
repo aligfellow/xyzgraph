@@ -15,6 +15,8 @@ fix:
     uv run ruff format .
     uv run ruff check --fix .
 
-# Build a release.
 build:
     uv build
+
+setup:
+    uv sync --dev

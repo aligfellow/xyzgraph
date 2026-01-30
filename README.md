@@ -1338,6 +1338,16 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 
 Contributions welcome! Please open an issue or pull request and get in touch with any questions [here](https://github.com/aligfellow/xyzgraph/issues).
 
-## Dev setup 
-TODO: Use `uv` to setup the environment, enabling CI and pre-commit rules.
-These are also setup using `just`: so run `just check`.
+## Developer Setup
+
+To develop with `xyzgraph`, you can clone the repo and use
+[`just`](https://github.com/casey/just) and [`uv`](https://docs.astral.sh) to setup the dev environment:
+
+```bash
+just setup
+```
+TODO: setup CI and pre-commits.
+Run the checks using:
+```bash
+just check
+```
