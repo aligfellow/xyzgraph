@@ -26,24 +26,24 @@ from .orca_parser import OrcaParseError, parse_orca_output
 from .utils import graph_debug_report, read_xyz_file
 
 __all__ = [
-    # Main interfaces
-    "GraphBuilder",
-    "build_graph",
-    "build_graph_rdkit",
-    "build_graph_rdkit_tm",
-    "build_graph_orca",
-    # ORCA support
-    "parse_orca_output",
-    "OrcaParseError",
-    # Visualization
-    "graph_to_ascii",
-    "graph_debug_report",
-    # Utilities
-    "read_xyz_file",
-    "compare_with_rdkit",
-    # Configuration
-    "DEFAULT_PARAMS",
+    "BOHR_TO_ANGSTROM",
     # Data access
     "DATA",  # Access as DATA.vdw, DATA.metals, etc.
-    "BOHR_TO_ANGSTROM",
+    # Configuration
+    "DEFAULT_PARAMS",
+    # Main interfaces
+    "GraphBuilder",
+    "OrcaParseError",
+    "build_graph",
+    "build_graph_orca",
+    "build_graph_rdkit",
+    "build_graph_rdkit_tm",
+    "compare_with_rdkit",
+    "graph_debug_report",
+    # Visualization
+    "graph_to_ascii",
+    # ORCA support
+    "parse_orca_output",
+    # Utilities
+    "read_xyz_file",
 ]

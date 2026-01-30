@@ -248,9 +248,7 @@ def read_xyz_file(
 
 
 def _parse_pairs(arg_value: str):
-    """
-    Parse '--bond "i,j a,b"' or '--unbond "i,j a,b"' into [(i,j), (a,b)].
-    """
+    """Parse '--bond "i,j a,b"' or '--unbond "i,j a,b"' into [(i,j), (a,b)]."""
     pairs = []
     for pair_str in arg_value.split():
         i_str, j_str = pair_str.split(",")

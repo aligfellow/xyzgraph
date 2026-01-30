@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Tuple
 
 
 class OrcaParseError(Exception):
-    """Raised when ORCA output cannot be parsed"""
+    """Raised when ORCA output cannot be parsed."""
 
 
 def parse_orca_output(filepath: str) -> Dict[str, Any]:

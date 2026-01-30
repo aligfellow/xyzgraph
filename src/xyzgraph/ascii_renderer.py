@@ -152,8 +152,8 @@ class GraphToASCII:
 
         grid = []
         for x, y in coords:
-            gx = int(round(((x - min(xs)) / span_x) * scale_x * mult_x))
-            gy = int(round(((y - min(ys)) / span_y) * scale_y * mult_y))
+            gx = round(((x - min(xs)) / span_x) * scale_x * mult_x)
+            gy = round(((y - min(ys)) / span_y) * scale_y * mult_y)
             grid.append((gx, gy))
         padding = 1
         max_gx = max(g for g, _ in grid) + padding
@@ -173,8 +173,8 @@ class GraphToASCII:
             steps = max(abs(x2 - x1), abs(y2 - y1))
             steps = max(1, steps)
             for t in range(steps + 1):
-                xt = int(round(x1 + (x2 - x1) * t / steps))
-                yt = int(round(y1 + (y2 - y1) * t / steps))
+                xt = round(x1 + (x2 - x1) * t / steps)
+                yt = round(y1 + (y2 - y1) * t / steps)
                 if 0 <= yt < len(canvas) and 0 <= xt < len(canvas[0]):
                     if canvas[yt][xt] == " ":
                         canvas[yt][xt] = ch
@@ -184,12 +184,12 @@ class GraphToASCII:
 
         # IMPROVED: Draw double diagonal bonds with wider spacing
         def draw_double_diagonal(x1, y1, x2, y2, glyph):
-            """Draw double diagonal bond with improved spacing"""
+            """Draw double diagonal bond with improved spacing."""
             steps = max(abs(x2 - x1), abs(y2 - y1))
             steps = max(1, steps)
 
             # Determine perpendicular offset direction
-            dx, dy = x2 - x1, y2 - y1
+            _dx, _dy = x2 - x1, y2 - y1
             if glyph == "/":
                 # For /, offset perpendicular is along \
                 offset_pairs = [(0, 0), (1, 0), (-1, 0)]  # center, right, left
@@ -199,8 +199,8 @@ class GraphToASCII:
 
             # Draw main line
             for t in range(steps + 1):
-                xt = int(round(x1 + (x2 - x1) * t / steps))
-                yt = int(round(y1 + (y2 - y1) * t / steps))
+                xt = round(x1 + (x2 - x1) * t / steps)
+                yt = round(y1 + (y2 - y1) * t / steps)
                 for ox, oy in offset_pairs[:2]:  # Draw two parallel lines
                     xp, yp = xt + ox, yt + oy
                     if 0 <= yp < len(canvas) and 0 <= xp < len(canvas[0]):
@@ -243,7 +243,7 @@ class GraphToASCII:
             # Triple bonds: just draw single '#' (no additional lines)
         # --- end improved edge drawing ---
 
-        for m_idx, orig in enumerate(nodes):
+        for m_idx, _orig in enumerate(nodes):
             gx, gy = grid[m_idx]
             if 0 <= gy < len(canvas) and 0 <= gx < len(canvas[0]):
                 sym = mol.GetAtomWithIdx(m_idx).GetSymbol()

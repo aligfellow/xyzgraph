@@ -91,8 +91,8 @@ def compare_graphs(G1, G2, label1, label2):
     print(f"# GRAPH COMPARISON: {label1} vs {label2}")
     print("=" * 80)
 
-    edges1 = set(tuple(sorted((i, j))) for i, j in G1.edges())
-    edges2 = set(tuple(sorted((i, j))) for i, j in G2.edges())
+    edges1 = {tuple(sorted((i, j))) for i, j in G1.edges()}
+    edges2 = {tuple(sorted((i, j))) for i, j in G2.edges()}
 
     only_1 = edges1 - edges2
     only_2 = edges2 - edges1

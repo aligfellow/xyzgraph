@@ -24,14 +24,14 @@ class MolecularData:
 
     @classmethod
     def get_instance(cls) -> "MolecularData":
-        """Get or create singleton instance"""
+        """Get or create singleton instance."""
         if cls._instance is None:
             cls._instance = cls._load_data()
         return cls._instance
 
     @classmethod
     def _load_data(cls) -> "MolecularData":
-        """Load all molecular data from package resources"""
+        """Load all molecular data from package resources."""
         data_path = resources.files("xyzgraph.data")
 
         # Load VDW radii

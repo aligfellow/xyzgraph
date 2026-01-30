@@ -1,3 +1,1 @@
-"""
-Reference data for van der Waals radii
-"""
+"""Reference data for van der Waals radii."""
