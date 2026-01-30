@@ -1337,3 +1337,7 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 ## Contributing & Contact
 
 Contributions welcome! Please open an issue or pull request and get in touch with any questions [here](https://github.com/aligfellow/xyzgraph/issues).
+
+## Dev setup 
+TODO: Use `uv` to setup the environment, enabling CI and pre-commit rules.
+These are also setup using `just`: so run `just check`.
