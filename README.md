@@ -3,6 +3,13 @@
 **xyzgraph** is a Python toolkit for building molecular graphs (bond connectivity, bond orders, formal charges, and partial charges) directly from 3D atomic coordinates in XYZ format. It provides both **cheminformatics-based** and **quantum chemistry-based** (xTB) workflows.
 
 [![PyPI Downloads](https://static.pepy.tech/badge/xyzgraph)](https://pepy.tech/projects/xyzgraph)
+[![License](https://img.shields.io/github/license/aligfellow/xyzgraph)](https://github.com/aligfellow/xyzgraph/blob/main/LICENSE)
+[![Powered by: uv](https://img.shields.io/badge/-uv-purple)](https://docs.astral.sh/uv)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Typing: ty](https://img.shields.io/badge/typing-ty-EFC621.svg)](https://github.com/astral-sh/ty)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/aligfellow/xyzgraph/ci.yml?branch=uv_tests&logo=github-actions)](https://github.com/aligfellow/xyzgraph/actions)
+[![Codecov](https://img.shields.io/codecov/c/github/aligfellow/xyzgraph)](https://codecov.io/gh/aligfellow/xyzgraph)
+
 
 ---
 
@@ -1330,3 +1337,21 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 ## Contributing & Contact
 
 Contributions welcome! Please open an issue or pull request and get in touch with any questions [here](https://github.com/aligfellow/xyzgraph/issues).
+
+## Developer Setup
+
+To develop with `xyzgraph`, you can clone the repo and use
+[`just`](https://github.com/casey/just) and [`uv`](https://docs.astral.sh) to setup the dev environment:
+
+```bash
+just setup
+```
+The cli can be used with:
+```bash
+uv run xyzgraph filename.xyz
+```
+
+Run the checks using:
+```bash
+just check
+```
