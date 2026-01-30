@@ -10,7 +10,6 @@ from . import (
     read_xyz_file,
     __version__,
     __citation__,
-    BOHR_TO_ANGSTROM,
 )
 
 from .config import DEFAULT_PARAMS

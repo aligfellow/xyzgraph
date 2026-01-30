@@ -1057,12 +1057,12 @@ class GraphBuilder:
 
         # Log initial formal charges
         initial_sum = sum(formal)
-        self.log(f"\nInitial formal charges:", 2)
+        self.log("\nInitial formal charges:", 2)
         self.log(f"  Sum: {initial_sum:+d} (target: {self.charge:+d})", 3)
 
         if has_metals:
             # Show metal coordination summary
-            self.log(f"\nMetal coordination summary:", 3)
+            self.log("\nMetal coordination summary:", 3)
 
             # Compute ligand classification inline, passing formal charges
             ligand_classification = self._classify_metal_ligands(G, formal)
@@ -1120,12 +1120,12 @@ class GraphBuilder:
                 (i, formal[i]) for i in range(len(formal)) if formal[i] != 0
             ]
             if charged_atoms:
-                self.log(f"  Charged atoms:", 3)
+                self.log("  Charged atoms:", 3)
                 for i, fc in charged_atoms:
                     sym = G.nodes[i]["symbol"]
                     self.log(f"    {sym}{i}: {fc:+d}", 4)
             else:
-                self.log(f"  (no charged atoms)", 3)
+                self.log("  (no charged atoms)", 3)
 
         # Balance residual charge with priority-based distribution
         residual = self.charge - sum(formal)
@@ -1135,7 +1135,7 @@ class GraphBuilder:
         has_metals = any(G.nodes[i]["symbol"] in DATA.metals for i in G.nodes())
 
         if residual != 0 and not has_metals:
-            self.log(f"\nResidual charge distribution needed:", 2)
+            self.log("\nResidual charge distribution needed:", 2)
             self.log(f"  Residual: {residual:+d}", 3)
 
             candidates = []
@@ -1169,7 +1169,7 @@ class GraphBuilder:
 
             candidates.sort(reverse=True, key=lambda x: x[0])
 
-            self.log(f"  Top candidates (showing first 10):", 3)
+            self.log("  Top candidates (showing first 10):", 3)
             for score, idx in candidates[:10]:
                 sym = G.nodes[idx]["symbol"]
                 current_fc = formal[idx]
@@ -1191,13 +1191,13 @@ class GraphBuilder:
             for sym, idx, new_fc in distributed_to:
                 self.log(f"    {sym}{idx}: {new_fc:+d}", 4)
         elif residual != 0 and has_metals:
-            self.log(f"\nMetal complex detected: ", 2)
+            self.log("\nMetal complex detected: ", 2)
             self.log(
                 f"  Residual: {residual:+d} (represents metal oxidation states)", 3
             )
         else:
             self.log(
-                f"\nNo residual charge distribution needed (sum matches target)", 2
+                "\nNo residual charge distribution needed (sum matches target)", 2
             )
 
         return formal
@@ -1407,13 +1407,13 @@ class GraphBuilder:
             if confidence > 0.4:
                 G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
                 edge_count += 1
-                self.log(f"  Added high-confidence bond", 4)
+                self.log("  Added high-confidence bond", 4)
             # Low confidence: validate geometry
             else:
                 if self._validate_bond_geometry(G, i, j, d, confidence, baseline_bonds):
                     G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
                     edge_count += 1
-                    self.log(f"  Added validated bond", 4)
+                    self.log("  Added validated bond", 4)
                 else:
                     rejected_count += 1
 
@@ -2787,7 +2787,7 @@ class GraphBuilder:
                         f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}",
                         1,
                     )
-                    self.log(f"✗ Contains sp3 character, skipping aromaticity check", 2)
+                    self.log("✗ Contains sp3 character, skipping aromaticity check", 2)
                     is_planar = False
                     break
 
@@ -2880,7 +2880,7 @@ class GraphBuilder:
                 if bonds_set > 0:
                     aromatic_rings += 1
             else:
-                self.log(f"✗ Not aromatic (4n+2 rule violated)", 2)
+                self.log("✗ Not aromatic (4n+2 rule violated)", 2)
 
         self.log(f"\n{'-' * 80}", 0)
         self.log(
@@ -3216,7 +3216,7 @@ class GraphBuilder:
         xyz_path = os.path.join(work, f"{basename}.xyz")
         with open(xyz_path, "w") as f:
             f.write(f"{len(self.atoms)}\n")
-            f.write(f"xyzgraph generated XYZ for xTB\n")
+            f.write("xyzgraph generated XYZ for xTB\n")
             for symbol, (x, y, z) in self.atoms:
                 f.write(f"{symbol:>2} {x:15.8f} {y:15.8f} {z:15.8f}\n")
 
@@ -3299,7 +3299,7 @@ class GraphBuilder:
         else:
             # Fallback to distance-based if xTB failed
             self.log(
-                f"Warning: No xTB bonds found, falling back to distance-based, try using `--method cheminf`",
+                "Warning: No xTB bonds found, falling back to distance-based, try using `--method cheminf`",
                 1,
             )
             G = self._build_initial_graph()
@@ -3639,7 +3639,6 @@ def build_graph_rdkit_tm(
     import tempfile
     from rdkit import Chem
     from networkx.algorithms import isomorphism
-    from collections import defaultdict
     from . import BOHR_TO_ANGSTROM, DATA
 
     # Import xyz2mol_tm
@@ -3765,14 +3764,14 @@ def build_graph_rdkit_tm(
         print("Indexed against xyzgraph by perfect isomorphism.")
     else:
         # Graphs differ - use partial matching
-        print(f"Warning: Graphs not perfectly isomorphic.")
+        print("Warning: Graphs not perfectly isomorphic.")
         print(
             f"  RDKit: {G_rdkit.number_of_nodes()} nodes, {G_rdkit.number_of_edges()} edges"
         )
         print(
             f"  XYZ:   {G_xyz_simple.number_of_nodes()} nodes, {G_xyz_simple.number_of_edges()} edges"
         )
-        print(f"  Attempting partial matching based on connectivity similarity...")
+        print("  Attempting partial matching based on connectivity similarity...")
 
         rdkit_to_xyz = _partial_graph_matching(G_rdkit, G_xyz_simple)
 

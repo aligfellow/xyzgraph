@@ -1,10 +1,8 @@
-from typing import Optional, Dict, List, Tuple, Any
+from typing import Optional
 import networkx as nx
 from rdkit import Chem
-from rdkit.Chem import rdDetermineBonds
 
 from .ascii_renderer import graph_to_ascii
-from .data_loader import DATA
 from .utils import graph_debug_report
 
 

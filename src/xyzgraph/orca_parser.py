@@ -9,7 +9,7 @@ Extracts:
 """
 
 import re
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any
 
 
 class OrcaParseError(Exception):

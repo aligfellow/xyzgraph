@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Tuple
 from .data_loader import DATA, BOHR_TO_ANGSTROM
 
 PREF_CHARGE_ORDER = ["gasteiger", "mulliken", "gasteiger_raw"]

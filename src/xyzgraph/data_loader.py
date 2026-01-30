@@ -1,7 +1,7 @@
 import json
 from importlib import resources
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set
 
 BOHR_TO_ANGSTROM = 0.5291772105
 
