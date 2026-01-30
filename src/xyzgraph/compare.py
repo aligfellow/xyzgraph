@@ -90,10 +90,9 @@ def compare_with_rdkit(
             reference_graph,
             scale=ascii_scale,
             include_h=ascii_include_h,
-            return_layout=True,
         )
 
-        ascii_txt = graph_to_ascii(
+        ascii_txt, _ = graph_to_ascii(
             rdkit_graph,
             scale=ascii_scale,
             include_h=ascii_include_h,

@@ -328,9 +328,8 @@ def graph_to_ascii(
     reference: Optional[nx.Graph] = None,
     reference_layout: Optional[Dict[int, Tuple[float, float]]] = None,
     nodes: Optional[List[int]] = None,
-    return_layout: bool = False,
     show_h_indices: Optional[List[int]] = None,
-) -> str | Tuple[str, Dict[int, Tuple[float, float]]]:
+) -> Tuple[str, Dict[int, Tuple[float, float]]]:
     """
     Render graph to ASCII.
 
@@ -375,9 +374,7 @@ def graph_to_ascii(
         include_h=include_h,
         show_h_indices=show_h_indices,
     )
-    if return_layout:
-        return ascii_out, out_layout
-    return ascii_out
+    return ascii_out, out_layout
 
 
 __all__ = ["GraphToASCII", "graph_to_ascii"]

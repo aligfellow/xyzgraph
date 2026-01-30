@@ -76,7 +76,7 @@ def display_graph(G, args, show_h_indices, label=""):
     if show_ascii:
         title = f"# ASCII Depiction ({label})" if label else "# ASCII Depiction"
         print(f"\n{'=' * 80}\n{title}\n{'=' * 80}\n")
-        ascii_out = graph_to_ascii(
+        ascii_out, _ = graph_to_ascii(
             G,
             scale=max(0.2, args.ascii_scale),
             include_h=args.show_h,
@@ -496,9 +496,8 @@ def main():
                     scale=max(0.2, args.ascii_scale),
                     include_h=args.show_h,
                     show_h_indices=show_h_indices,
-                    return_layout=True,
                 )
-                ascii_orca = graph_to_ascii(
+                ascii_orca, _ = graph_to_ascii(
                     G_orca,
                     scale=max(0.2, args.ascii_scale),
                     include_h=args.show_h,
@@ -537,9 +536,8 @@ def main():
                     scale=max(0.2, args.ascii_scale),
                     include_h=args.show_h,
                     show_h_indices=show_h_indices,
-                    return_layout=True,
                 )
-                ascii_rdkit_tm = graph_to_ascii(
+                ascii_rdkit_tm, _ = graph_to_ascii(
                     G_rdkit_tm,
                     scale=max(0.2, args.ascii_scale),
                     include_h=args.show_h,
