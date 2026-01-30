@@ -295,7 +295,10 @@ def main():
         "--threshold-nonmetal",
         type=float,
         default=DEFAULT_PARAMS["threshold_nonmetal_nonmetal"],
-        help=f"ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: {DEFAULT_PARAMS['threshold_nonmetal_nonmetal']})",
+        help=(
+            f"ADVANCED: vdW threshold for nonmetal-nonmetal bonds "
+            f"(default: {DEFAULT_PARAMS['threshold_nonmetal_nonmetal']})"
+        ),
     )
     p.add_argument(
         "--allow-metal-metal-bonds",
@@ -319,7 +322,10 @@ def main():
         "--period-scaling-nonmetal-bonds",
         type=float,
         default=DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
-        help=f"ADVANCED: Period scaling for nonmetal bonds (default: {DEFAULT_PARAMS['period_scaling_nonmetal_bonds']}, 0=disabled)",
+        help=(
+            f"ADVANCED: Period scaling for nonmetal bonds "
+            f"(default: {DEFAULT_PARAMS['period_scaling_nonmetal_bonds']}, 0=disabled)"
+        ),
     )
 
     args = p.parse_args()

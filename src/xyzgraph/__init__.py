@@ -3,7 +3,10 @@
 from importlib.metadata import version
 
 __version__ = version("xyzgraph")
-__citation__ = f"A. S. Goodfellow, xyzgraph: Molecular Graph Construction from Cartesian Coordinates, v{__version__}, 2025, https://github.com/aligfellow/xyzgraph.git."
+__citation__ = (
+    f"A. S. Goodfellow, xyzgraph: Molecular Graph Construction from Cartesian "
+    f"Coordinates, v{__version__}, 2025, https://github.com/aligfellow/xyzgraph.git."
+)
 
 # Eagerly load data
 # Utilities

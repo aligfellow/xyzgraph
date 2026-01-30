@@ -124,7 +124,8 @@ def compare_with_rdkit(
             bo_diffs.append((e, r, rd, r - rd))
 
     out.append(
-        f"# Bond differences: only_in_native={len(only_ref):,}   only_in_rdkit={len(only_rdkit):,}   bond_order_diffs={len(bo_diffs):,}"
+        f"# Bond differences: only_in_native={len(only_ref):,}   "
+        f"only_in_rdkit={len(only_rdkit):,}   bond_order_diffs={len(bo_diffs):,}"
     )
 
     if only_ref:

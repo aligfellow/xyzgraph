@@ -309,9 +309,10 @@ class GraphBuilder:
                             # Reject weak M-nonmetal bonds if stronger bond exists
                             if conf / max(confidence, 0.01) > 2.0:
                                 self.log(
-                                    f"  Rejected {nonmetal_sym}-M agostic: {nonmetal_sym}-X bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})",
-                                    4,
-                                )
+                                f"  Rejected {nonmetal_sym}-M agostic: {nonmetal_sym}-X bond stronger "
+                                f"(conf={conf:.2f} vs {confidence:.2f})",
+                                4,
+                            )
                                 return False
                             break  # Found relevant bond, check complete
 
@@ -378,7 +379,8 @@ class GraphBuilder:
                         # Reject only if ALL existing bonds are much stronger
                         if all_bonds_stronger:
                             self.log(
-                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: weak 4-ring closure (conf={confidence:.2f}), ALL existing bonds much stronger",
+                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: weak 4-ring closure "
+                                f"(conf={confidence:.2f}), ALL existing bonds stronger",
                                 4,
                             )
                             return False
@@ -392,7 +394,8 @@ class GraphBuilder:
 
             if angle < acute_threshold:
                 self.log(
-                    f"  Rejected bond {sym_i}{i}-{sym_j}{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{i}",
+                    f"  Rejected bond {sym_i}{i}-{sym_j}{j}: angle too acute "
+                    f"({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{i}",
                     4,
                 )
                 return False
@@ -402,7 +405,8 @@ class GraphBuilder:
                 # If bond involves metal (at either end), be lenient with collinearity
                 if has_metal:
                     self.log(
-                        f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{i}, involves metal ({sym_i}-{sym_j}) - allowed",
+                        f"  Bond {i}-{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{i}, "
+                        f"involves metal ({sym_i}-{sym_j}) - allowed",
                         4,
                     )
                     continue
@@ -427,14 +431,16 @@ class GraphBuilder:
                     # Same direction (bond behind another) - spurious
                     if dot_product > 0.9:
                         self.log(
-                            f"  Rejected bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{i}",
+                            f"  Rejected bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°) "
+                            f"same direction as {existing_neighbor}-{i}",
                             4,
                         )
                         return False
                     # Opposite direction (trans/linear) - valid
                     elif dot_product < -0.9:
                         self.log(
-                            f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{i} - valid trans/linear",
+                            f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°) "
+                            f"opposite direction to {existing_neighbor}-{i} - valid trans",
                             4,
                         )
                         continue
@@ -451,7 +457,8 @@ class GraphBuilder:
 
             if angle < acute_threshold:
                 self.log(
-                    f"  Rejected bond {sym_i}{i}-{sym_j}{j}: angle too acute ({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{j}",
+                    f"  Rejected bond {sym_i}{i}-{sym_j}{j}: angle too acute "
+                    f"({angle:.1f}°, threshold={acute_threshold:.1f}°) with {existing_neighbor}-{j}",
                     4,
                 )
                 return False
@@ -461,7 +468,8 @@ class GraphBuilder:
                 # If bond involves metal, be lenient
                 if has_metal:
                     self.log(
-                        f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°) with {existing_neighbor}-{j}, involves metal - allowed",
+                        f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°) "
+                        f"with {existing_neighbor}-{j}, involves metal - allowed",
                         4,
                     )
                     continue
@@ -482,13 +490,15 @@ class GraphBuilder:
 
                     if dot_product > 0.9:
                         self.log(
-                            f"  Rejected bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) same direction as {existing_neighbor}-{j}",
+                            f"  Rejected bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°) "
+                            f"same direction as {existing_neighbor}-{j}",
                             4,
                         )
                         return False
                     elif dot_product < -0.9:
                         self.log(
-                            f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°, dot={dot_product:.2f}) opposite direction to {existing_neighbor}-{j} - valid trans/linear",
+                            f"  Bond {sym_i}{i}-{sym_j}{j}: collinear ({angle:.1f}°) "
+                            f"opposite direction to {existing_neighbor}-{j} - valid trans",
                             4,
                         )
                         continue

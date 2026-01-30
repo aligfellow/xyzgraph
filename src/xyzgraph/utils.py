@@ -64,7 +64,7 @@ def _visible_nodes(G: nx.Graph, include_h: bool, show_h_indices: Optional[List[i
         # Hydrogen: inspect neighbors
         nbrs = list(G.neighbors(n))
         if not nbrs:
-            # isolated H (rare) – show (could be a problem)
+            # isolated H (rare) - show (could be a problem)
             keep.append(n)
             continue
         # Hide C-H protons
@@ -123,7 +123,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
             meta.append(f"sum({raw_sum[0]})={raw_sum[1]:+.3f}")
         lines.append("# " + "  ".join(meta))
     if not include_h:
-        lines.append("# (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)")
+        lines.append("# (C-H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)")
     lines.append("# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)")
     lines.append("# (val = organic valence excluding metal bonds; metal = metal coordination bonds)")
     arom_edges = {tuple(sorted((i, j))) for i, j, d in G.edges(data=True) if 1.4 < d.get("bond_order", 1.0) < 1.6}
