@@ -285,6 +285,7 @@ class GraphToASCII:
         include_h: bool = False,
         show_h_indices: Optional[List[int]] = None,
     ) -> Tuple[str, Dict[int, Tuple[float, float]]]:
+        """Render graph to ASCII."""
         if nodes is None:
             nodes = _visible_nodes(graph, include_h, show_h_indices)
         else:

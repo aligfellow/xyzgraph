@@ -122,6 +122,7 @@ def compare_graphs(G1, G2, label1, label2):
 
 
 def main():
+    """CLI entry point."""
     p = argparse.ArgumentParser(description="Build molecular graph from XYZ or ORCA output.")
     p.add_argument("input_file", nargs="?", help="Input file (XYZ or ORCA .out)")
 
