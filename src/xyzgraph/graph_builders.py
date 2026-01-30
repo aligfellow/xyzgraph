@@ -3390,7 +3390,7 @@ def build_graph_rdkit_tm(
 
     # Import xyz2mol_tm
     try:
-        from xyz2mol_tm import xyz2mol_tmc
+        from xyz2mol_tm import xyz2mol_tmc  # ty: ignore
     except ImportError:
         raise ImportError(
             "xyz2mol_tm not found. Install via:\npip install git+https://github.com/jensengroup/xyz2mol_tm.git"
@@ -3624,7 +3624,10 @@ def _partial_graph_matching(G_rdkit: nx.Graph, G_xyz: nx.Graph) -> dict:
 
     import networkx as nx
     import numpy as np
-    from scipy.optimize import linear_sum_assignment
+    try:
+        from scipy.optimize import linear_sum_assignment  # ty: ignore
+    except ImportError:
+        raise ImportError("scipy not found. Install via:\npip install scipy") from None
 
     print("  Starting graph-distance + neighbor-symbol partial matching...")
 
