@@ -7,12 +7,12 @@ import networkx as nx
 import numpy as np
 from rdkit import Chem, RDLogger
 
-# Try to suppress RDKit warnings   
-RDLogger.DisableLog("rdApp.*") # ty: ignore 
-
 from .config import DEFAULT_PARAMS
 from .data_loader import DATA
 from .utils import read_xyz_file
+
+# Suppress RDKit warnings
+RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
 # =============================================================================
 # METADATA COMPUTATION
