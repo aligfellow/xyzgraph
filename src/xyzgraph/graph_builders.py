@@ -309,10 +309,10 @@ class GraphBuilder:
                             # Reject weak M-nonmetal bonds if stronger bond exists
                             if conf / max(confidence, 0.01) > 2.0:
                                 self.log(
-                                f"  Rejected {nonmetal_sym}-M agostic: {nonmetal_sym}-X bond stronger "
-                                f"(conf={conf:.2f} vs {confidence:.2f})",
-                                4,
-                            )
+                                    f"  Rejected {nonmetal_sym}-M agostic: {nonmetal_sym}-X bond stronger "
+                                    f"(conf={conf:.2f} vs {confidence:.2f})",
+                                    4,
+                                )
                                 return False
                             break  # Found relevant bond, check complete
 
@@ -559,7 +559,8 @@ class GraphBuilder:
                     elem_count = G.graph.get("_element_counts", {}).get(elem, 0)
                     if elem_count >= 8:
                         self.log(
-                            f"  Bond {sym_i}{i}-{sym_j}{j}: 3-ring in homogeneous {elem} cluster - bypassing validation",
+                            f"  Bond {sym_i}{i}-{sym_j}{j}: 3-ring in homogeneous {elem} cluster"
+                            f" - bypassing validation",
                             4,
                         )
                         continue  # Skip validation for this 3-ring, check next common neighbor
@@ -589,13 +590,17 @@ class GraphBuilder:
                             if "H" in (sym_i, sym_j, sym_k):
                                 if conf / max(confidence, 0.01) > 1.5:
                                     self.log(
-                                        f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring via {sym_k}{k}, existing M-{sym_k}{k} bond stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})",
+                                        f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring via {sym_k}{k}, "
+                                        f"existing M-{sym_k}{k} bond stronger (conf={conf:.2f} vs {confidence:.2f}, "
+                                        f"ratio={conf / max(confidence, 0.01):.1f})",
                                         4,
                                     )
                                     return False
                             elif conf / max(confidence, 0.01) > 3.0:
                                 self.log(
-                                    f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} bond much stronger (conf={conf:.2f} vs {confidence:.2f}, ratio={conf / max(confidence, 0.01):.1f})",
+                                    f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring diagonal, existing M-{sym_k}{k} "
+                                    f"bond much stronger (conf={conf:.2f} vs {confidence:.2f}, "
+                                    f"ratio={conf / max(confidence, 0.01):.1f})",
                                     4,
                                 )
                                 return False
@@ -631,7 +636,8 @@ class GraphBuilder:
 
                 if max_angle > angle_threshold:
                     self.log(
-                        f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring angle {max_angle:.1f}° > {angle_threshold:.1f}° ({ring_type})",
+                        f"  Rejected bond {sym_i}{i}-{sym_j}{j}: 3-ring angle {max_angle:.1f}° > "
+                        f"{angle_threshold:.1f}° ({ring_type})",
                         4,
                     )
                     return False
@@ -670,7 +676,8 @@ class GraphBuilder:
                     if ratio > diagonal_threshold:
                         if has_metal and not has_H_in_ring:
                             self.log(
-                                f"  Bond {sym_i}{i}-{sym_j}{j}: diagonal (ratio={ratio:.2f}) across 3-ring via {sym_k}{k}, metal bond - allowed",
+                                f"  Bond {sym_i}{i}-{sym_j}{j}: diagonal (ratio={ratio:.2f}) across 3-ring via "
+                                f"{sym_k}{k}, metal bond - allowed",
                                 4,
                             )
                             continue
@@ -702,14 +709,17 @@ class GraphBuilder:
                         if atoms_at_limit > 1:
                             # Both at limit + bad ratio = spurious diagonal
                             self.log(
-                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal across 3-ring via {sym_k}{k} (ratio={ratio:.2f}, threshold={diagonal_threshold:.2f}) and both atoms at valence limit",
+                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal across 3-ring via {sym_k}{k} "
+                                f"(ratio={ratio:.2f}, threshold={diagonal_threshold:.2f}) and both atoms at "
+                                f"valence limit",
                                 4,
                             )
                             return False
                         elif ratio > diagonal_ratio_hard:
                             # Even with valence capacity, ratio > hard threshold is too suspicious
                             self.log(
-                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal ratio too high (ratio={ratio:.2f} > {diagonal_ratio_hard:.2f}) even with valence capacity",
+                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: diagonal ratio too high (ratio={ratio:.2f} > "
+                                f"{diagonal_ratio_hard:.2f}) even with valence capacity",
                                 4,
                             )
                             return False
@@ -754,7 +764,8 @@ class GraphBuilder:
 
                             # At least one has valence capacity + reasonable ratio = likely real 3-ring (e.g., epoxide)
                             self.log(
-                                f"  Bond {sym_i}{i}-{sym_j}{j}: suspicious ratio ({ratio:.2f}) but valence allows - likely real 3-ring",
+                                f"  Bond {sym_i}{i}-{sym_j}{j}: suspicious ratio ({ratio:.2f}) but valence allows "
+                                f"- likely real 3-ring",
                                 4,
                             )
                             # Continue to next common neighbor check
@@ -809,12 +820,14 @@ class GraphBuilder:
 
                         if overflow_ok:
                             self.log(
-                                f"  Bond {sym_i}{i}-{sym_j}{j}: both atoms would exceed valence but overflow ≤1.0 - allowed in relaxed mode",
+                                f"  Bond {sym_i}{i}-{sym_j}{j}: both atoms would exceed valence but overflow ≤1.0 "
+                                f"- allowed in relaxed mode",
                                 4,
                             )
                         else:
                             self.log(
-                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: both bonding atoms would exceed valence by >1.0 (even in relaxed mode)",
+                                f"  Rejected bond {sym_i}{i}-{sym_j}{j}: both bonding atoms would exceed valence "
+                                f"by >1.0 (even in relaxed mode)",
                                 4,
                             )
                             return False
@@ -1414,7 +1427,8 @@ class GraphBuilder:
                     extended_rejected += 1
 
             self.log(
-                f"Step 2: {extended_added} extended bonds added, {extended_rejected} rejected, {new_rings_count} new rings detected",
+                f"Step 2: {extended_added} extended bonds added, {extended_rejected} rejected, "
+                f"{new_rings_count} new rings detected",
                 1,
             )
 
@@ -2711,7 +2725,7 @@ class GraphBuilder:
         if ligand_formula == "CO":
             ligand_id = "CO"
         elif ligand_formula == "CN":
-            ligand_id = "CN" if charge < 0 else "CN"
+            ligand_id = "CN"
         elif ligand_formula == "NO":
             ligand_id = "NO"
         elif ligand_formula in ("SCN", "NCS"):
@@ -2954,7 +2968,10 @@ class GraphBuilder:
             for symbol, (x, y, z) in self.atoms:
                 f.write(f"{symbol:>2} {x:15.8f} {y:15.8f} {z:15.8f}\n")
 
-        cmd = f"cd {work} && xtb {basename}.xyz --chrg {self.charge} --uhf {self.multiplicity - 1} --gfn2 > {basename}.out"
+        cmd = (
+            f"cd {work} && xtb {basename}.xyz --chrg {self.charge} --uhf {self.multiplicity - 1} --gfn2 "
+            f"> {basename}.out"
+        )
         ret = os.system(cmd)
 
         if ret != 0:
@@ -3625,7 +3642,8 @@ def _partial_graph_matching(G_rdkit: nx.Graph, G_xyz: nx.Graph) -> dict:
         xyz_count = len(xyz_by_elem.get(elem, []))
         if rdkit_count != xyz_count:
             raise ValueError(
-                f"Cannot perform partial matching: element '{elem}' count mismatch. RDKit has {rdkit_count}, XYZ has {xyz_count}. This could be bimetallic and not handled by xyz2mol_tm."
+                f"Cannot perform partial matching: element '{elem}' count mismatch. RDKit has {rdkit_count}, "
+                f"XYZ has {xyz_count}. This could be bimetallic and not handled by xyz2mol_tm."
             )
 
     # Compute shortest-path distance matrices

@@ -120,11 +120,11 @@ def _parse_coordinates(content: str) -> List[Tuple[str, Tuple[float, float, floa
 
     atoms = []
     for line in coord_section.group(1).strip().split("\n"):
-        line = line.strip()
-        if not line:
+        data = line.strip()
+        if not data:
             continue
 
-        parts = line.split()
+        parts = data.split()
         if len(parts) < 4:
             continue
 
@@ -191,7 +191,8 @@ def _parse_mulliken_charges(content: str) -> List[float]:
     """
     # Find the MAYER POPULATION ANALYSIS section
     mayer_pop = re.search(
-        r"\*\s*MAYER POPULATION ANALYSIS\s*\*.*?ATOM\s+NA\s+ZA\s+QA\s+VA\s+BVA\s+FA\s*(.*?)(?:\n\s*\n|Mayer bond orders)",
+        r"\*\s*MAYER POPULATION ANALYSIS\s*\*.*?ATOM\s+NA\s+ZA\s+QA\s+VA\s+BVA\s+FA\s*(.*?)\
+            (?:\n\s*\n|Mayer bond orders)",
         content,
         re.DOTALL,
     )
@@ -202,11 +203,11 @@ def _parse_mulliken_charges(content: str) -> List[float]:
     charges = []
 
     for line in mayer_pop.group(1).strip().split("\n"):
-        line = line.strip()
-        if not line:
+        data = line.strip()
+        if not data:
             continue
 
-        parts = line.split()
+        parts = data.split()
         if len(parts) < 7:
             continue
 

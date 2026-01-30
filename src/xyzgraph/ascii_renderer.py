@@ -37,7 +37,7 @@ def _edge_char(attrs: Dict[str, Any], bo: float, orient: str, dx: int, dy: int) 
         else:
             return "\\", False, "double"
 
-    #     # --- Aromatic bonds (1.35–1.8 range, typical) ---
+    #     # --- Aromatic bonds (1.35-1.8 range, typical) ---
     # if 1.35 <= bo < 1.8:
     #     # choose base single bond symbol by orientation
     #     if orient == 'h':
