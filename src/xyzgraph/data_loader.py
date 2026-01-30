@@ -1,3 +1,5 @@
+"""Molecular reference data loader."""
+
 import json
 from dataclasses import dataclass
 from importlib import resources

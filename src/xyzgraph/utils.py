@@ -1,3 +1,5 @@
+"""Utility functions."""
+
 from typing import List, Optional, Tuple
 
 import networkx as nx

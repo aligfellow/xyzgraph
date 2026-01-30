@@ -1,3 +1,5 @@
+"""Command-line interface."""
+
 import argparse
 
 from . import (

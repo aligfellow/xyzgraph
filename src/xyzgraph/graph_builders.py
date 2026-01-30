@@ -1,3 +1,5 @@
+"""Molecular graph construction."""
+
 import os
 from typing import Any, Dict, List, Optional, Tuple
 

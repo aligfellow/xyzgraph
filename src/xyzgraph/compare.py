@@ -1,3 +1,5 @@
+"""Graph comparison utilities."""
+
 from typing import Optional
 
 import networkx as nx
