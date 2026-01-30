@@ -2094,7 +2094,7 @@ class GraphBuilder:
         current_score, formal_charges = self._score_assignment(G, rings)
         initial_score = current_score
 
-        stats = {
+        stats: dict[str, Any] = {
             "iterations": 0,
             "improvements": 0,
             "initial_score": initial_score,
@@ -2415,7 +2415,7 @@ class GraphBuilder:
 
         beam = [(current_score, G, base_valence_cache.copy(), [])]
 
-        stats = {
+        stats: dict[str, Any] = {
             "iterations": 0,
             "improvements": 0,
             "initial_score": initial_score,
@@ -2761,7 +2761,7 @@ class GraphBuilder:
                 return formal_charges[atom_idx]
             return G.nodes[atom_idx].get("formal_charge", 0)
 
-        classification = {"dative_bonds": [], "ionic_bonds": [], "metal_ox_states": {}}
+        classification: dict[str, Any] = {"dative_bonds": [], "ionic_bonds": [], "metal_ox_states": {}}
 
         # Get rings (metal-free)
         rings = G.graph.get("_rings", [])
