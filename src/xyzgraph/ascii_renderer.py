@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
 from rdkit import Chem
@@ -7,7 +7,7 @@ from .utils import _visible_nodes
 
 
 # --- special edge glyph helper ---
-def _edge_char(attrs: Dict[str, any], bo: float, orient: str, dx: int, dy: int) -> Tuple[str, bool, str]:
+def _edge_char(attrs: Dict[str, Any], bo: float, orient: str, dx: int, dy: int) -> Tuple[str, bool, str]:
     """
     Return (glyph, special_flag, bond_type).
     special_flag True => skip multi-line double/triple drawing.
@@ -116,7 +116,7 @@ class GraphToASCII:
         mol: Chem.Mol,
         nodes: List[int],
         bond_orders_map: Dict[Tuple[int, int], float],
-        edge_attr_map: Dict[Tuple[int, int], Dict[str, any]],
+        edge_attr_map: Dict[Tuple[int, int], Dict[str, Any]],
         scale_x: Optional[float] = None,
         scale_y: Optional[float] = None,
         scale: float = 1.0,
@@ -306,7 +306,7 @@ class GraphToASCII:
         except Exception:
             layout = dict.fromkeys(nodes, (0.0, 0.0))
         bond_orders_map: Dict[Tuple[int, int], float] = {}
-        edge_attr_map: Dict[Tuple[int, int], Dict[str, any]] = {}
+        edge_attr_map: Dict[Tuple[int, int], Dict[str, Any]] = {}
         for i, j, data in graph.edges(data=True):
             if i in idx_map and j in idx_map:
                 bo = float(data.get("bond_order", 1.0))
