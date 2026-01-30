@@ -34,6 +34,8 @@ ty.out
 # Coverage reports
 htmlcov/
 .coverage
+.coverage.*
+coverage.xml
 
 # macOS files
 .DS_Store
