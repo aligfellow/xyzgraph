@@ -3067,7 +3067,7 @@ def build_graph(
     period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
     metadata: Optional[Dict[str, Any]] = None,
 ) -> nx.Graph:
-    """Convenience function that wraps GraphBuilder.
+    """Build molecular graph using GraphBuilder.
 
     atoms: Either a list of (symbol, (x,y,z)) tuples, or a filepath to read.
     metadata: Pre-computed metadata dict (for CLI to avoid duplication).
