@@ -118,6 +118,7 @@ class GraphToASCII:
         bond_orders_map: Dict[Tuple[int, int], float],
         edge_attr_map: Dict[Tuple[int, int], Dict[str, any]],
         scale_x: Optional[float] = None,
+        scale_y: Optional[float] = None,
         scale: float = 1.0,
     ) -> str:
         if mol.GetNumAtoms() == 0:
