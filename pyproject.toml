@@ -33,7 +33,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "xyzgraph.data" = ["*.json", "*.yaml"]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "pre-commit>=3.5.0",
     "pytest>=8.3.5",

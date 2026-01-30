@@ -1609,7 +1609,7 @@ dependencies = [
     { name = "rdkit" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "pre-commit", version = "3.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pre-commit", version = "4.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
@@ -1627,14 +1627,11 @@ dev = [
 requires-dist = [
     { name = "networkx" },
     { name = "numpy" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.5.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
     { name = "rdkit" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.14.14" },
+    { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.14" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pre-commit", specifier = ">=3.5.0" },
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "pytest-cov", specifier = ">=5.0.0" },
-    { name = "ruff", specifier = ">=0.14.14" },
-    { name = "ty", specifier = ">=0.0.14" },
-]
+provides-extras = ["dev"]
