@@ -9,6 +9,7 @@ from rdkit import Chem, RDLogger
 
 from .config import DEFAULT_PARAMS
 from .data_loader import DATA
+from .geometry import GeometryCalculator
 from .utils import read_xyz_file
 
 # Suppress RDKit warnings
@@ -188,6 +189,9 @@ class GraphBuilder:
         self.edge_scores_cache = None
         self._edge_score_map = None
 
+        # Geometry calculator (stateless, shared)
+        self._geometry = GeometryCalculator()
+
     def log(self, msg: str, level: int = 0):
         """Log message."""
         if self.debug:
@@ -206,46 +210,19 @@ class GraphBuilder:
 
     @staticmethod
     def _distance(a: np.ndarray, b: np.ndarray) -> float:
-        return float(np.linalg.norm(a - b))
+        """Calculate distance (wrapper for GeometryCalculator)."""
+        return GeometryCalculator.distance(tuple(a), tuple(b))
 
     def _calculate_angle(self, atom1: int, center: int, atom2: int, G: nx.Graph) -> float:
         """Calculate angle (in degrees) between three atoms: atom1-center-atom2."""
-        pos1 = np.array(G.nodes[atom1]["position"])
-        pos_center = np.array(G.nodes[center]["position"])
-        pos2 = np.array(G.nodes[atom2]["position"])
-
-        v1 = pos1 - pos_center
-        v2 = pos2 - pos_center
-
-        # Normalize vectors
-        v1_norm = np.linalg.norm(v1)
-        v2_norm = np.linalg.norm(v2)
-
-        if v1_norm < 1e-10 or v2_norm < 1e-10:
-            return 0.0
-
-        v1 = v1 / v1_norm
-        v2 = v2 / v2_norm
-
-        # Calculate angle
-        cos_angle = np.clip(np.dot(v1, v2), -1.0, 1.0)
-        angle = np.arccos(cos_angle) * 180.0 / np.pi
-
-        return angle
+        pos1 = G.nodes[atom1]["position"]
+        pos_center = G.nodes[center]["position"]
+        pos2 = G.nodes[atom2]["position"]
+        return self._geometry.angle(pos1, pos_center, pos2)
 
     def _ring_angle_sum(self, ring: List[int], G: nx.Graph) -> float:
         """Calculate sum of internal angles in a ring."""
-        angle_sum = 0.0
-        n = len(ring)
-
-        for i in range(n):
-            prev = ring[(i - 1) % n]
-            curr = ring[i]
-            next = ring[(i + 1) % n]
-            angle = self._calculate_angle(prev, curr, next, G)
-            angle_sum += angle
-
-        return angle_sum
+        return self._geometry.ring_angle_sum(ring, G)
 
     def _validate_bond_geometry(
         self,
@@ -2678,24 +2655,7 @@ class GraphBuilder:
 
     def _check_planarity(self, cycle: List[int], G: nx.Graph, threshold: float = 0.15) -> bool:
         """Check if a ring is approximately planar."""
-        if len(cycle) < 3:
-            return True
-
-        coords = np.array([G.nodes[i]["position"] for i in cycle])
-
-        # Fit plane using SVD
-        centroid = coords.mean(axis=0)
-        centered = coords - centroid
-
-        # Plane normal is smallest singular vector
-        _, _, vh = np.linalg.svd(centered)
-        normal = vh[-1]
-
-        # Check distance of each point to plane
-        distances = np.abs(centered @ normal)
-        max_deviation = distances.max()
-
-        return max_deviation < threshold
+        return self._geometry.check_planarity(cycle, G, threshold)
 
     def _get_ligand_unit_info(self, G: nx.Graph, metal_idx: int, start_atom: int) -> Tuple[int, str]:
         """
