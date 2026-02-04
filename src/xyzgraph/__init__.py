@@ -15,6 +15,14 @@ from .compare import compare_with_rdkit
 
 # Import default parameters from config
 from .config import DEFAULT_PARAMS
+
+# Configuration classes
+from .config_classes import (
+    BondThresholds,
+    GeometryThresholds,
+    OptimizerConfig,
+    ScoringWeights,
+)
 from .data_loader import BOHR_TO_ANGSTROM, DATA
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
@@ -36,9 +44,14 @@ __all__ = [
     "DATA",  # Access as DATA.vdw, DATA.metals, etc.
     # Configuration
     "DEFAULT_PARAMS",
+    # Configuration classes
+    "BondThresholds",
+    "GeometryThresholds",
     # Main interfaces
     "GraphBuilder",
+    "OptimizerConfig",
     "OrcaParseError",
+    "ScoringWeights",
     "build_graph",
     "build_graph_orca",
     "build_graph_rdkit",
