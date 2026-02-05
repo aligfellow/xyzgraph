@@ -185,9 +185,21 @@ def build_graph_xtb(
 
 
 def _find_file(directory: str, name: str) -> Optional[str]:
-    """Find an xTB output file, trying prefixed and bare names."""
-    # Try prefixed name first (e.g. xtb_wbo), then bare name (wbo)
+    """Find an xTB output file, trying various naming conventions.
+
+    Checks in order:
+    1. xtb_{name} (e.g., xtb_wbo)
+    2. {name} (e.g., wbo)
+    3. *.{name} (e.g., xtb_water.wbo)
+    """
+    # Try prefixed name first, then bare name
     for candidate in [os.path.join(directory, f"xtb_{name}"), os.path.join(directory, name)]:
         if os.path.exists(candidate):
             return candidate
+
+    # Try files with .{name} extension (e.g., xtb_water.wbo)
+    for fname in os.listdir(directory):
+        if fname.endswith(f".{name}"):
+            return os.path.join(directory, fname)
+
     return None

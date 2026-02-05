@@ -191,8 +191,8 @@ def _parse_mulliken_charges(content: str) -> List[float]:
     """
     # Find the MAYER POPULATION ANALYSIS section
     mayer_pop = re.search(
-        r"\*\s*MAYER POPULATION ANALYSIS\s*\*.*?ATOM\s+NA\s+ZA\s+QA\s+VA\s+BVA\s+FA\s*(.*?)\
-            (?:\n\s*\n|Mayer bond orders)",
+        r"\*\s*MAYER POPULATION ANALYSIS\s*\*.*?"
+        r"ATOM\s+NA\s+ZA\s+QA\s+VA\s+BVA\s+FA\s*(.*?)(?:\n\s*\n|Mayer bond orders)",
         content,
         re.DOTALL,
     )

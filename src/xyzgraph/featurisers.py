@@ -37,7 +37,8 @@ def compute_gasteiger_charges(G: nx.Graph, target_charge: int = 0) -> nx.Graph:
     (charges default to 0.0).
     """
     try:
-        from rdkit import Chem  # lazy import — RDKit is optional
+        from rdkit import Chem
+        from rdkit.Chem import AllChem  # lazy import — RDKit is optional
 
         rw = Chem.RWMol()
         for i in G.nodes():
@@ -62,7 +63,7 @@ def compute_gasteiger_charges(G: nx.Graph, target_charge: int = 0) -> nx.Graph:
         except Exception:
             Chem.SanitizeMol(mol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_PROPERTIES)
 
-        Chem.AllChem.ComputeGasteigerCharges(mol)  # ty: ignore
+        AllChem.ComputeGasteigerCharges(mol)  # ty: ignore
 
         raw: list[float] = []
         for atom in mol.GetAtoms():
@@ -74,8 +75,8 @@ def compute_gasteiger_charges(G: nx.Graph, target_charge: int = 0) -> nx.Graph:
                 c = 0.0
             raw.append(c)
 
-    except Exception:
-        logger.warning("Gasteiger charge calculation failed — charges left unchanged")
+    except Exception as e:
+        logger.warning("Gasteiger charge calculation failed — charges left unchanged: %s", e)
         return G
 
     # Shift so sum matches target_charge
