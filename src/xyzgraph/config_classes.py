@@ -169,12 +169,16 @@ class OptimizerConfig:
 class BondThresholds:
     """Distance thresholds for bond detection.
 
-    Format: bond_detected = distance < threshold x (VDW_i + VDW_j)
+    Format: bond_detected = distance < element_threshold x (VDW_i + VDW_j) x threshold
     Tuned on CSD organic and coordination complexes.
     """
 
-    threshold: float = 0.55
-    """Fallback for unlisted pairs. VDW overlap ~45-55% for covalent bonds."""
+    threshold: float = 1.0
+    """Global scaling factor applied to element-specific thresholds.
+
+    1.0 = use element-specific thresholds as-is.
+    > 1.0 = more permissive (detect more bonds).
+    """
 
     threshold_h_h: float = 0.38
     """H-H bonds. Tighter than other thresholds (H is small)."""

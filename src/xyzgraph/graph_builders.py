@@ -8,9 +8,10 @@ import networkx as nx
 import numpy as np
 from rdkit import Chem, RDLogger
 
+from .bond_detection import BondDetector
 from .bond_geometry_check import BondGeometryChecker
 from .config import DEFAULT_PARAMS
-from .config_classes import GeometryThresholds
+from .config_classes import BondThresholds, GeometryThresholds
 from .data_loader import DATA
 from .geometry import GeometryCalculator
 from .utils import configure_debug_logging, read_xyz_file
@@ -19,7 +20,6 @@ from .utils import configure_debug_logging, read_xyz_file
 RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
-
 
 
 # =============================================================================
@@ -206,6 +206,26 @@ class GraphBuilder:
             data=DATA,
         )
 
+        # Bond detection
+        self._bond_thresholds = BondThresholds(
+            threshold=threshold,
+            threshold_h_h=threshold_h_h,
+            threshold_h_nonmetal=threshold_h_nonmetal,
+            threshold_h_metal=threshold_h_metal,
+            threshold_metal_ligand=threshold_metal_ligand,
+            threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
+            threshold_metal_metal_self=threshold_metal_metal_self,
+            period_scaling_h_bonds=period_scaling_h_bonds,
+            period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds,
+            allow_metal_metal_bonds=allow_metal_metal_bonds,
+        )
+        self._bond_detector = BondDetector(
+            geometry=self._geometry,
+            bond_checker=self._bond_checker,
+            thresholds=self._bond_thresholds,
+            data=DATA,
+        )
+
     def log(self, msg: str, level: int = 0):
         """Log message with indentation."""
         indent = "  " * level
@@ -236,134 +256,6 @@ class GraphBuilder:
     def _ring_angle_sum(self, ring: List[int], G: nx.Graph) -> float:
         """Calculate sum of internal angles in a ring."""
         return self._geometry.ring_angle_sum(ring, G)
-
-    def _find_new_rings_from_edge(self, G: nx.Graph, i: int, j: int) -> List[List[int]]:
-        """Efficiently detect new rings formed by adding edge (i, j).
-
-        Find shortest path from i to j. Returns list of new rings.
-        """
-        # Skip if either atom is a metal (no organic rings to track)
-        if G.nodes[i]["symbol"] in DATA.metals or G.nodes[j]["symbol"] in DATA.metals:
-            return []
-
-        # Work on metal-free subgraph
-        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals]
-        G_no_metals = G.subgraph(non_metal_nodes).copy()
-
-        # Check if i and j are in the metal-free graph
-        if i not in G_no_metals or j not in G_no_metals:
-            return []
-
-        # Temporarily remove the new edge (i,j) to find alternative path
-        if G_no_metals.has_edge(i, j):
-            G_no_metals.remove_edge(i, j)
-
-        # Find shortest path from i to j
-        try:
-            path = nx.shortest_path(G_no_metals, source=i, target=j)
-            # Path found → ring formed
-            # Ring is the path + the new edge (i,j)
-            return [path]
-        except nx.NetworkXNoPath:
-            # No path exists → no ring formed
-            return []
-        except nx.NodeNotFound:
-            # Node not in graph
-            return []
-
-    def _get_period(self, atomic_number: int) -> int:
-        """Get period (row) from atomic number."""
-        if atomic_number <= 2:
-            return 1
-        elif atomic_number <= 10:
-            return 2
-        elif atomic_number <= 18:
-            return 3
-        elif atomic_number <= 36:
-            return 4
-        elif atomic_number <= 54:
-            return 5
-        elif atomic_number <= 86:
-            return 6
-        else:
-            return 7
-
-    def _get_threshold_with_period_scaling(
-        self, base_threshold: float, z_i: int, z_j: int, has_hydrogen: bool = False
-    ) -> float:
-        """
-        Apply period-dependent scaling to bond threshold.
-
-        Heavier elements need looser thresholds because VDW/covalent
-        ratio increases down the periodic table.
-
-        Parameters
-        ----------
-        - base_threshold: Base threshold value
-        - z_i, z_j: Atomic numbers of the two atoms
-        - has_hydrogen: Whether bond involves hydrogen
-
-        Returns scaled threshold
-        """
-        if has_hydrogen:
-            # H bonds: use H-bond scaling factor
-            if self.period_scaling_h_bonds == 0.0:
-                return base_threshold
-            non_h_z = z_i if z_i > 1 else z_j
-            period = self._get_period(non_h_z)
-            period_factor = 1.0 + (period - 2) * self.period_scaling_h_bonds
-            return base_threshold * period_factor
-        else:
-            # Non-H bonds: check if both atoms are nonmetals
-            sym_i = DATA.n2s.get(z_i, "")
-            sym_j = DATA.n2s.get(z_j, "")
-            both_nonmetal = sym_i not in DATA.metals and sym_j not in DATA.metals
-
-            if both_nonmetal and self.period_scaling_nonmetal_bonds != 0.0:
-                # Both nonmetals: use nonmetal scaling
-                max_period = max(self._get_period(z_i), self._get_period(z_j))
-                period_factor = 1.0 + (max_period - 2) * self.period_scaling_nonmetal_bonds
-                return base_threshold * period_factor
-            else:
-                # Metal bond: no period scaling
-                return base_threshold
-
-    def _should_bond_metal(self, sym_i: str, sym_j: str) -> bool:
-        """
-        Chemical filter for metal bonds (called AFTER distance check).
-
-        Returns False only for implausible metal pairings.
-
-        Accepts:
-        - Metal to donor atoms (O, N, C, P, S)
-        - Metal to halides/oxo (ionic)
-        - Metal to H (hydrides)
-        - Metal-metal (if allow_metal_metal_bonds flag is enabled)
-        """
-        # Neither metal - always OK
-        if sym_i not in self.data.metals and sym_j not in self.data.metals:
-            return True
-
-        # Both metals - check flag
-        if sym_i in self.data.metals and sym_j in self.data.metals:
-            return self.allow_metal_metal_bonds
-
-        # One metal, one non-metal - check ligand plausibility
-        other = sym_j if sym_i in self.data.metals else sym_i
-
-        # Accept common ligands
-        if other in ("O", "N", "C", "P", "S", "H"):
-            return True
-
-        # Accept halides
-        if other in ("F", "Cl", "Br", "I"):
-            return True
-
-        # Accept other plausible ligands
-        if other in ("B", "Si", "Se", "Te"):
-            return True
-
-        return False
 
     @staticmethod
     def _valence_sum(G: nx.Graph, node: int) -> float:
@@ -595,267 +487,11 @@ class GraphBuilder:
     def _build_initial_graph(self) -> nx.Graph:
         """Build initial graph with 2-phase construction.
 
-        Step 1: Baseline bonds (DEFAULT thresholds), compute rings from baseline structure.
-        Step 2: Extended bonds (CUSTOM thresholds if modified, strict validation).
+        Delegates to BondDetector.detect() for distance-based bond detection
+        with geometric validation.
         """
-        G = nx.Graph()
-
-        pos = np.array(self.positions)
-
-        # Add nodes
-        for i, atomic_num, symbol in zip(range(len(self.atoms)), self.atomic_numbers, self.symbols):
-            G.add_node(i, symbol=symbol, atomic_number=atomic_num, position=tuple(pos[i]))
-
-        self.log(f"Added {len(self.atoms)} atoms", 1)
-
-        # Precompute element counts and chemical formula (for cluster detection and metadata)
-        from collections import Counter
-
-        element_counts = Counter(self.symbols)
-        G.graph["_element_counts"] = dict(element_counts)
-
-        # Generate chemical formula (sorted by Hill system: C, H, then alphabetical)
-        formula_parts = []
-        if "C" in element_counts:
-            formula_parts.append(f"C{element_counts['C']}" if element_counts["C"] > 1 else "C")
-        if "H" in element_counts:
-            formula_parts.append(f"H{element_counts['H']}" if element_counts["H"] > 1 else "H")
-        for elem in sorted(element_counts.keys()):
-            if elem not in ("C", "H"):
-                formula_parts.append(f"{elem}{element_counts[elem]}" if element_counts[elem] > 1 else elem)
-        G.graph["formula"] = "".join(formula_parts)
-
-        self.log(f"Chemical formula: {G.graph['formula']}", 1)
-
-        # Check if custom thresholds are being used
-        has_custom = (
-            self.threshold != DEFAULT_PARAMS["threshold"]
-            or self.threshold_h_h != DEFAULT_PARAMS["threshold_h_h"]
-            or self.threshold_h_nonmetal != DEFAULT_PARAMS["threshold_h_nonmetal"]
-            or self.threshold_h_metal != DEFAULT_PARAMS["threshold_h_metal"]
-            or self.threshold_metal_ligand != DEFAULT_PARAMS["threshold_metal_ligand"]
-            or self.threshold_nonmetal_nonmetal != DEFAULT_PARAMS["threshold_nonmetal_nonmetal"]
-        )
-
-        if has_custom:
-            self.log("Custom thresholds detected - using 2-phase construction", 1)
-
-        # ===== STEP 1: Baseline bonds (using DEFAULT thresholds) =====
-        baseline_bonds = []
-
-        for i in range(len(self.atoms)):
-            si = self.symbols[i]
-            is_metal_i = si in self.data.metals
-
-            for j in range(i + 1, len(self.atoms)):
-                sj = self.symbols[j]
-                is_metal_j = sj in self.data.metals
-                has_metal = is_metal_i or is_metal_j
-                is_metal_metal_self = is_metal_i and is_metal_j and (si == sj)
-                has_h = "H" in (si, sj)
-
-                d = self._distance(pos[i], pos[j])
-                r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
-
-                # Use DEFAULT thresholds for baseline
-                if si == "H" and sj == "H":
-                    baseline_threshold = DEFAULT_PARAMS["threshold_h_h"] * r_sum * DEFAULT_PARAMS["threshold"]
-                elif has_h and has_metal:
-                    baseline_threshold = DEFAULT_PARAMS["threshold_h_metal"] * r_sum * DEFAULT_PARAMS["threshold"]
-                elif has_h and not has_metal:
-                    baseline_threshold = DEFAULT_PARAMS["threshold_h_nonmetal"] * r_sum * DEFAULT_PARAMS["threshold"]
-                elif is_metal_metal_self:
-                    baseline_threshold = DEFAULT_PARAMS["threshold_metal_metal_self"] * r_sum
-                elif has_metal:
-                    baseline_threshold = DEFAULT_PARAMS["threshold_metal_ligand"] * r_sum
-                else:
-                    baseline_threshold = (
-                        DEFAULT_PARAMS["threshold_nonmetal_nonmetal"] * r_sum * DEFAULT_PARAMS["threshold"]
-                    )
-
-                # Apply period scaling using DEFAULT scaling factors
-                z_i = self.atomic_numbers[i]
-                z_j = self.atomic_numbers[j]
-                baseline_threshold = self._get_threshold_with_period_scaling(
-                    baseline_threshold, z_i, z_j, has_hydrogen=has_h
-                )
-
-                if d < baseline_threshold:
-                    confidence = 1.0 - (d / baseline_threshold)
-                    baseline_bonds.append((confidence, i, j, d, has_metal))
-
-        # Sort by confidence (most confident bonds first)
-        baseline_bonds.sort(reverse=True, key=lambda x: x[0])
-
-        self.log(
-            f"Step 1: Found {len(baseline_bonds)} baseline bonds (using default thresholds)",
-            1,
-        )
-
-        # Add baseline bonds with confidence-based validation
-        edge_count = 0
-        rejected_count = 0
-
-        for confidence, i, j, d, has_metal in baseline_bonds:
-            si, sj = self.symbols[i], self.symbols[j]
-            self.log(
-                f"  Evaluating bond {si}{i}-{sj}{j} (d={d:.3f} Å, conf={confidence:.2f})",
-                3,
-            )
-            # Check metal bonding rules
-            if has_metal and not self._should_bond_metal(si, sj):
-                rejected_count += 1
-                continue
-
-            # High confidence: add directly
-            if confidence > 0.4:
-                G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
-                edge_count += 1
-                self.log("  Added high-confidence bond", 4)
-            # Low confidence: validate geometry
-            elif self._bond_checker.check(G, i, j, d, confidence, baseline_bonds):
-                G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
-                edge_count += 1
-                self.log("  Added validated bond", 4)
-            else:
-                rejected_count += 1
-
-        self.log(f"Step 1: {edge_count} baseline bonds added, {rejected_count} rejected", 1)
-
-        # Compute rings from baseline structure
-        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals]
-        G_no_metals = G.subgraph(non_metal_nodes).copy()
-        rings = nx.cycle_basis(G_no_metals)
-
-        G.graph["_rings"] = rings
-        G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
-        G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
-
-        self.log(f"Found {len(rings)} rings from initial bonding (excluding metal cycles)", 1)
-
-        # ===== STEP 2: Extended bonds (CUSTOM thresholds if modified) =====
-        if has_custom:
-            extended_bonds = []
-            baseline_edges = set(G.edges())
-
-            for i in range(len(self.atoms)):
-                si = self.symbols[i]
-                is_metal_i = si in self.data.metals
-
-                for j in range(i + 1, len(self.atoms)):
-                    # Skip if already in baseline
-                    if (i, j) in baseline_edges or (j, i) in baseline_edges:
-                        continue
-
-                    sj = self.symbols[j]
-                    is_metal_j = sj in self.data.metals
-                    has_metal = is_metal_i or is_metal_j
-                    has_h = "H" in (si, sj)
-
-                    d = self._distance(pos[i], pos[j])
-                    r_sum = DATA.vdw.get(si, 2.0) + DATA.vdw.get(sj, 2.0)
-
-                    # Use CUSTOM thresholds for extended
-                    if si == "H" and sj == "H":
-                        custom_threshold = self.threshold_h_h * r_sum * self.threshold
-                    elif has_h and has_metal:
-                        custom_threshold = self.threshold_h_metal * r_sum * self.threshold
-                    elif has_h and not has_metal:
-                        custom_threshold = self.threshold_h_nonmetal * r_sum * self.threshold
-                    elif has_metal:
-                        custom_threshold = self.threshold_metal_ligand * r_sum
-                    else:
-                        custom_threshold = self.threshold_nonmetal_nonmetal * r_sum * self.threshold
-
-                    # Apply period scaling using CUSTOM scaling factors
-                    z_i = self.atomic_numbers[i]
-                    z_j = self.atomic_numbers[j]
-                    custom_threshold = self._get_threshold_with_period_scaling(
-                        custom_threshold, z_i, z_j, has_hydrogen=has_h
-                    )
-
-                    if d < custom_threshold:
-                        confidence = 1.0 - (d / custom_threshold)
-                        extended_bonds.append((confidence, i, j, d, has_metal))
-
-            # Sort by confidence (HIGHEST first)
-            extended_bonds.sort(reverse=True, key=lambda x: x[0])
-
-            self.log(
-                f"Step 2: Found {len(extended_bonds)} extended bonds (custom thresholds)",
-                1,
-            )
-
-            # Add extended bonds with STRICT validation and incremental ring updates
-            extended_added = 0
-            extended_rejected = 0
-            new_rings_count = 0
-
-            for confidence, i, j, d, has_metal in extended_bonds:
-                si, sj = self.symbols[i], self.symbols[j]
-                self.log(
-                    f"  Evaluating extended bond {si}{i}-{sj}{j} (d={d:.3f} Å, conf={confidence:.2f})",
-                    3,
-                )
-                # Check metal bonding rules
-                if has_metal and not self._should_bond_metal(si, sj):
-                    extended_rejected += 1
-                    continue
-
-                # ALL extended bonds require geometric validation
-                if self._bond_checker.check(G, i, j, d, confidence, baseline_bonds):
-                    G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
-                    extended_added += 1
-
-                    # Incremental ring detection (metal-free)
-                    new_rings = self._find_new_rings_from_edge(G, i, j)
-                    if new_rings:
-                        G.graph["_rings"].extend(new_rings)
-                        new_rings_count += len(new_rings)
-                        ring_size = len(new_rings[0])
-                        self.log(f"    Bond {si}{i}-{sj}{j} creates new {ring_size}-ring", 3)
-
-                    # Update caches incrementally
-                    G.graph["_neighbors"][i] = list(G.neighbors(i))
-                    G.graph["_neighbors"][j] = list(G.neighbors(j))
-                else:
-                    extended_rejected += 1
-
-            self.log(
-                f"Step 2: {extended_added} extended bonds added, {extended_rejected} rejected, "
-                f"{new_rings_count} new rings detected",
-                1,
-            )
-
-        # Handle user-specified bonds
-        if self.bond:
-            for i, j in self.bond:
-                if not G.has_edge(i, j):
-                    d = self._distance(pos[i], pos[j])
-                    G.add_edge(i, j, bond_order=1, distance=d)
-                    si = self.symbols[i]
-                    sj = self.symbols[j]
-                    self.log(f"Added user-specified bond {si}{i}-{sj}{j} (d={d:.3f} Å)", 2)
-
-        if self.unbond:
-            for i, j in self.unbond:
-                if G.has_edge(i, j):
-                    G.remove_edge(i, j)
-                    si = self.symbols[i]
-                    sj = self.symbols[j]
-                    self.log(f"Removed user-specified bond {si}{i}-{sj}{j}", 2)
-
-        # Final ring update if extended bonds were added
-        if has_custom:
-            non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in DATA.metals]
-            G_no_metals = G.subgraph(non_metal_nodes).copy()
-            rings = nx.cycle_basis(G_no_metals)
-            G.graph["_rings"] = rings
-            self.log(f"Final: {len(rings)} rings after extended bonds", 1)
-
-        total_bonds = G.number_of_edges()
-        self.log(f"Total bonds in graph: {total_bonds}", 1)
-
+        G = self._bond_detector.detect(self.atoms, bond=self.bond, unbond=self.unbond)
+        self.log_buffer.extend(self._bond_detector.get_log())
         return G
 
     def _estimate_pi_electrons(self, G: nx.Graph, cycle: List[int]) -> int:
