@@ -8,9 +8,9 @@ import networkx as nx
 import pytest
 
 from xyzgraph.bond_geometry_check import BondGeometryChecker
-from xyzgraph.config_classes import GeometryThresholds
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
+from xyzgraph.parameters import GeometryThresholds
 
 
 @pytest.fixture

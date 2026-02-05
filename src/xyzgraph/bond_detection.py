@@ -16,9 +16,9 @@ import networkx as nx
 import numpy as np
 
 from .bond_geometry_check import BondGeometryChecker
-from .config_classes import BondThresholds
 from .data_loader import MolecularData
 from .geometry import GeometryCalculator
+from .parameters import BondThresholds
 
 logger = logging.getLogger(__name__)
 

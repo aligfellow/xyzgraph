@@ -1,11 +1,10 @@
-"""Type-safe configuration dataclasses for graph building.
+"""Algorithm parameters for graph building.
 
 All parameters empirically tuned on test molecules and CSD structures.
 Inline docs explain what each parameter controls and typical ranges.
 """
 
-from dataclasses import dataclass, field
-from typing import Dict
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -120,23 +119,6 @@ class ScoringWeights:
 
     conjugation_deficit_penalty: float = 5.0
     """Non-aromatic π-electron count. Hückel rule: 4n+2."""
-
-    # Electronegativity (Pauling scale)
-    electronegativity: Dict[str, float] = field(
-        default_factory=lambda: {
-            "H": 2.2,
-            "C": 2.5,
-            "N": 3.0,
-            "O": 3.5,
-            "F": 4.0,
-            "P": 2.2,
-            "S": 2.6,
-            "Cl": 3.2,
-            "Br": 3.0,
-            "I": 2.7,
-        }
-    )
-    """Pauling EN. Determines which atom carries charge."""
 
     invalid_score: float = 1e6
     """Infinite penalty for impossible states."""

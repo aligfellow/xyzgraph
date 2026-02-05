@@ -20,9 +20,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
 
-from .config_classes import OptimizerConfig, ScoringWeights
 from .data_loader import MolecularData
 from .geometry import GeometryCalculator
+from .parameters import OptimizerConfig, ScoringWeights
 
 logger = logging.getLogger(__name__)
 
@@ -415,8 +415,6 @@ class BondOrderOptimizer:
             G.graph["_rings"] = cycles
 
         initialized = 0
-        aromatic_atoms = {"C", "N", "O", "S", "B", "P", "Se"}
-
         self._log("\n" + "=" * 80, 0)
         self._log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
         self._log("=" * 80, 0)
@@ -453,8 +451,8 @@ class BondOrderOptimizer:
             self._log(f"\nRing {r_idx} ({len(cycle)}-membered): {ring_atoms_str}", 2)
 
             # Must contain only aromatic atoms
-            if not all(G.nodes[i]["symbol"] in aromatic_atoms for i in cycle):
-                self._log("✗ Contains non-aromatic atoms", 3)
+            if not all(G.nodes[i]["symbol"] in self.data.conjugatable_atoms for i in cycle):
+                self._log("✗ Contains non-conjugatable atoms", 3)
                 continue
 
             # Check planarity
@@ -508,10 +506,8 @@ class BondOrderOptimizer:
         self._log(f"Valid rings for Kekulé initialization: \n\t{sorted(valid_rings)}", 0)
 
         # --- Phase 2: Kekulé initialization ---
-        MAX_VALENCE = {"H": 1, "B": 3, "C": 4, "N": 3, "O": 2, "P": 3, "S": 2, "Se": 2}
-
         def max_val(n):
-            return MAX_VALENCE.get(G.nodes[n].get("symbol"), 4)
+            return self.data.max_aromatic_valence.get(G.nodes[n].get("symbol"), 4)
 
         def bond_sum(node, ignore_edge=None):
             s = 0.0
@@ -920,8 +916,7 @@ class BondOrderOptimizer:
             if len(ring) not in (5, 6):
                 continue
 
-            conjugatable = {"C", "N", "O", "S", "P"}
-            if not all(G.nodes[i]["symbol"] in conjugatable for i in ring):
+            if not all(G.nodes[i]["symbol"] in self.data.scoring_conjugatable_atoms for i in ring):
                 continue
 
             ring_set = set(ring)
@@ -1047,7 +1042,7 @@ class BondOrderOptimizer:
                     penalties["violation"] += 1000.0
 
             # Electronegativity penalty
-            en = self.weights.electronegativity.get(sym, 2.5)
+            en = self.data.electronegativity.get(sym, 2.5)
             if fc != 0:
                 penalties["en"] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
 
@@ -1463,10 +1458,10 @@ class BondOrderOptimizer:
 
             ring_atoms = [f"{G.nodes[i]['symbol']}{i}" for i in cycle]
 
-            aromatic_atoms = {"C", "N", "O", "S", "B"}
-
-            if not all(G.nodes[i]["symbol"] in aromatic_atoms for i in cycle):
-                non_aromatic = [G.nodes[i]["symbol"] for i in cycle if G.nodes[i]["symbol"] not in aromatic_atoms]
+            if not all(G.nodes[i]["symbol"] in self.data.aromatic_atoms for i in cycle):
+                non_aromatic = [
+                    G.nodes[i]["symbol"] for i in cycle if G.nodes[i]["symbol"] not in self.data.aromatic_atoms
+                ]
                 self._log(f"✗ Contains non-aromatic atoms: {non_aromatic}", 2)
                 continue
 

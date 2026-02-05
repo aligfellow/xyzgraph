@@ -12,9 +12,9 @@ from .bond_detection import BondDetector
 from .bond_geometry_check import BondGeometryChecker
 from .bond_order_optimizer import BondOrderOptimizer
 from .config import DEFAULT_PARAMS
-from .config_classes import BondThresholds, GeometryThresholds, OptimizerConfig, ScoringWeights
 from .data_loader import DATA
 from .geometry import GeometryCalculator
+from .parameters import BondThresholds, GeometryThresholds, OptimizerConfig, ScoringWeights
 from .utils import configure_debug_logging, read_xyz_file
 
 # Suppress RDKit warnings

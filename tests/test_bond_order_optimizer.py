@@ -8,9 +8,9 @@ import networkx as nx
 import pytest
 
 from xyzgraph.bond_order_optimizer import BondOrderOptimizer
-from xyzgraph.config_classes import OptimizerConfig, ScoringWeights
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
+from xyzgraph.parameters import OptimizerConfig, ScoringWeights
 
 
 @pytest.fixture

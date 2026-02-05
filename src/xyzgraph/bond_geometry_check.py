@@ -10,9 +10,9 @@ from typing import List, Optional, Tuple
 import networkx as nx
 import numpy as np
 
-from .config_classes import GeometryThresholds
 from .data_loader import DATA, MolecularData
 from .geometry import GeometryCalculator
+from .parameters import GeometryThresholds
 
 logger = logging.getLogger(__name__)
 

@@ -8,9 +8,9 @@ import pytest
 
 from xyzgraph.bond_detection import BondDetector
 from xyzgraph.bond_geometry_check import BondGeometryChecker
-from xyzgraph.config_classes import BondThresholds, GeometryThresholds
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
+from xyzgraph.parameters import BondThresholds, GeometryThresholds
 
 
 @pytest.fixture
