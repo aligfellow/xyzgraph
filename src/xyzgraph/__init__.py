@@ -26,6 +26,7 @@ from .graph_builders import (
     build_graph_rdkit,
     build_graph_rdkit_tm,
 )
+from .graph_builders_xtb import build_graph_xtb
 
 # ORCA parser
 from .orca_parser import OrcaParseError, parse_orca_output
@@ -57,6 +58,7 @@ __all__ = [
     "build_graph_orca",
     "build_graph_rdkit",
     "build_graph_rdkit_tm",
+    "build_graph_xtb",
     "compare_with_rdkit",
     "compute_gasteiger_charges",
     "graph_debug_report",

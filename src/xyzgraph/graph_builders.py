@@ -1,7 +1,6 @@
 """Molecular graph construction."""
 
 import logging
-import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
@@ -351,123 +350,15 @@ class GraphBuilder:
         return G
 
     def _build_xtb(self) -> nx.Graph:
-        """Build graph using xTB quantum chemistry calculations."""
-        if self.multiplicity is None:
-            total_electrons = sum(self.atomic_numbers) - self.charge
-            self.multiplicity = 1 if total_electrons % 2 == 0 else 2
+        """Build graph using xTB — delegates to standalone module."""
+        from .graph_builders_xtb import build_graph_xtb
 
-        work = "xtb_tmp_local"
-        basename = "xtb"
-        if os.system("which xtb > /dev/null 2>&1") != 0:
-            raise RuntimeError("xTB not found in PATH - install xTB or use 'cheminf' method")
-
-        os.makedirs(work, exist_ok=True)
-
-        # Write XYZ file natively
-        xyz_path = os.path.join(work, f"{basename}.xyz")
-        with open(xyz_path, "w") as f:
-            f.write(f"{len(self.atoms)}\n")
-            f.write("xyzgraph generated XYZ for xTB\n")
-            for symbol, (x, y, z) in self.atoms:
-                f.write(f"{symbol:>2} {x:15.8f} {y:15.8f} {z:15.8f}\n")
-
-        cmd = (
-            f"cd {work} && xtb {basename}.xyz --chrg {self.charge} --uhf {self.multiplicity - 1} --gfn2 "
-            f"> {basename}.out"
+        return build_graph_xtb(
+            atoms=self.atoms,
+            charge=self.charge,
+            multiplicity=self.multiplicity,
+            clean_up=self.clean_up,
         )
-        ret = os.system(cmd)
-
-        if ret != 0:
-            self.log(f"Warning: xTB returned non-zero exit code {ret}", 1)
-
-        # Parse WBO
-        bonds = []
-        bond_orders = []
-        wbo_file = os.path.join(work, f"{basename}_wbo")
-        if not os.path.exists(wbo_file) and os.path.exists(os.path.join(work, "wbo")):
-            os.rename(os.path.join(work, "wbo"), wbo_file)
-
-        try:
-            with open(wbo_file) as f:
-                for line in f:
-                    parts = line.split()
-                    if len(parts) == 3 and float(parts[2]) > 0.5:  # bonding threshold
-                        bonds.append((int(parts[0]) - 1, int(parts[1]) - 1))  # xTB uses 1-indexed
-                        bond_orders.append(float(parts[2]))
-            self.log(f"Parsed {len(bonds)} bonds from xTB WBO", 1)
-        except FileNotFoundError:
-            pass
-
-        # Parse charges
-        charges = []
-        charges_file = os.path.join(work, f"{basename}_charges")
-        if not os.path.exists(charges_file) and os.path.exists(os.path.join(work, "charges")):
-            os.rename(os.path.join(work, "charges"), charges_file)
-
-        try:
-            with open(charges_file) as f:
-                for line in f:
-                    charges.append(float(line.split()[0]))
-            self.log(f"Parsed {len(charges)} Mulliken charges from xTB", 1)
-        except FileNotFoundError:
-            charges = [0.0] * len(self.atoms)
-
-        if self.clean_up:
-            try:
-                for f in os.listdir(work):
-                    os.remove(os.path.join(work, f))
-                os.rmdir(work)
-            except Exception as e:
-                self.log(f"Warning: Could not clean up temp files: {e}", 1)
-
-        # Build graph
-        G = nx.Graph()
-        pos = self.positions  # Use pre-computed positions
-
-        for i, (symbol, _) in enumerate(self.atoms):
-            G.add_node(
-                i,
-                symbol=symbol,
-                atomic_number=self.atomic_numbers[i],
-                position=pos[i],
-                charges={"mulliken": charges[i] if i < len(charges) else 0.0},
-            )
-
-        if bonds:
-            for (i, j), bo in zip(bonds, bond_orders):
-                d = GeometryCalculator.distance(tuple(pos[i]), tuple(pos[j]))
-                si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
-                G.add_edge(
-                    i,
-                    j,
-                    bond_order=float(bo),
-                    distance=d,
-                    bond_type=(si, sj),
-                    metal_coord=(si in DATA.metals or sj in DATA.metals),
-                )
-            self.log(f"Built graph with {G.number_of_edges()} bonds from xTB", 1)
-        else:
-            # Fallback to distance-based if xTB failed
-            self.log(
-                "Warning: No xTB bonds found, falling back to distance-based, try using `--method cheminf`",
-                1,
-            )
-            G = self._build_initial_graph()
-
-        # Add derived properties
-        for node in G.nodes():
-            G.nodes[node]["valence"] = BondOrderOptimizer.valence_sum(G, node)
-            agg = G.nodes[node]["charges"].get("mulliken", 0.0)
-            for nbr in G.neighbors(node):
-                if G.nodes[nbr]["symbol"] == "H":
-                    agg += G.nodes[nbr]["charges"].get("mulliken", 0.0)
-            G.nodes[node]["agg_charge"] = agg
-
-        G.graph["total_charge"] = self.charge
-        G.graph["multiplicity"] = self.multiplicity
-        G.graph["method"] = "xtb"
-
-        return G
 
 
 def build_graph(
