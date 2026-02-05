@@ -289,50 +289,6 @@ class GraphBuilder:
         self.log_buffer.extend(self._bond_detector.get_log())
         return G
 
-    def _compute_gasteiger_charges(self, G: nx.Graph) -> List[float]:
-        """Compute Gasteiger charges using RDKit."""
-        try:
-            rw = Chem.RWMol()
-            for i in G.nodes():
-                rw.AddAtom(Chem.Atom(G.nodes[i]["symbol"]))
-
-            for i, j, data in G.edges(data=True):
-                bo = data["bond_order"]
-                if bo >= 2.5:
-                    bt = Chem.BondType.TRIPLE
-                elif bo >= 1.75:
-                    bt = Chem.BondType.DOUBLE
-                elif bo >= 1.25:
-                    bt = Chem.BondType.AROMATIC
-                else:
-                    bt = Chem.BondType.SINGLE
-                rw.AddBond(int(i), int(j), bt)
-
-            mol = rw.GetMol()
-
-            try:
-                Chem.SanitizeMol(mol)
-            except Exception:
-                Chem.SanitizeMol(mol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_PROPERTIES)
-
-            Chem.AllChem.ComputeGasteigerCharges(mol)  # ty: ignore
-
-            charges = []
-            for atom in mol.GetAtoms():
-                try:
-                    c = float(atom.GetProp("_GasteigerCharge"))
-                    if np.isnan(c):
-                        c = 0.0
-                except Exception:
-                    c = 0.0
-                charges.append(c)
-
-            return charges
-
-        except Exception as e:
-            self.log(f"Gasteiger charge calculation failed: {e}", 2)
-            return [0.0] * len(self.atoms)
-
     # =============================================================================
     # MAIN BUILD FUNCTIONS
     # =============================================================================
@@ -370,33 +326,18 @@ class GraphBuilder:
         # Collect optimizer logs
         self.log_buffer.extend(self._optimizer.get_log())
 
-        # Compute charges (RDKit Gasteiger - stays in GraphBuilder)
-        gasteiger_raw = self._compute_gasteiger_charges(G)
-        raw_sum = sum(gasteiger_raw)
-        delta = (self.charge - raw_sum) / len(self.atoms) if self.atoms else 0.0
-        gasteiger_adj = [c + delta for c in gasteiger_raw]
-
         # Classify metal-ligand bonds
         self._optimizer.log_buffer.clear()
         ligand_classification = self._optimizer.classify_metal_ligands(G)
         self.log_buffer.extend(self._optimizer.get_log())
         G.graph["ligand_classification"] = ligand_classification
 
-        # Annotate graph
+        # Annotate graph (charges left empty — use compute_gasteiger_charges() as opt-in featuriser)
         for node in G.nodes():
-            G.nodes[node]["charges"] = {
-                "gasteiger_raw": gasteiger_raw[node],
-                "gasteiger": gasteiger_adj[node],
-            }
+            G.nodes[node]["charges"] = {}
             G.nodes[node]["formal_charge"] = formal_charges[node]
             G.nodes[node]["valence"] = BondOrderOptimizer.valence_sum(G, node)
-
-            # Aggregate charge (add H contributions)
-            agg = gasteiger_adj[node]
-            for nbr in G.neighbors(node):
-                if G.nodes[nbr]["symbol"] == "H":
-                    agg += gasteiger_adj[nbr]
-            G.nodes[node]["agg_charge"] = agg
+            G.nodes[node]["agg_charge"] = 0.0
 
         # Add bond types
         for i, j, data in G.edges(data=True):
@@ -684,7 +625,6 @@ def build_graph_rdkit(
     systems, consider using build_graph() with method='cheminf' or
     build_graph_from_orca() instead.
     """
-    from rdkit import Chem
     from rdkit.Chem import rdDetermineBonds
 
     # Handle input
@@ -850,7 +790,6 @@ def build_graph_rdkit_tm(
     import networkx as nx
     import numpy as np
     from networkx.algorithms import isomorphism
-    from rdkit import Chem
 
     from . import BOHR_TO_ANGSTROM, DATA
 

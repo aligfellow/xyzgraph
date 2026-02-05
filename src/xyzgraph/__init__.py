@@ -12,10 +12,11 @@ __citation__ = (
 # Utilities
 from .ascii_renderer import graph_to_ascii
 from .compare import compare_with_rdkit
-
-# Import default parameters from config
 from .config import DEFAULT_PARAMS
 from .data_loader import BOHR_TO_ANGSTROM, DATA
+
+# Import default parameters from config
+from .featurisers import compute_gasteiger_charges
 
 # Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
 from .graph_builders import (
@@ -57,6 +58,7 @@ __all__ = [
     "build_graph_rdkit",
     "build_graph_rdkit_tm",
     "compare_with_rdkit",
+    "compute_gasteiger_charges",
     "graph_debug_report",
     # Visualization
     "graph_to_ascii",
