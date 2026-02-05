@@ -1,5 +1,6 @@
 """Molecular graph construction."""
 
+import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,10 +13,14 @@ from .config import DEFAULT_PARAMS
 from .config_classes import GeometryThresholds
 from .data_loader import DATA
 from .geometry import GeometryCalculator
-from .utils import read_xyz_file
+from .utils import configure_debug_logging, read_xyz_file
 
 # Suppress RDKit warnings
 RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
+
+logger = logging.getLogger(__name__)
+
+
 
 # =============================================================================
 # METADATA COMPUTATION
@@ -150,7 +155,6 @@ class GraphBuilder:
         self.bond = bond
         self.unbond = unbond
         self.clean_up = clean_up
-        self.debug = debug
 
         if self.optimizer not in ("greedy", "beam"):
             raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam'")
@@ -203,12 +207,11 @@ class GraphBuilder:
         )
 
     def log(self, msg: str, level: int = 0):
-        """Log message."""
-        if self.debug:
-            indent = "  " * level
-            line = f"{indent}{msg}"
-            print(line)
-            self.log_buffer.append(line)
+        """Log message with indentation."""
+        indent = "  " * level
+        line = f"{indent}{msg}"
+        logger.debug(line)
+        self.log_buffer.append(line)
 
     def get_log(self) -> str:
         """Get full build log as string."""
@@ -2474,6 +2477,10 @@ def build_graph(
     atoms: Either a list of (symbol, (x,y,z)) tuples, or a filepath to read.
     metadata: Pre-computed metadata dict (for CLI to avoid duplication).
     """
+    # Configure logging for debug mode (API backward compat)
+    if debug:
+        configure_debug_logging()
+
     # Handle filepath input
     if isinstance(atoms, str):
         atoms = read_xyz_file(atoms)
@@ -2818,10 +2825,10 @@ def build_graph_rdkit_tm(
         try:
             mol = xyz2mol_tmc.get_tmc_mol(tmp.name, overall_charge=charge)
         except TimeoutError:
-            print(f"[Warning] xyz2mol_tmc timed out for {xyz_file}. Skipping RDKit-TM graph.")
+            logger.warning("xyz2mol_tmc timed out for %s. Skipping RDKit-TM graph.", xyz_file)
             mol = None  # gracefully skip
         except Exception as e:
-            print(f"[Warning] xyz2mol_tmc failed for {xyz_file}: {e}")
+            logger.warning("xyz2mol_tmc failed for %s: %s", xyz_file, e)
             mol = None
         finally:
             signal.alarm(0)
@@ -3126,6 +3133,10 @@ def build_graph_orca(
     >>> G = build_graph_from_orca("structure.out")
     >>> print(f"Graph has {G.number_of_nodes()} atoms and {G.number_of_edges()} bonds")
     """
+    # Configure logging for debug mode (API backward compat)
+    if debug:
+        configure_debug_logging()
+
     from .orca_parser import OrcaParseError, parse_orca_output
 
     # Parse ORCA output
@@ -3140,9 +3151,8 @@ def build_graph_orca(
     charge = orca_data["charge"]
     multiplicity = orca_data["multiplicity"]
 
-    if debug:
-        print(f"Parsed ORCA output: {len(atoms)} atoms, {len(bonds)} bonds (before threshold)")
-        print(f"Charge: {charge}, Multiplicity: {multiplicity}")
+    logger.debug("Parsed ORCA output: %d atoms, %d bonds (before threshold)", len(atoms), len(bonds))
+    logger.debug("Charge: %d, Multiplicity: %d", charge, multiplicity)
 
     # Build graph
     G = nx.Graph()
@@ -3183,8 +3193,7 @@ def build_graph_orca(
             )
             bonds_added += 1
 
-    if debug:
-        print(f"Added {bonds_added} bonds (threshold={bond_threshold})")
+    logger.debug("Added %d bonds (threshold=%s)", bonds_added, bond_threshold)
 
     # Compute derived properties
     for node in G.nodes():
@@ -3236,7 +3245,6 @@ def build_graph_orca(
     G.graph["multiplicity"] = multiplicity
     G.graph["method"] = "orca"
 
-    if debug:
-        print(f"\nFinal graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds")
+    logger.debug("\nFinal graph: %d atoms, %d bonds", G.number_of_nodes(), G.number_of_edges())
 
     return G

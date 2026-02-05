@@ -24,6 +24,9 @@ class BondGeometryChecker:
     for all configurable parameters (no magic numbers).
     """
 
+    # Indentation to nest under GraphBuilder's "Evaluating bond" (level 5 = 10 spaces)
+    LOG_INDENT = "  " * 5
+
     def __init__(
         self,
         geometry: GeometryCalculator,
@@ -33,6 +36,10 @@ class BondGeometryChecker:
         self.geometry = geometry
         self.thresholds = thresholds
         self.data = data
+
+    def _log(self, msg: str, *args):
+        """Log with indentation matching the calling context."""
+        logger.debug(self.LOG_INDENT + msg, *args)
 
     def _calculate_angle(self, atom1: int, center: int, atom2: int, G: nx.Graph) -> float:
         """Calculate angle (degrees) between three atoms: atom1-center-atom2."""
@@ -158,7 +165,7 @@ class BondGeometryChecker:
             for conf, bi, bj, _, _ in baseline_bonds:
                 if nonmetal_atom in (bi, bj) and X_atom in (bi, bj):
                     if conf / max(confidence, 0.01) > 2.0:
-                        logger.debug(
+                        self._log(
                             "Rejected %s-M agostic: %s-X bond stronger (conf=%.2f vs %.2f)",
                             nonmetal_sym,
                             nonmetal_sym,
@@ -208,7 +215,7 @@ class BondGeometryChecker:
                 )
 
                 if all_bonds_stronger:
-                    logger.debug(
+                    self._log(
                         "Rejected bond %s%d-%s%d: weak 4-ring closure (conf=%.2f), ALL existing bonds stronger",
                         sym_i,
                         i,
@@ -237,7 +244,7 @@ class BondGeometryChecker:
             acute_threshold = t.acute_threshold_metal if has_metal else t.acute_threshold_nonmetal
 
             if angle < acute_threshold:
-                logger.debug(
+                self._log(
                     "Rejected bond %s%d-%s%d: angle too acute (%.1f, threshold=%.1f) with %d-%d",
                     sym_i,
                     center,
@@ -253,7 +260,7 @@ class BondGeometryChecker:
             # Nearly collinear
             if angle > t.collinearity_angle:
                 if has_metal:
-                    logger.debug(
+                    self._log(
                         "Bond %d-%d: collinear (%.1f) with %d-%d, involves metal (%s-%s) - allowed",
                         center,
                         other,
@@ -279,7 +286,7 @@ class BondGeometryChecker:
                     dot_product = np.dot(v_existing, v_new)
 
                     if dot_product > t.collinearity_dot_threshold:
-                        logger.debug(
+                        self._log(
                             "Rejected bond %s%d-%s%d: collinear (%.1f) same direction as %d-%d",
                             sym_i,
                             center,
@@ -291,7 +298,7 @@ class BondGeometryChecker:
                         )
                         return False
                     elif dot_product < -t.collinearity_dot_threshold:
-                        logger.debug(
+                        self._log(
                             "Bond %s%d-%s%d: collinear (%.1f) opposite direction to %d-%d - valid trans",
                             sym_i,
                             center,
@@ -329,7 +336,7 @@ class BondGeometryChecker:
                 elem = next(iter(ring_elements))
                 elem_count = G.graph.get("_element_counts", {}).get(elem, 0)
                 if elem_count >= 8:
-                    logger.debug(
+                    self._log(
                         "Bond %s%d-%s%d: diagonal in homogeneous %s cluster ring - allowed",
                         sym_i,
                         i,
@@ -340,7 +347,7 @@ class BondGeometryChecker:
                     continue
 
             if len(ring) <= 4 and has_metal:
-                logger.debug(
+                self._log(
                     "Bond %s%d-%s%d: diagonal in existing %d-ring involves metal - allowed",
                     sym_i,
                     i,
@@ -350,7 +357,7 @@ class BondGeometryChecker:
                 )
                 continue
 
-            logger.debug(
+            self._log(
                 "Rejected bond %s%d-%s%d: would create diagonal in existing %d-ring",
                 sym_i,
                 i,
@@ -392,7 +399,7 @@ class BondGeometryChecker:
                 elem = next(iter(ring_elements))
                 elem_count = G.graph.get("_element_counts", {}).get(elem, 0)
                 if elem_count >= 8:
-                    logger.debug(
+                    self._log(
                         "Bond %s%d-%s%d: 3-ring in homogeneous %s cluster - bypassing",
                         sym_i,
                         i,
@@ -406,7 +413,7 @@ class BondGeometryChecker:
             is_metal_k = sym_k in self.data.metals
             if is_metal_k:
                 if "H" not in (sym_i, sym_j):
-                    logger.debug(
+                    self._log(
                         "3-ring formation via %s%d involves metal, low confidence L-L, rejected",
                         sym_k,
                         k,
@@ -423,7 +430,7 @@ class BondGeometryChecker:
                     if metal_atom in (bi, bj) and k in (bi, bj):
                         if "H" in (sym_i, sym_j, sym_k):
                             if conf / max(confidence, 0.01) > 1.5:
-                                logger.debug(
+                                self._log(
                                     "Rejected bond %s%d-%s%d: 3-ring via %s%d, "
                                     "existing M-%s%d bond stronger (conf=%.2f vs %.2f)",
                                     sym_i,
@@ -439,7 +446,7 @@ class BondGeometryChecker:
                                 )
                                 return False
                         elif conf / max(confidence, 0.01) > 3.0:
-                            logger.debug(
+                            self._log(
                                 "Rejected bond %s%d-%s%d: 3-ring diagonal, existing M-%s%d "
                                 "bond much stronger (conf=%.2f vs %.2f)",
                                 sym_i,
@@ -482,7 +489,7 @@ class BondGeometryChecker:
                 ring_type = "non-H"
 
             if max_angle > angle_threshold:
-                logger.debug(
+                self._log(
                     "Rejected bond %s%d-%s%d: 3-ring angle %.1f > %.1f (%s)",
                     sym_i,
                     i,
@@ -564,7 +571,7 @@ class BondGeometryChecker:
             / max_conf_for_interp
         )
 
-        logger.debug(
+        self._log(
             "3-ring via %s%d: ratio=%.3f, threshold=%.3f",
             sym_k,
             k,
@@ -576,7 +583,7 @@ class BondGeometryChecker:
             return True
 
         if has_metal and not has_H_in_ring:
-            logger.debug(
+            self._log(
                 "Bond %s%d-%s%d: diagonal (ratio=%.2f) across 3-ring via %s%d, metal bond - allowed",
                 sym_i,
                 i,
@@ -610,7 +617,7 @@ class BondGeometryChecker:
                 atoms_at_limit += 1
 
         if atoms_at_limit > 1:
-            logger.debug(
+            self._log(
                 "Rejected bond %s%d-%s%d: diagonal across 3-ring via %s%d "
                 "(ratio=%.2f, threshold=%.2f) and both atoms at valence limit",
                 sym_i,
@@ -625,7 +632,7 @@ class BondGeometryChecker:
             return False
 
         if ratio > t.diagonal_ratio_hard:
-            logger.debug(
+            self._log(
                 "Rejected bond %s%d-%s%d: diagonal ratio too high (ratio=%.2f > %.2f) even with valence capacity",
                 sym_i,
                 i,
@@ -660,7 +667,7 @@ class BondGeometryChecker:
             angle_to_normal = np.arccos(np.clip(np.abs(np.dot(vec_new, normal)), 0, 1)) * 180 / np.pi
 
             if angle_to_normal < 60:
-                logger.debug(
+                self._log(
                     "Rejected bond %s%d-%s%d: C hypervalent but in-plane (angle to normal=%.1f, need >60)",
                     sym_i,
                     i,
@@ -670,7 +677,7 @@ class BondGeometryChecker:
                 )
                 return False
 
-        logger.debug(
+        self._log(
             "Bond %s%d-%s%d: suspicious ratio (%.2f) but valence allows - likely real 3-ring",
             sym_i,
             i,
@@ -735,7 +742,7 @@ class BondGeometryChecker:
                     break
 
             if overflow_ok:
-                logger.debug(
+                self._log(
                     "Bond %s%d-%s%d: both atoms exceed valence but overflow <=1.0 - allowed in relaxed mode",
                     sym_i,
                     i,
@@ -744,7 +751,7 @@ class BondGeometryChecker:
                 )
                 return True
 
-            logger.debug(
+            self._log(
                 "Rejected bond %s%d-%s%d: both bonding atoms exceed valence by >1.0 (even in relaxed mode)",
                 sym_i,
                 i,
@@ -753,7 +760,7 @@ class BondGeometryChecker:
             )
             return False
 
-        logger.debug(
+        self._log(
             "Rejected bond %s%d-%s%d: both bonding atoms would exceed valence",
             sym_i,
             i,

@@ -16,7 +16,7 @@ from . import (
 )
 from .config import DEFAULT_PARAMS
 from .graph_builders import compute_metadata
-from .utils import _parse_pairs
+from .utils import _parse_pairs, configure_debug_logging
 
 
 def print_header(input_file, params_used, frame_info=None):
@@ -337,6 +337,10 @@ def main():
     if args.citation:
         print(__citation__)
         return
+
+    # Configure logging for debug mode
+    if args.debug:
+        configure_debug_logging()
 
     # Require input file
     if not args.input_file:

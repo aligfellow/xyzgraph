@@ -1,5 +1,6 @@
 """Utility functions."""
 
+import logging
 from typing import List, Optional, Tuple
 
 import networkx as nx
@@ -7,6 +8,16 @@ import networkx as nx
 from .data_loader import BOHR_TO_ANGSTROM, DATA
 
 PREF_CHARGE_ORDER = ["gasteiger", "mulliken", "gasteiger_raw"]
+
+
+def configure_debug_logging():
+    """Enable DEBUG-level console output for the xyzgraph package."""
+    pkg_logger = logging.getLogger("xyzgraph")
+    if not pkg_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        pkg_logger.addHandler(handler)
+    pkg_logger.setLevel(logging.DEBUG)
 
 
 def _pick_charge(d):
