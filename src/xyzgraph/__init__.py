@@ -22,10 +22,10 @@ from .featurisers import compute_gasteiger_charges
 from .graph_builders import (
     GraphBuilder,
     build_graph,
-    build_graph_rdkit_tm,
 )
 from .graph_builders_orca import build_graph_orca
 from .graph_builders_rdkit import build_graph_rdkit
+from .graph_builders_rdkit_tm import build_graph_rdkit_tm
 from .graph_builders_xtb import build_graph_xtb
 
 # ORCA parser

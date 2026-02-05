@@ -33,6 +33,9 @@ where = ["src"]
 [tool.setuptools.package-data]
 "xyzgraph.data" = ["*.json", "*.yaml"]
 
+[project.optional-dependencies]
+rdkit-tm = ["xyz2mol_tm @ git+https://github.com/jensengroup/xyz2mol_tm.git", "scipy"]
+
 [dependency-groups]
 dev = [
     "pre-commit>=3.5.0",
