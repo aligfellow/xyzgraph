@@ -29,6 +29,25 @@ logger = logging.getLogger(__name__)
 _DEFAULT_WEIGHTS = ScoringWeights()
 _DEFAULT_CONFIG = OptimizerConfig()
 
+# Valence violation detection (check_valence_violation)
+VALENCE_CHECK_LIMITS: Dict[str, float] = {"C": 4}
+VALENCE_CHECK_TOLERANCE = 0.3
+
+# Scoring valence limits (max bond order sum before hard penalty)
+SCORING_VALENCE_LIMITS: Dict[str, float] = {"C": 4, "N": 5, "O": 3, "S": 6, "P": 6}
+SCORING_VALENCE_TOLERANCE = 0.1
+
+# Quick valence adjust thresholds
+QUICK_PROMOTE_DIST_RATIO = 0.60
+MIN_DEFICIT_FOR_PROMOTION = 0.3
+MIN_BOND_INCREMENT = 0.5
+
+# Greedy optimizer convergence
+MAX_STAGNATION_ITERATIONS = 3
+
+# Default electronegativity for unknown elements
+DEFAULT_ELECTRONEGATIVITY = 2.5
+
 
 class BondOrderOptimizer:
     """Assigns bond orders and formal charges to molecular graphs.
@@ -190,11 +209,14 @@ class BondOrderOptimizer:
     # =========================================================================
 
     def _check_valence_violation(
-        self, G: nx.Graph, limits: Optional[Dict[str, float]] = None, tol: float = 0.3
+        self,
+        G: nx.Graph,
+        limits: Optional[Dict[str, float]] = None,
+        tol: float = VALENCE_CHECK_TOLERANCE,
     ) -> bool:
         """Check for pentavalent carbon etc."""
         if limits is None:
-            limits = {"C": 4}
+            limits = VALENCE_CHECK_LIMITS
 
         for i in G.nodes():
             sym = G.nodes[i]["symbol"]
@@ -828,13 +850,13 @@ class BondOrderOptimizer:
 
                 # Check geometry
                 dist_ratio = data["distance"] / (self.data.vdw.get(si, 2.0) + self.data.vdw.get(sj, 2.0))
-                if dist_ratio > 0.60:
+                if dist_ratio > QUICK_PROMOTE_DIST_RATIO:
                     continue
 
                 # Promote if both atoms need more valence
-                if di > 0.3 and dj > 0.3:
+                if di > MIN_DEFICIT_FOR_PROMOTION and dj > MIN_DEFICIT_FOR_PROMOTION:
                     increment = min(di, dj, 3.0 - bo)
-                    if increment >= 0.5:
+                    if increment >= MIN_BOND_INCREMENT:
                         data["bond_order"] = bo + increment
                         stats["promotions"] += 1
                         changed = True
@@ -1037,12 +1059,11 @@ class BondOrderOptimizer:
                 min_error = min(abs(vsum - v) for v in allowed)
                 penalties["valence"] += min_error**2
 
-                limits = {"C": 4, "N": 5, "O": 3, "S": 6, "P": 6}
-                if sym in limits and vsum > limits[sym] + 0.1:
-                    penalties["violation"] += 1000.0
+                if sym in SCORING_VALENCE_LIMITS and vsum > SCORING_VALENCE_LIMITS[sym] + SCORING_VALENCE_TOLERANCE:
+                    penalties["violation"] += self.weights.violation_weight
 
             # Electronegativity penalty
-            en = self.data.electronegativity.get(sym, 2.5)
+            en = self.data.electronegativity.get(sym, DEFAULT_ELECTRONEGATIVITY)
             if fc != 0:
                 penalties["en"] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
 
@@ -1230,7 +1251,7 @@ class BondOrderOptimizer:
                 last_promoted_edge = None
                 self.edge_scores_cache = None  # force full recompute next time
 
-                if stagnation >= 3:
+                if stagnation >= MAX_STAGNATION_ITERATIONS:
                     break  # stop if no improvement
 
         # --- Final scoring ---
@@ -1472,15 +1493,20 @@ class BondOrderOptimizer:
                 continue
 
             for i in cycle:
-                G.nodes[i]
-                if len(list(G.neighbors(i))) >= 4:
-                    self._log(
-                        f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}",
-                        1,
-                    )
-                    self._log("✗ Contains sp3 character, skipping aromaticity check", 2)
-                    is_planar = False
-                    break
+                sym = G.nodes[i]["symbol"]
+                if sym == "C":
+                    degree = sum(1 for nbr in G.neighbors(i) if G.nodes[nbr]["symbol"] not in self.data.metals)
+                    if degree >= 4:
+                        self._log(
+                            f"\nRing {ring_idx + 1} ({len(cycle)}-membered): {ring_atoms}",
+                            1,
+                        )
+                        self._log(
+                            f"✗ Contains sp3 carbon {sym}{i} (degree={degree}), skipping aromaticity check",
+                            2,
+                        )
+                        is_planar = False
+                        break
 
             if not is_planar:
                 continue

@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # Default thresholds for baseline bond detection
 _DEFAULT_THRESHOLDS = BondThresholds()
 
+# Bonds above this confidence are added without geometric validation
+HIGH_CONFIDENCE_THRESHOLD = 0.4
+
 
 class BondDetector:
     """Detects bonds from 3D atomic coordinates using distance-based heuristics.
@@ -292,7 +295,7 @@ class BondDetector:
                 rejected_count += 1
                 continue
 
-            if confidence > 0.4:
+            if confidence > HIGH_CONFIDENCE_THRESHOLD:
                 G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
                 edge_count += 1
                 self._log("  Added high-confidence bond", 4)
