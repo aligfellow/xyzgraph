@@ -272,45 +272,19 @@ class BondGeometryChecker:
                     )
                     continue
 
-                if G.degree(center) >= 2:
-                    pos_center = np.array(G.nodes[center]["position"])
-                    pos_existing = np.array(G.nodes[existing_neighbor]["position"])
-                    pos_new = np.array(G.nodes[other]["position"])
-
-                    v_existing = pos_existing - pos_center
-                    v_new = pos_new - pos_center
-
-                    v_existing = v_existing / np.linalg.norm(v_existing)
-                    v_new = v_new / np.linalg.norm(v_new)
-
-                    dot_product = np.dot(v_existing, v_new)
-
-                    if dot_product > t.collinearity_dot_threshold:
-                        self._log(
-                            "Rejected bond %s%d-%s%d: collinear (%.1f) same direction as %d-%d",
-                            sym_i,
-                            center,
-                            sym_j,
-                            other,
-                            angle,
-                            existing_neighbor,
-                            center,
-                        )
-                        return False
-                    elif dot_product < -t.collinearity_dot_threshold:
-                        self._log(
-                            "Bond %s%d-%s%d: collinear (%.1f) opposite direction to %d-%d - valid trans",
-                            sym_i,
-                            center,
-                            sym_j,
-                            other,
-                            angle,
-                            existing_neighbor,
-                            center,
-                        )
-                        continue
-                    else:
-                        continue
+                # angle > 160° means vectors are opposite (cos > 160° < -0.94),
+                # so this is always a valid trans arrangement.
+                self._log(
+                    "Bond %s%d-%s%d: collinear (%.1f) opposite direction to %d-%d - valid trans",
+                    sym_i,
+                    center,
+                    sym_j,
+                    other,
+                    angle,
+                    existing_neighbor,
+                    center,
+                )
+                continue
 
         return True
 
