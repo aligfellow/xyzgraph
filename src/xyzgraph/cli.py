@@ -404,9 +404,9 @@ def main():
     )
 
     # Determine frames to process
-    from .utils import _count_frames_and_get_atom_count
+    from .utils import count_frames_and_atoms
 
-    num_frames, _ = _count_frames_and_get_atom_count(args.input_file)
+    num_frames, _ = count_frames_and_atoms(args.input_file)
 
     if args.all_frames:
         frames_to_process = list(range(num_frames))

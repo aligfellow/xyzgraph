@@ -26,7 +26,7 @@ from .graph_builders_xtb import build_graph_xtb
 
 # ORCA support
 from .orca_parser import OrcaParseError, parse_orca_output
-from .utils import graph_debug_report, read_xyz_file
+from .utils import count_frames_and_atoms, graph_debug_report, read_xyz_file
 
 __all__ = [
     # Data access
@@ -43,9 +43,10 @@ __all__ = [
     "compare_with_rdkit",
     # Featurisers
     "compute_gasteiger_charges",
+    # Utilities
+    "count_frames_and_atoms",
     "graph_debug_report",
     "graph_to_ascii",
     "parse_orca_output",
-    # Utilities
     "read_xyz_file",
 ]

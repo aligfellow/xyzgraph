@@ -162,8 +162,8 @@ atoms = read_xyz_file("trajectory.xyz", frame=2)
 G = build_graph(atoms, charge=0)
 
 # Process all frames
-from xyzgraph.utils import _count_frames_and_get_atom_count
-num_frames, _ = _count_frames_and_get_atom_count("trajectory.xyz")
+from xyzgraph import count_frames_and_atoms
+num_frames, _ = count_frames_and_atoms("trajectory.xyz")
 for i in range(num_frames):
     atoms = read_xyz_file("trajectory.xyz", frame=i)
     G = build_graph(atoms, charge=0)

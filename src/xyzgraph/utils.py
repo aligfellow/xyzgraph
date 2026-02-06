@@ -184,8 +184,19 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
     return "\n".join(lines)
 
 
-def _count_frames_and_get_atom_count(filepath: str) -> tuple[int, int]:
-    """Scan XYZ file to count frames and atoms per frame."""
+def count_frames_and_atoms(filepath: str) -> tuple[int, int]:
+    """Count frames and atoms in an XYZ trajectory file.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to XYZ file.
+
+    Returns
+    -------
+    tuple[int, int]
+        (num_frames, num_atoms_per_frame)
+    """
     with open(filepath, "r") as f:
         line = f.readline()
         if not line:
@@ -212,7 +223,7 @@ def read_xyz_file(
 
     Supports single and multi-frame (trajectory) files. Streams to requested frame.
     """
-    num_frames, num_atoms = _count_frames_and_get_atom_count(filepath)
+    num_frames, num_atoms = count_frames_and_atoms(filepath)
 
     if frame < 0 or frame >= num_frames:
         raise ValueError(f"Frame {frame} out of range. File has {num_frames} frame(s).")
