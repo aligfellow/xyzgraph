@@ -134,9 +134,6 @@ class TestBuildGraphRdkitTm:
         """Metal-ligand bonds should have metal_coord=True."""
         from xyzgraph import build_graph_rdkit_tm
 
-        # if not PT_COMPLEX_XYZ.exists():
-        #     pytest.skip(f"Example file not found: {PT_COMPLEX_XYZ}")
-
         G = build_graph_rdkit_tm(str(PT_COMPLEX_XYZ), charge=-1)
         if G.number_of_edges() == 0:
             pytest.skip("xyz2mol_tmc failed or timed out")

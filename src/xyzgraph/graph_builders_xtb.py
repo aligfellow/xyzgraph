@@ -23,6 +23,7 @@ def build_graph_xtb(
     charge: int = 0,
     multiplicity: Optional[int] = None,
     xtb_dir: Optional[str] = None,
+    basename: str = "xtb",
     clean_up: bool = True,
     debug: bool = False,
 ) -> nx.Graph:
@@ -37,10 +38,13 @@ def build_graph_xtb(
     multiplicity : int or None
         Spin multiplicity.  Inferred from electron count if None.
     xtb_dir : str or None
-        Path to a directory containing existing xTB output (``wbo`` and
-        ``charges`` files).  When provided the xTB calculation is skipped
-        and results are read directly.  When *None* (default), xTB is
-        executed in a temporary working directory.
+        Path to a directory containing existing xTB output.  When provided
+        the xTB calculation is skipped and results are read directly.
+        When *None* (default), xTB is executed in a temporary directory.
+    basename : str
+        Base name for output files.  Files will be named ``{basename}.xyz``,
+        ``{basename}.out``, ``{basename}.wbo``, ``{basename}.charges``.
+        Also used to find existing output when *xtb_dir* is provided.
     clean_up : bool
         Remove temporary files after a fresh xTB run.
         Ignored when *xtb_dir* is provided.
@@ -73,7 +77,6 @@ def build_graph_xtb(
         ran_xtb = False
     else:
         work = "xtb_tmp_local"
-        basename = "xtb"
 
         if os.system("which xtb > /dev/null 2>&1") != 0:
             raise RuntimeError("xTB not found in PATH - install xTB or use 'cheminf' method")
@@ -92,6 +95,14 @@ def build_graph_xtb(
         if ret != 0:
             logger.warning("xTB returned non-zero exit code %d", ret)
 
+        # Rename xTB output files to use basename for organization
+        for bare, ext in [("wbo", "wbo"), ("charges", "charges")]:
+            bare_path = os.path.join(work, bare)
+            new_path = os.path.join(work, f"{basename}.{ext}")
+            if os.path.exists(bare_path) and not os.path.exists(new_path):
+                os.rename(bare_path, new_path)
+                logger.debug("Renamed %s -> %s", bare, f"{basename}.{ext}")
+
         ran_xtb = True
 
     # ------------------------------------------------------------------
@@ -100,7 +111,7 @@ def build_graph_xtb(
     bonds: list[tuple[int, int]] = []
     bond_orders: list[float] = []
 
-    wbo_path = _find_file(work, "wbo")
+    wbo_path = _find_file(work, "wbo", basename)
     if wbo_path is not None:
         with open(wbo_path) as f:
             for line in f:
@@ -115,7 +126,7 @@ def build_graph_xtb(
     # ------------------------------------------------------------------
     charges: list[float] = []
 
-    charges_path = _find_file(work, "charges")
+    charges_path = _find_file(work, "charges", basename)
     if charges_path is not None:
         with open(charges_path) as f:
             for line in f:
@@ -184,20 +195,25 @@ def build_graph_xtb(
     return G
 
 
-def _find_file(directory: str, name: str) -> Optional[str]:
-    """Find an xTB output file, trying various naming conventions.
+def _find_file(directory: str, name: str, basename: str = "xtb") -> Optional[str]:
+    """Find an xTB output file.
 
     Checks in order:
-    1. xtb_{name} (e.g., xtb_wbo)
-    2. {name} (e.g., wbo)
-    3. *.{name} (e.g., xtb_water.wbo)
+    1. {basename}.{name} (e.g., xtb.wbo) — our renamed format
+    2. {name} (e.g., wbo) — raw xTB binary output
+    3. *.{name} (e.g., xtb_water.wbo) — user-provided files
     """
-    # Try prefixed name first, then bare name
-    for candidate in [os.path.join(directory, f"xtb_{name}"), os.path.join(directory, name)]:
-        if os.path.exists(candidate):
-            return candidate
+    # Our renamed format (what build_graph_xtb produces)
+    preferred = os.path.join(directory, f"{basename}.{name}")
+    if os.path.exists(preferred):
+        return preferred
 
-    # Try files with .{name} extension (e.g., xtb_water.wbo)
+    # Raw xTB binary output (bare name)
+    bare = os.path.join(directory, name)
+    if os.path.exists(bare):
+        return bare
+
+    # User-provided files with .{name} extension
     for fname in os.listdir(directory):
         if fname.endswith(f".{name}"):
             return os.path.join(directory, fname)
