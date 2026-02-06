@@ -414,12 +414,12 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ```text
 > xyzgraph -h
-
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed] [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}]
-                [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit]
-                [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL]
-                [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
-                [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF] [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [--relaxed] [-t THRESHOLD] [-d] [-a] [-as ASCII_SCALE] [-H]
+                [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD]
+                [-o {greedy,beam}] [-bw BEAM_WIDTH] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [--bond BOND] [--unbond UNBOND] [--threshold-h-h THRESHOLD_H_H]
+                [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND]
+                [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds] [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF]
+                [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
                 [input_file]
 
 Build molecular graph from XYZ or ORCA output.
@@ -429,59 +429,75 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --version             Print version information and exit
-  --citation            Print citation information and exit
+  --version             Print version and exit
+  --citation            Print citation and exit
+
+Common Options:
   --method {cheminf,xtb}
                         Graph construction method (default: cheminf)
-  -q, --quick           Quick mode: fast heuristics, less accuracy (NOT recommended)
-  --max-iter MAX_ITER   Maximum iterations for bond order optimization (default: 50, cheminf only)
-  -t THRESHOLD, --threshold THRESHOLD
-                        Scaling factor for bond detection thresholds (default: 1.0)
-  --relaxed             Relaxed mode: use more permissive geometric validation
-  --edge-per-iter EDGE_PER_ITER
-                        Number of edges to adjust per iteration (default: 10, cheminf only)
-  -o {greedy,beam}, --optimizer {greedy,beam}
-                        Optimization algorithm (default: beam, BEAM recommended)
-  -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
-                        Beam width for beam search (default: 5)
-  --bond BOND           Force specific bonds. Example: --bond 0,1 2,3
-  --unbond UNBOND       Prevent specific bonds. Example: --unbond 0,1 1,2
+  --no-clean            Keep temporary xTB files (only for --method xtb)
   -c CHARGE, --charge CHARGE
                         Total molecular charge (default: 0)
   -m MULTIPLICITY, --multiplicity MULTIPLICITY
-                        Spin multiplicity (auto-detected if not specified)
-  -b, --bohr            XYZ file in Bohr units (default is Angstrom)
+                        Spin multiplicity (default: auto estimation)
+  -q, --quick           Quick mode: connectivity only, no formal charge optimization
+  --relaxed             Relaxed geometric validation (for transition states)
+  -t THRESHOLD, --threshold THRESHOLD
+                        Global scaling for bond thresholds (default: 1.0)
+
+Output Options:
   -d, --debug           Enable debug output
   -a, --ascii           Show 2D ASCII depiction
   -as ASCII_SCALE, --ascii-scale ASCII_SCALE
                         ASCII scaling factor (default: 2.5)
   -H, --show-h          Include hydrogens in visualizations
   --show-h-idx SHOW_H_IDX
-                        Show specific hydrogen atoms (comma-separated, e.g., '3,7,12')
+                        Show specific H atoms (comma-separated indices)
+
+Input Options:
+  -b, --bohr            XYZ file in Bohr units (default: Angstrom)
+  --frame FRAME         Frame index for trajectory files, 0-indexed (default: 0)
+  --all-frames          Process all frames in trajectory
+
+Comparison Options:
   --compare-rdkit       Compare with RDKit graph
-  --compare-rdkit-tm    Compare with RDKit graph from xyz2mol_tm (Jan Jensen)
+  --compare-rdkit-tm    Compare with RDKit xyz2mol_tm graph
   --orca-out ORCA_OUT   ORCA output file for comparison
   --orca-threshold ORCA_THRESHOLD
-                        Minimum Mayer bond order for ORCA graphs (default: 0.25)
-  --no-clean            Keep temporary xTB files (only for --method xtb)
+                        Min Mayer bond order for ORCA (default: 0.25)
+
+Optimizer Options:
+  -o {greedy,beam}, --optimizer {greedy,beam}
+                        Algorithm (default: beam)
+  -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
+                        Beam width (default: 5)
+  --max-iter MAX_ITER   Max iterations (default: 50)
+  --edge-per-iter EDGE_PER_ITER
+                        Edges per iteration (default: 10)
+
+Bond Constraints:
+  --bond BOND           Force bonds (e.g., --bond 0,1 2,3)
+  --unbond UNBOND       Prevent bonds (e.g., --unbond 0,1)
+
+Advanced Thresholds:
   --threshold-h-h THRESHOLD_H_H
-                        ADVANCED: vdW threshold for H-H bonds (default: 0.38)
+                        H-H vdW threshold (default: 0.38)
   --threshold-h-nonmetal THRESHOLD_H_NONMETAL
-                        ADVANCED: vdW threshold for H-nonmetal bonds (default: 0.42)
+                        H-nonmetal vdW threshold (default: 0.42)
   --threshold-h-metal THRESHOLD_H_METAL
-                        ADVANCED: vdW threshold for H-metal bonds (default: 0.48)
+                        H-metal vdW threshold (default: 0.45)
   --threshold-metal-ligand THRESHOLD_METAL_LIGAND
-                        ADVANCED: vdW threshold for metal-ligand bonds (default: 0.65)
+                        Metal-ligand vdW threshold (default: 0.65)
   --threshold-nonmetal THRESHOLD_NONMETAL
-                        ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: 0.55)
+                        Nonmetal-nonmetal vdW threshold (default: 0.55)
   --allow-metal-metal-bonds
-                        ADVANCED: Allow metal-metal bonds (True by default)
+                        Allow metal-metal bonds (default: True)
   --threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF
-                        ADVANCED: vdW threshold for metal-metal bonds (default: 0.7)
+                        Metal-metal vdW threshold (default: 0.7)
   --period-scaling-h-bonds PERIOD_SCALING_H_BONDS
-                        ADVANCED: Period scaling for H bonds (default: 0.05, 0=disabled)
+                        Period scaling for H bonds (default: 0.05)
   --period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS
-                        ADVANCED: Period scaling for nonmetal bonds (default: 0.0, 0=disabled)                      
+                        Period scaling for nonmetal bonds (default: 0.0)               
 ```
 
 **Method comparison**:
