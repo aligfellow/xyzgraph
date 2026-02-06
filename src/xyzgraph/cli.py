@@ -140,6 +140,11 @@ def main():
         help=f"Graph construction method (default: {DEFAULT_PARAMS['method']})",
     )
     common.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="Keep temporary xTB files (only for --method xtb)",
+    )
+    common.add_argument(
         "-c",
         "--charge",
         type=int,
@@ -151,14 +156,14 @@ def main():
         "--multiplicity",
         type=int,
         default=None,
-        help="Spin multiplicity (auto-detected if not specified)",
+        help="Spin multiplicity (default: auto estimation)",
     )
     common.add_argument(
         "-q",
         "--quick",
         action="store_true",
         default=DEFAULT_PARAMS["quick"],
-        help="Quick mode: fast heuristics, less accuracy",
+        help="Quick mode: connectivity only, no formal charge optimization",
     )
     common.add_argument(
         "--relaxed",
@@ -198,21 +203,21 @@ def main():
     )
 
     # --- Input Options ---
-    input_opts = p.add_argument_group("Input Options")
-    input_opts.add_argument(
+    input_options = p.add_argument_group("Input Options")
+    input_options.add_argument(
         "-b",
         "--bohr",
         action="store_true",
         default=False,
         help="XYZ file in Bohr units (default: Angstrom)",
     )
-    input_opts.add_argument(
+    input_options.add_argument(
         "--frame",
         type=int,
         default=0,
-        help="Frame index for trajectory files (0-indexed)",
+        help="Frame index for trajectory files, 0-indexed (default: 0)",
     )
-    input_opts.add_argument(
+    input_options.add_argument(
         "--all-frames",
         action="store_true",
         default=False,
@@ -220,15 +225,15 @@ def main():
     )
 
     # --- Comparison Options ---
-    compare = p.add_argument_group("Comparison Options")
-    compare.add_argument("--compare-rdkit", action="store_true", help="Compare with RDKit graph")
-    compare.add_argument(
+    comparison = p.add_argument_group("Comparison Options")
+    comparison.add_argument("--compare-rdkit", action="store_true", help="Compare with RDKit graph")
+    comparison.add_argument(
         "--compare-rdkit-tm",
         action="store_true",
         help="Compare with RDKit xyz2mol_tm graph",
     )
-    compare.add_argument("--orca-out", type=str, help="ORCA output file for comparison")
-    compare.add_argument(
+    comparison.add_argument("--orca-out", type=str, help="ORCA output file for comparison")
+    comparison.add_argument(
         "--orca-threshold",
         type=float,
         default=DEFAULT_PARAMS["orca_bond_threshold"],
@@ -236,28 +241,28 @@ def main():
     )
 
     # --- Optimizer Options ---
-    optim = p.add_argument_group("Optimizer Options")
-    optim.add_argument(
+    optimizer = p.add_argument_group("Optimizer Options")
+    optimizer.add_argument(
         "-o",
         "--optimizer",
         choices=["greedy", "beam"],
         default=DEFAULT_PARAMS["optimizer"],
         help=f"Algorithm (default: {DEFAULT_PARAMS['optimizer']})",
     )
-    optim.add_argument(
+    optimizer.add_argument(
         "-bw",
         "--beam-width",
         type=int,
         default=DEFAULT_PARAMS["beam_width"],
         help=f"Beam width (default: {DEFAULT_PARAMS['beam_width']})",
     )
-    optim.add_argument(
+    optimizer.add_argument(
         "--max-iter",
         type=int,
         default=DEFAULT_PARAMS["max_iter"],
         help=f"Max iterations (default: {DEFAULT_PARAMS['max_iter']})",
     )
-    optim.add_argument(
+    optimizer.add_argument(
         "--edge-per-iter",
         type=int,
         default=DEFAULT_PARAMS["edge_per_iter"],
@@ -268,14 +273,9 @@ def main():
     constraints = p.add_argument_group("Bond Constraints")
     constraints.add_argument("--bond", type=str, help="Force bonds (e.g., --bond 0,1 2,3)")
     constraints.add_argument("--unbond", type=str, help="Prevent bonds (e.g., --unbond 0,1)")
-    constraints.add_argument(
-        "--no-clean",
-        action="store_true",
-        help="Keep temporary xTB files",
-    )
 
     # --- Advanced Thresholds ---
-    advanced = p.add_argument_group("Advanced Thresholds (rarely needed)")
+    advanced = p.add_argument_group("Advanced Thresholds")
     advanced.add_argument(
         "--threshold-h-h",
         type=float,
