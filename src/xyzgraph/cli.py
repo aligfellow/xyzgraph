@@ -123,209 +123,212 @@ def compare_graphs(G1, G2, label1, label2):
 
 def main():
     """CLI entry point."""
-    p = argparse.ArgumentParser(description="Build molecular graph from XYZ or ORCA output.")
+    p = argparse.ArgumentParser(
+        description="Build molecular graph from XYZ or ORCA output.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("input_file", nargs="?", help="Input file (XYZ or ORCA .out)")
+    p.add_argument("--version", action="store_true", help="Print version and exit")
+    p.add_argument("--citation", action="store_true", help="Print citation and exit")
 
-    # Version and citation flags
-    p.add_argument("--version", action="store_true", help="Print version information and exit")
-    p.add_argument("--citation", action="store_true", help="Print citation information and exit")
-
-    # Method and quality
-    p.add_argument(
+    # --- Common Options ---
+    common = p.add_argument_group("Common Options")
+    common.add_argument(
         "--method",
         choices=["cheminf", "xtb"],
         default=DEFAULT_PARAMS["method"],
         help=f"Graph construction method (default: {DEFAULT_PARAMS['method']})",
     )
-    p.add_argument(
-        "-q",
-        "--quick",
-        action="store_true",
-        default=DEFAULT_PARAMS["quick"],
-        help="Quick mode: fast heuristics, less accuracy (NOT recommended)",
-    )
-    p.add_argument(
-        "--max-iter",
-        type=int,
-        default=DEFAULT_PARAMS["max_iter"],
-        help=f"Maximum iterations for bond order optimization (default: {DEFAULT_PARAMS['max_iter']}, cheminf only)",
-    )
-    p.add_argument(
-        "-t",
-        "--threshold",
-        type=float,
-        default=1.0,
-        help="Scaling factor for bond detection thresholds (default: 1.0)",
-    )
-    p.add_argument(
-        "--relaxed",
-        action="store_true",
-        default=DEFAULT_PARAMS["relaxed"],
-        help="Relaxed mode: use more permissive geometric validation",
-    )
-    p.add_argument(
-        "--edge-per-iter",
-        type=int,
-        default=DEFAULT_PARAMS["edge_per_iter"],
-        help=f"Number of edges to adjust per iteration (default: {DEFAULT_PARAMS['edge_per_iter']}, cheminf only)",
-    )
-    p.add_argument(
-        "-o",
-        "--optimizer",
-        choices=["greedy", "beam"],
-        default=DEFAULT_PARAMS["optimizer"],
-        help=f"Optimization algorithm (default: {DEFAULT_PARAMS['optimizer']}, BEAM recommended)",
-    )
-    p.add_argument(
-        "-bw",
-        "--beam-width",
-        type=int,
-        default=DEFAULT_PARAMS["beam_width"],
-        help=f"Beam width for beam search (default: {DEFAULT_PARAMS['beam_width']})",
-    )
-    p.add_argument("--bond", type=str, help="Force specific bonds. Example: --bond 0,1 2,3")
-    p.add_argument("--unbond", type=str, help="Prevent specific bonds. Example: --unbond 0,1 1,2")
-
-    # Molecular properties
-    p.add_argument(
+    common.add_argument(
         "-c",
         "--charge",
         type=int,
         default=0,
         help="Total molecular charge (default: 0)",
     )
-    p.add_argument(
+    common.add_argument(
         "-m",
         "--multiplicity",
         type=int,
         default=None,
         help="Spin multiplicity (auto-detected if not specified)",
     )
-    p.add_argument(
-        "-b",
-        "--bohr",
+    common.add_argument(
+        "-q",
+        "--quick",
         action="store_true",
-        default=False,
-        help="XYZ file in Bohr units (default is Angstrom)",
+        default=DEFAULT_PARAMS["quick"],
+        help="Quick mode: fast heuristics, less accuracy",
     )
-    p.add_argument(
-        "--frame",
-        type=int,
-        default=0,
-        help="Frame index for multi-frame XYZ trajectory files (0-indexed, default: 0)",
-    )
-    p.add_argument(
-        "--all-frames",
+    common.add_argument(
+        "--relaxed",
         action="store_true",
-        default=False,
-        help="Process all frames in trajectory file (CLI convenience wrapper)",
+        default=DEFAULT_PARAMS["relaxed"],
+        help="Relaxed geometric validation (for transition states)",
+    )
+    common.add_argument(
+        "-t",
+        "--threshold",
+        type=float,
+        default=1.0,
+        help="Global scaling for bond thresholds (default: 1.0)",
     )
 
-    # Output control
-    p.add_argument("-d", "--debug", action="store_true", help="Enable debug output")
-    p.add_argument("-a", "--ascii", action="store_true", help="Show 2D ASCII depiction")
-    p.add_argument(
+    # --- Output Options ---
+    output = p.add_argument_group("Output Options")
+    output.add_argument("-d", "--debug", action="store_true", help="Enable debug output")
+    output.add_argument("-a", "--ascii", action="store_true", help="Show 2D ASCII depiction")
+    output.add_argument(
         "-as",
         "--ascii-scale",
         type=float,
         default=2.5,
         help="ASCII scaling factor (default: 2.5)",
     )
-    p.add_argument(
+    output.add_argument(
         "-H",
         "--show-h",
         action="store_true",
         help="Include hydrogens in visualizations",
     )
-    p.add_argument(
+    output.add_argument(
         "--show-h-idx",
         type=str,
-        help="Show specific hydrogen atoms (comma-separated, e.g., '3,7,12')",
+        help="Show specific H atoms (comma-separated indices)",
     )
 
-    # Comparison
-    p.add_argument("--compare-rdkit", action="store_true", help="Compare with RDKit graph")
-    p.add_argument(
+    # --- Input Options ---
+    input_opts = p.add_argument_group("Input Options")
+    input_opts.add_argument(
+        "-b",
+        "--bohr",
+        action="store_true",
+        default=False,
+        help="XYZ file in Bohr units (default: Angstrom)",
+    )
+    input_opts.add_argument(
+        "--frame",
+        type=int,
+        default=0,
+        help="Frame index for trajectory files (0-indexed)",
+    )
+    input_opts.add_argument(
+        "--all-frames",
+        action="store_true",
+        default=False,
+        help="Process all frames in trajectory",
+    )
+
+    # --- Comparison Options ---
+    compare = p.add_argument_group("Comparison Options")
+    compare.add_argument("--compare-rdkit", action="store_true", help="Compare with RDKit graph")
+    compare.add_argument(
         "--compare-rdkit-tm",
         action="store_true",
-        help="Compare with RDKit graph from xyz2mol_tm (Jan Jensen)",
+        help="Compare with RDKit xyz2mol_tm graph",
     )
-
-    p.add_argument("--orca-out", type=str, help="ORCA output file for comparison")
-    p.add_argument(
+    compare.add_argument("--orca-out", type=str, help="ORCA output file for comparison")
+    compare.add_argument(
         "--orca-threshold",
         type=float,
         default=DEFAULT_PARAMS["orca_bond_threshold"],
-        help=f"Minimum Mayer bond order for ORCA graphs (default: {DEFAULT_PARAMS['orca_bond_threshold']})",
+        help=f"Min Mayer bond order for ORCA (default: {DEFAULT_PARAMS['orca_bond_threshold']})",
     )
 
-    # xTB specific
-    p.add_argument(
+    # --- Optimizer Options ---
+    optim = p.add_argument_group("Optimizer Options")
+    optim.add_argument(
+        "-o",
+        "--optimizer",
+        choices=["greedy", "beam"],
+        default=DEFAULT_PARAMS["optimizer"],
+        help=f"Algorithm (default: {DEFAULT_PARAMS['optimizer']})",
+    )
+    optim.add_argument(
+        "-bw",
+        "--beam-width",
+        type=int,
+        default=DEFAULT_PARAMS["beam_width"],
+        help=f"Beam width (default: {DEFAULT_PARAMS['beam_width']})",
+    )
+    optim.add_argument(
+        "--max-iter",
+        type=int,
+        default=DEFAULT_PARAMS["max_iter"],
+        help=f"Max iterations (default: {DEFAULT_PARAMS['max_iter']})",
+    )
+    optim.add_argument(
+        "--edge-per-iter",
+        type=int,
+        default=DEFAULT_PARAMS["edge_per_iter"],
+        help=f"Edges per iteration (default: {DEFAULT_PARAMS['edge_per_iter']})",
+    )
+
+    # --- Constraints ---
+    constraints = p.add_argument_group("Bond Constraints")
+    constraints.add_argument("--bond", type=str, help="Force bonds (e.g., --bond 0,1 2,3)")
+    constraints.add_argument("--unbond", type=str, help="Prevent bonds (e.g., --unbond 0,1)")
+    constraints.add_argument(
         "--no-clean",
         action="store_true",
-        help="Keep temporary xTB files (only for --method xtb)",
+        help="Keep temporary xTB files",
     )
 
-    # Advanced bond detection thresholds
-    p.add_argument(
+    # --- Advanced Thresholds ---
+    advanced = p.add_argument_group("Advanced Thresholds (rarely needed)")
+    advanced.add_argument(
         "--threshold-h-h",
         type=float,
         default=DEFAULT_PARAMS["threshold_h_h"],
-        help=f"ADVANCED: vdW threshold for H-H bonds (default: {DEFAULT_PARAMS['threshold_h_h']})",
+        help=f"H-H vdW threshold (default: {DEFAULT_PARAMS['threshold_h_h']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--threshold-h-nonmetal",
         type=float,
         default=DEFAULT_PARAMS["threshold_h_nonmetal"],
-        help=f"ADVANCED: vdW threshold for H-nonmetal bonds (default: {DEFAULT_PARAMS['threshold_h_nonmetal']})",
+        help=f"H-nonmetal vdW threshold (default: {DEFAULT_PARAMS['threshold_h_nonmetal']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--threshold-h-metal",
         type=float,
         default=DEFAULT_PARAMS["threshold_h_metal"],
-        help=f"ADVANCED: vdW threshold for H-metal bonds (default: {DEFAULT_PARAMS['threshold_h_metal']})",
+        help=f"H-metal vdW threshold (default: {DEFAULT_PARAMS['threshold_h_metal']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--threshold-metal-ligand",
         type=float,
         default=DEFAULT_PARAMS["threshold_metal_ligand"],
-        help=f"ADVANCED: vdW threshold for metal-ligand bonds (default: {DEFAULT_PARAMS['threshold_metal_ligand']})",
+        help=f"Metal-ligand vdW threshold (default: {DEFAULT_PARAMS['threshold_metal_ligand']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--threshold-nonmetal",
         type=float,
         default=DEFAULT_PARAMS["threshold_nonmetal_nonmetal"],
-        help=(
-            f"ADVANCED: vdW threshold for nonmetal-nonmetal bonds "
-            f"(default: {DEFAULT_PARAMS['threshold_nonmetal_nonmetal']})"
-        ),
+        help=f"Nonmetal-nonmetal vdW threshold (default: {DEFAULT_PARAMS['threshold_nonmetal_nonmetal']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--allow-metal-metal-bonds",
         action="store_true",
         default=DEFAULT_PARAMS["allow_metal_metal_bonds"],
-        help=f"ADVANCED: Allow metal-metal bonds ({DEFAULT_PARAMS['allow_metal_metal_bonds']} by default)",
+        help=f"Allow metal-metal bonds (default: {DEFAULT_PARAMS['allow_metal_metal_bonds']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--threshold-metal-metal-self",
         type=float,
         default=DEFAULT_PARAMS["threshold_metal_metal_self"],
-        help=f"ADVANCED: vdW threshold for metal-metal bonds (default: {DEFAULT_PARAMS['threshold_metal_metal_self']})",
+        help=f"Metal-metal vdW threshold (default: {DEFAULT_PARAMS['threshold_metal_metal_self']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--period-scaling-h-bonds",
         type=float,
         default=DEFAULT_PARAMS["period_scaling_h_bonds"],
-        help=f"ADVANCED: Period scaling for H bonds (default: {DEFAULT_PARAMS['period_scaling_h_bonds']}, 0=disabled)",
+        help=f"Period scaling for H bonds (default: {DEFAULT_PARAMS['period_scaling_h_bonds']})",
     )
-    p.add_argument(
+    advanced.add_argument(
         "--period-scaling-nonmetal-bonds",
         type=float,
         default=DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
-        help=(
-            f"ADVANCED: Period scaling for nonmetal bonds "
-            f"(default: {DEFAULT_PARAMS['period_scaling_nonmetal_bonds']}, 0=disabled)"
-        ),
+        help=f"Period scaling for nonmetal bonds (default: {DEFAULT_PARAMS['period_scaling_nonmetal_bonds']})",
     )
 
     args = p.parse_args()
