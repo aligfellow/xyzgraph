@@ -109,14 +109,20 @@ def build_graph_orca(
 
     # Compute derived properties
     for node in G.nodes():
-        valence = sum(
+        # Split valence: organic (excludes metal bonds) and metal (coordination bonds)
+        organic_val = sum(
             G[node][nbr].get("bond_order", 1.0)
             for nbr in G.neighbors(node)
             if G.nodes[nbr]["symbol"] not in DATA.metals
         )
-        G.nodes[node]["valence"] = valence
+        metal_val = sum(
+            G[node][nbr].get("bond_order", 1.0) for nbr in G.neighbors(node) if G.nodes[nbr]["symbol"] in DATA.metals
+        )
+        G.nodes[node]["valence"] = organic_val
+        G.nodes[node]["metal_valence"] = metal_val
 
-        # Formal charge
+        # Formal charge (uses organic valence only)
+        valence = organic_val
         sym = G.nodes[node]["symbol"]
         if sym in DATA.metals:
             formal_charge = 0

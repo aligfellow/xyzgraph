@@ -16,7 +16,7 @@ from . import (
 )
 from .config import DEFAULT_PARAMS
 from .graph_builders import compute_metadata
-from .utils import _parse_pairs, configure_debug_logging
+from .utils import _parse_pairs, configure_debug_logging, graph_to_dict
 
 
 def print_header(input_file, params_used, frame_info=None):
@@ -183,6 +183,11 @@ def main():
     output = p.add_argument_group("Output Options")
     output.add_argument("-d", "--debug", action="store_true", help="Enable debug output")
     output.add_argument("-a", "--ascii", action="store_true", help="Show 2D ASCII depiction")
+    output.add_argument(
+        "--json",
+        action="store_true",
+        help="Output graph as JSON (for generating test fixtures)",
+    )
     output.add_argument(
         "-as",
         "--ascii-scale",
@@ -456,6 +461,13 @@ def main():
             metadata=metadata,
         )
         print(f"Constructed graph with chemical formula: {G_primary.graph['formula']}")
+
+        # JSON output mode - print and skip other output
+        if args.json:
+            import json
+
+            print(json.dumps(graph_to_dict(G_primary), indent=2))
+            continue  # Skip to next frame or exit
 
         # Build comparison graphs if requested
         G_orca = None

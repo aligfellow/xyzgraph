@@ -47,9 +47,9 @@ class TestBuildGraphRdkit:
         assert o["symbol"] == "O"
         assert o["atomic_number"] == 8
         assert o["position"] == (0.0, 0.0, 0.0)
-        assert isinstance(o["charges"], dict)
         assert "formal_charge" in o
         assert "valence" in o
+        assert "metal_valence" in o
 
     def test_edge_attributes(self):
         G = build_graph_rdkit(WATER)

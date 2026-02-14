@@ -260,6 +260,12 @@ class GraphBuilder:
         else:
             raise ValueError(f"Unknown method: {self.method}")
 
+        # Rename useful computed data for clean output (no _ prefix)
+        if "_rings" in self.graph.graph:
+            self.graph.graph["rings"] = self.graph.graph.pop("_rings")
+        if "_element_counts" in self.graph.graph:
+            self.graph.graph["element_counts"] = self.graph.graph.pop("_element_counts")
+
         # Store build log in graph
         self.graph.graph["build_log"] = self.get_log()
 
@@ -305,7 +311,7 @@ class GraphBuilder:
         self._optimizer.init_kekule(G)
 
         # Valence adjustment
-        stats = self._optimizer.optimize(G, mode=self.optimizer, quick=self.quick)
+        self._optimizer.optimize(G, mode=self.optimizer, quick=self.quick)
 
         # Compute formal charges BEFORE aromatic detection
         formal_charges = self._optimizer.compute_formal_charges(G)
@@ -326,12 +332,26 @@ class GraphBuilder:
         self.log_buffer.extend(self._optimizer.get_log())
         G.graph["ligand_classification"] = ligand_classification
 
-        # Annotate graph (charges left empty — use compute_gasteiger_charges() as opt-in featuriser)
+        # Store oxidation states on metal nodes
+        for metal_idx, ox_state in ligand_classification.get("metal_ox_states", {}).items():
+            G.nodes[metal_idx]["oxidation_state"] = ox_state
+
+        # Annotate graph (charges only set by featurisers like compute_gasteiger_charges())
         for node in G.nodes():
-            G.nodes[node]["charges"] = {}
             G.nodes[node]["formal_charge"] = formal_charges[node]
-            G.nodes[node]["valence"] = BondOrderOptimizer.valence_sum(G, node)
-            G.nodes[node]["agg_charge"] = 0.0
+            # Split valence: organic (excludes metal bonds) and metal (coordination bonds)
+            organic_val = sum(
+                G.edges[node, nbr].get("bond_order", 1.0)
+                for nbr in G.neighbors(node)
+                if G.nodes[nbr]["symbol"] not in self.data.metals
+            )
+            metal_val = sum(
+                G.edges[node, nbr].get("bond_order", 1.0)
+                for nbr in G.neighbors(node)
+                if G.nodes[nbr]["symbol"] in self.data.metals
+            )
+            G.nodes[node]["valence"] = organic_val
+            G.nodes[node]["metal_valence"] = metal_val
 
         # Add bond types
         for i, j, data in G.edges(data=True):
@@ -339,7 +359,6 @@ class GraphBuilder:
 
         G.graph["total_charge"] = self.charge
         G.graph["multiplicity"] = self.multiplicity
-        G.graph["valence_stats"] = stats
         G.graph["method"] = "cheminf-quick" if self.quick else "cheminf-full"
 
         return G

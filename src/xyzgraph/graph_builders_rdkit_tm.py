@@ -182,8 +182,6 @@ def build_graph_rdkit_tm(
             atomic_number=Chem.GetPeriodicTable().GetAtomicNumber(sym),
             position=pos,
             formal_charge=0,
-            valence=0.0,
-            charges={},
         )
 
     # Add heavy-heavy edges from RDKit, mapped to XYZ indices
@@ -228,7 +226,15 @@ def build_graph_rdkit_tm(
 
     # Update valences and formal charges
     for node in G.nodes():
-        G.nodes[node]["valence"] = sum(G.edges[node, nbr]["bond_order"] for nbr in G.neighbors(node))
+        # Split valence: organic (excludes metal bonds) and metal (coordination bonds)
+        organic_val = sum(
+            G.edges[node, nbr]["bond_order"] for nbr in G.neighbors(node) if G.nodes[nbr]["symbol"] not in DATA.metals
+        )
+        metal_val = sum(
+            G.edges[node, nbr]["bond_order"] for nbr in G.neighbors(node) if G.nodes[nbr]["symbol"] in DATA.metals
+        )
+        G.nodes[node]["valence"] = organic_val
+        G.nodes[node]["metal_valence"] = metal_val
 
     for rdkit_idx, xyz_idx in rdkit_to_xyz.items():
         G.nodes[xyz_idx]["formal_charge"] = mol.GetAtomWithIdx(rdkit_idx).GetFormalCharge()

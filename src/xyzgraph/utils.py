@@ -10,6 +10,59 @@ from .data_loader import BOHR_TO_ANGSTROM, DATA
 PREF_CHARGE_ORDER = ["gasteiger", "mulliken", "gasteiger_raw"]
 
 
+def graph_to_dict(G: nx.Graph) -> dict:
+    """Convert molecular graph to dictionary for JSON serialization.
+
+    Useful for generating test fixtures or exporting graph data.
+
+    Parameters
+    ----------
+    G : nx.Graph
+        Molecular graph to convert.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys:
+        - graph: graph-level attributes (method, total_charge, etc.)
+        - nodes: list of node dicts (id, symbol, formal_charge, etc.)
+        - edges: list of edge dicts (source, target, bond_order, distance)
+
+    Notes
+    -----
+    The 'position' attribute is converted from tuple to list for JSON compatibility.
+    """
+    nodes = []
+    for n, d in G.nodes(data=True):
+        node_dict = {"id": n}
+        for k, v in d.items():
+            if k == "position":
+                # Convert tuple to list for JSON serialization
+                node_dict[k] = list(v)
+            else:
+                node_dict[k] = v
+        nodes.append(node_dict)
+
+    edges = []
+    for i, j, d in G.edges(data=True):
+        edge_dict = {"source": i, "target": j}
+        edge_dict.update(d)
+        edges.append(edge_dict)
+
+    # Filter out internal/derived keys from graph attributes
+    # - _ prefixed: internal caches (_rings before rename, _element_counts, etc.)
+    # - ligand_classification: derived from formal charges, redundant in JSON
+    # - build_log: debug info, not molecule data
+    exclude_keys = {"ligand_classification", "build_log"}
+    graph_attrs = {k: v for k, v in G.graph.items() if not k.startswith("_") and k not in exclude_keys}
+
+    return {
+        "graph": graph_attrs,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
 def configure_debug_logging():
     """Enable DEBUG-level console output for the xyzgraph package."""
     pkg_logger = logging.getLogger("xyzgraph")
@@ -18,13 +71,6 @@ def configure_debug_logging():
         handler.setFormatter(logging.Formatter("%(message)s"))
         pkg_logger.addHandler(handler)
     pkg_logger.setLevel(logging.DEBUG)
-
-
-def _pick_charge(d):
-    for k in PREF_CHARGE_ORDER:
-        if k in d.get("charges", {}):
-            return d["charges"][k]
-    return next(iter(d.get("charges", {}).values()), 0.0)
 
 
 def _visible_nodes(G: nx.Graph, include_h: bool, show_h_indices: Optional[List[int]] = None) -> List[int]:
@@ -111,17 +157,17 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
     lines = []
     lines.append(f"# Molecular Graph: {G.number_of_nodes()} atoms, {G.number_of_edges()} bonds")
     if "total_charge" in G.graph or "multiplicity" in G.graph:
-        # gather charge sums
+        # gather charge sums (handle missing charges dict)
         def sum_method(m):
-            return sum(d["charges"].get(m, 0.0) for _, d in G.nodes(data=True))
+            return sum(d.get("charges", {}).get(m, 0.0) for _, d in G.nodes(data=True))
 
         reported = None
         for m in PREF_CHARGE_ORDER:
-            if any(m in d["charges"] for _, d in G.nodes(data=True)):
+            if any(m in d.get("charges", {}) for _, d in G.nodes(data=True)):
                 reported = (m, sum_method(m))
                 break
         raw_sum = None
-        if any("gasteiger_raw" in d["charges"] for _, d in G.nodes(data=True)):
+        if any("gasteiger_raw" in d.get("charges", {}) for _, d in G.nodes(data=True)):
             raw_sum = ("gasteiger_raw", sum_method("gasteiger_raw"))
         meta = []
         if "total_charge" in G.graph:
@@ -135,7 +181,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
         lines.append("# " + "  ".join(meta))
     if not include_h:
         lines.append("# (C-H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)")
-    lines.append("# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)")
+    lines.append("# [idx] Sym  val=.. metal=.. formal=.. | neighbors: idx(order / aromatic flag)")
     lines.append("# (val = organic valence excluding metal bonds; metal = metal coordination bonds)")
     arom_edges = {tuple(sorted((i, j))) for i, j, d in G.edges(data=True) if 1.4 < d.get("bond_order", 1.0) < 1.6}
     visible = set(_visible_nodes(G, include_h, show_h_indices))
@@ -152,8 +198,6 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
             else:
                 organic_val += bo
 
-        chg = _pick_charge(data)
-        agg = data.get("agg_charge", chg)
         formal = data.get("formal_charge", 0)
         # Format formal charge: " 0" for zero, "+1"/"-1" for non-zero
         formal_str = f"{formal} " if formal == 0 else f"{formal:+d}"
@@ -166,7 +210,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
             nbrs.append(f"{n}({bo:.2f}{arom})")
         lines.append(
             f"[{idx:>3}] {data.get('symbol', '?'):>2}  val={organic_val:.2f}  metal={metal_val:.2f}  "
-            f"formal={formal_str}  chg={chg:+.3f}  agg={agg:+.3f} | " + (" ".join(nbrs) if nbrs else "-")
+            f"formal={formal_str} | " + (" ".join(nbrs) if nbrs else "-")
         )
     # Edge summary (filtered)
     lines.append("")

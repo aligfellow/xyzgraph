@@ -8,7 +8,6 @@ from typing import List, Optional, Tuple
 
 import networkx as nx
 
-from .bond_order_optimizer import BondOrderOptimizer
 from .data_loader import DATA
 from .geometry import GeometryCalculator
 
@@ -181,7 +180,19 @@ def build_graph_xtb(
 
     # Derived properties
     for node in G.nodes():
-        G.nodes[node]["valence"] = BondOrderOptimizer.valence_sum(G, node)
+        # Split valence: organic (excludes metal bonds) and metal (coordination bonds)
+        organic_val = sum(
+            G.edges[node, nbr].get("bond_order", 1.0)
+            for nbr in G.neighbors(node)
+            if G.nodes[nbr]["symbol"] not in DATA.metals
+        )
+        metal_val = sum(
+            G.edges[node, nbr].get("bond_order", 1.0)
+            for nbr in G.neighbors(node)
+            if G.nodes[nbr]["symbol"] in DATA.metals
+        )
+        G.nodes[node]["valence"] = organic_val
+        G.nodes[node]["metal_valence"] = metal_val
         agg = G.nodes[node]["charges"].get("mulliken", 0.0)
         for nbr in G.neighbors(node):
             if G.nodes[nbr]["symbol"] == "H":

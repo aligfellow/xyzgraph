@@ -104,9 +104,7 @@ def build_graph_rdkit(
             symbol=symbol,
             atomic_number=atomic_number,
             position=positions[i],
-            charges={},
             formal_charge=a.GetFormalCharge(),
-            valence=0.0,
         )
 
     for b in mol.GetBonds():
@@ -142,12 +140,17 @@ def build_graph_rdkit(
 
     # Derived properties
     for node in G.nodes():
-        valence = sum(
+        # Split valence: organic (excludes metal bonds) and metal (coordination bonds)
+        organic_val = sum(
             G[node][nbr].get("bond_order", 1.0)
             for nbr in G.neighbors(node)
             if G.nodes[nbr]["symbol"] not in DATA.metals
         )
-        G.nodes[node]["valence"] = valence
+        metal_val = sum(
+            G[node][nbr].get("bond_order", 1.0) for nbr in G.neighbors(node) if G.nodes[nbr]["symbol"] in DATA.metals
+        )
+        G.nodes[node]["valence"] = organic_val
+        G.nodes[node]["metal_valence"] = metal_val
 
         agg_charge = float(G.nodes[node]["formal_charge"])
         for nbr in G.neighbors(node):
