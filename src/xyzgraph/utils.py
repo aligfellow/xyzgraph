@@ -26,7 +26,7 @@ def graph_to_dict(G: nx.Graph) -> dict:
         Dictionary with keys:
         - graph: graph-level attributes (method, total_charge, etc.)
         - nodes: list of node dicts (id, symbol, formal_charge, etc.)
-        - edges: list of edge dicts (source, target, bond_order, distance)
+        - edges: list of edge dicts (idx1, idx2, bond_order, distance)
 
     Notes
     -----
@@ -45,7 +45,7 @@ def graph_to_dict(G: nx.Graph) -> dict:
 
     edges = []
     for i, j, d in G.edges(data=True):
-        edge_dict = {"source": i, "target": j}
+        edge_dict = {"idx1": i, "idx2": j}
         edge_dict.update(d)
         edges.append(edge_dict)
 

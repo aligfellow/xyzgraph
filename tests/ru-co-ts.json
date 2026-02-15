@@ -1,101 +1,95 @@
 {
   "graph": {
-    "formula": "C34H35FeMnN3O2P",
+    "formula": "C31H34N2O2P2Ru",
     "total_charge": 0,
     "multiplicity": 1,
     "method": "cheminf-full",
     "rings": [
       [
-        7,
-        13,
-        11,
         9,
-        8
+        40,
+        48,
+        33,
+        35,
+        5
       ],
       [
-        37,
-        39,
-        41,
-        43,
-        45,
-        36
+        38,
+        56,
+        58,
+        52,
+        15,
+        12
       ],
       [
-        34,
-        32,
-        30,
-        28,
-        26,
+        13,
+        42,
+        54,
+        60,
+        46,
         25
       ],
       [
-        55,
-        53,
-        6,
-        52,
-        58,
-        57
-      ],
-      [
-        15,
         17,
-        19,
-        21,
-        23
+        29,
+        50,
+        44,
+        31,
+        11
       ]
     ],
     "element_counts": {
-      "Fe": 1,
-      "Mn": 1,
-      "P": 1,
+      "Ru": 1,
+      "P": 2,
+      "N": 2,
       "O": 2,
-      "N": 3,
-      "C": 34,
-      "H": 35
+      "C": 31,
+      "H": 34
     },
     "metadata": {
       "version": "1.5.0",
       "citation": "A. S. Goodfellow, xyzgraph: Molecular Graph Construction from Cartesian Coordinates, v1.5.0, 2025, https://github.com/aligfellow/xyzgraph.git.",
-      "parameters": {}
+      "parameters": {
+        "threshold": 1.4
+      }
     }
   },
   "nodes": [
     {
       "id": 0,
-      "symbol": "Fe",
-      "atomic_number": 26,
+      "symbol": "Ru",
+      "atomic_number": 44,
       "position": [
-        -3.224849,
-        -1.302099,
-        -0.777978
+        0.053555,
+        -0.092367,
+        0.045199
       ],
       "formal_charge": 0,
       "oxidation_state": 2,
-      "valence": 10.0,
+      "valence": 8.0,
       "metal_valence": 0
     },
     {
       "id": 1,
-      "symbol": "Mn",
-      "atomic_number": 25,
+      "symbol": "P",
+      "atomic_number": 15,
       "position": [
-        0.632465,
-        0.035074,
-        1.852175
+        -2.226824,
+        0.275624,
+        0.354291
       ],
       "formal_charge": 0,
-      "oxidation_state": 1,
-      "valence": 6.0,
-      "metal_valence": 0
+      "valence": 3.0,
+      "metal_valence": 1.0
     },
     {
       "id": 2,
       "symbol": "P",
       "atomic_number": 15,
       "position": [
-        -0.39081,
-        0.769377,
-        -0.039514
+        2.37622,
+        0.017329,
+        0.377914
       ],
       "formal_charge": 0,
       "valence": 3.0,
@@ -103,25 +97,25 @@
     },
     {
       "id": 3,
-      "symbol": "O",
-      "atomic_number": 8,
+      "symbol": "N",
+      "atomic_number": 7,
       "position": [
-        1.070799,
-        2.692583,
-        3.026837
+        0.058298,
+        -0.021468,
+        2.283364
       ],
-      "formal_charge": 1,
+      "formal_charge": 0,
       "valence": 3.0,
-      "metal_valence": 0
+      "metal_valence": 1.0
     },
     {
       "id": 4,
       "symbol": "O",
       "atomic_number": 8,
       "position": [
-        -1.707996,
-        -0.343088,
-        3.587718
+        0.067783,
+        0.004935,
+        -2.962419
       ],
       "formal_charge": 1,
       "valence": 3.0,
@@ -129,77 +123,77 @@
     },
     {
       "id": 5,
-      "symbol": "N",
-      "atomic_number": 7,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        0.614308,
-        -1.972763,
-        1.074519
+        -2.829568,
+        1.988921,
+        -0.021378
       ],
       "formal_charge": 0,
-      "valence": 3.0,
-      "metal_valence": 1.0
+      "valence": 4.0,
+      "metal_valence": 0
     },
     {
       "id": 6,
-      "symbol": "N",
-      "atomic_number": 7,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        2.529526,
-        -0.096111,
-        1.026457
+        1.311017,
+        0.427315,
+        2.921678
       ],
       "formal_charge": 0,
-      "valence": 3.0,
-      "metal_valence": 1.0
+      "valence": 4.0,
+      "metal_valence": 0
     },
     {
       "id": 7,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        -1.315084,
-        -0.560054,
-        -0.925571
+        1.31354,
+        0.162237,
+        4.005363
       ],
       "formal_charge": 0,
-      "valence": 4.0,
-      "metal_valence": 1.0
+      "valence": 1.0,
+      "metal_valence": 0
     },
     {
       "id": 8,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        -1.299438,
-        -1.973313,
-        -0.544111
+        1.36137,
+        1.537275,
+        2.861225
       ],
       "formal_charge": 0,
-      "valence": 4.0,
-      "metal_valence": 1.0
+      "valence": 1.0,
+      "metal_valence": 0
     },
     {
       "id": 9,
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -1.972427,
-        -2.708222,
-        -1.592286
+        -3.39062,
+        2.849083,
+        0.947055
       ],
       "formal_charge": 0,
       "valence": 4.0,
-      "metal_valence": 1.0
+      "metal_valence": 0
     },
     {
       "id": 10,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -2.149753,
-        -3.790828,
-        -1.608501
+        -3.508144,
+        2.521243,
+        1.991137
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -210,25 +204,25 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -2.414011,
-        -1.78157,
-        -2.598442
+        3.610175,
+        -1.186064,
+        -0.299925
       ],
       "formal_charge": 0,
       "valence": 4.0,
-      "metal_valence": 1.0
+      "metal_valence": 0
     },
     {
       "id": 12,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        -2.979462,
-        -2.037219,
-        -3.50463
+        -3.556166,
+        -0.782028,
+        -0.385314
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
@@ -236,22 +230,22 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -2.018585,
-        -0.462261,
-        -2.191102
+        3.794539,
+        2.463629,
+        0.950643
       ],
-      "formal_charge": -1,
+      "formal_charge": 0,
       "valence": 4.0,
-      "metal_valence": 1.0
+      "metal_valence": 0
     },
     {
       "id": 14,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -2.211849,
-        0.465511,
-        -2.744745
+        3.885402,
+        2.129799,
+        1.995494
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -262,22 +256,22 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -4.119982,
-        -0.743915,
-        0.99062
+        -4.920352,
+        -0.419958,
+        -0.298848
       ],
       "formal_charge": 0,
       "valence": 4.0,
-      "metal_valence": 1.0
+      "metal_valence": 0
     },
     {
       "id": 16,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -3.592043,
-        -0.384793,
-        1.883855
+        -5.215152,
+        0.518121,
+        0.198888
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -288,22 +282,22 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -4.417633,
-        -2.119189,
-        0.68698
+        3.148932,
+        -2.46064,
+        -0.70109
       ],
       "formal_charge": 0,
       "valence": 4.0,
-      "metal_valence": 1.0
+      "metal_valence": 0
     },
     {
       "id": 18,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -4.166136,
-        -2.987452,
-        1.310975
+        2.068771,
+        -2.688134,
+        -0.627437
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -314,22 +308,22 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -5.082478,
-        -2.161114,
-        -0.59055
+        2.522752,
+        -0.205643,
+        2.23029
       ],
       "formal_charge": 0,
       "valence": 4.0,
-      "metal_valence": 1.0
+      "metal_valence": 0
     },
     {
       "id": 20,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -5.421258,
-        -3.065999,
-        -1.112731
+        2.524545,
+        -1.305781,
+        2.381337
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -337,51 +331,51 @@
     },
     {
       "id": 21,
-      "symbol": "C",
-      "atomic_number": 6,
-      "position": [
-        -5.198923,
-        -0.809441,
-        -1.075394
-      ],
-      "formal_charge": 0,
-      "valence": 4.0,
-      "metal_valence": 1.0
-    },
-    {
-      "id": 22,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -5.64209,
-        -0.503898,
-        -2.032749
+        3.479324,
+        0.182067,
+        2.635913
       ],
       "formal_charge": 0,
       "valence": 1.0,
       "metal_valence": 0
     },
     {
-      "id": 23,
+      "id": 22,
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -4.602451,
-        0.066272,
-        -0.100399
+        -2.419147,
+        0.044756,
+        2.201037
       ],
-      "formal_charge": -1,
+      "formal_charge": 0,
       "valence": 4.0,
-      "metal_valence": 1.0
+      "metal_valence": 0
+    },
+    {
+      "id": 23,
+      "symbol": "H",
+      "atomic_number": 1,
+      "position": [
+        -3.332152,
+        0.524973,
+        2.607349
+      ],
+      "formal_charge": 0,
+      "valence": 1.0,
+      "metal_valence": 0
     },
     {
       "id": 24,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -4.510899,
-        1.157191,
-        -0.179972
+        -2.534397,
+        -1.051492,
+        2.333094
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -392,9 +386,9 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        0.761466,
-        1.408851,
-        -1.362263
+        3.143939,
+        1.659429,
+        -0.009874
       ],
       "formal_charge": 0,
       "valence": 4.0,
@@ -405,9 +399,9 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        1.455885,
-        2.613235,
-        -1.08967
+        -1.154405,
+        0.541373,
+        2.911398
       ],
       "formal_charge": 0,
       "valence": 4.0,
@@ -418,9 +412,9 @@
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        1.241404,
-        3.168437,
-        -0.161504
+        -1.091316,
+        1.651293,
+        2.864425
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -428,119 +422,119 @@
     },
     {
       "id": 28,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        2.41116,
-        3.112823,
-        -1.989795
+        -1.19713,
+        0.26732,
+        3.992078
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 29,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        2.932379,
-        4.057212,
-        -1.764271
+        4.064862,
+        -3.413294,
+        -1.185349
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 30,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        2.7058,
-        2.408667,
-        -3.1736
+        3.702356,
+        -4.405499,
+        -1.499344
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 31,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        3.456677,
-        2.798789,
-        -3.879036
+        4.985716,
+        -0.874198,
+        -0.396478
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 32,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        2.036635,
-        1.20317,
-        -3.445799
+        5.35181,
+        0.120847,
+        -0.096969
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 33,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        2.259883,
-        0.64285,
-        -4.368159
+        -3.124988,
+        3.741947,
+        -1.705443
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 34,
-      "symbol": "C",
-      "atomic_number": 6,
-      "position": [
-        1.071631,
-        0.706479,
-        -2.547619
-      ],
-      "formal_charge": 0,
-      "valence": 4.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 35,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        0.547649,
-        -0.232282,
-        -2.785925
+        -3.017523,
+        4.085767,
+        -2.746491
       ],
       "formal_charge": 0,
       "valence": 1.0,
       "metal_valence": 0
     },
     {
-      "id": 36,
+      "id": 35,
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -1.619015,
-        2.174482,
-        0.035601
+        -2.696973,
+        2.452479,
+        -1.351967
       ],
       "formal_charge": 0,
       "valence": 4.0,
+      "metal_valence": 0
+    },
+    {
+      "id": 36,
+      "symbol": "H",
+      "atomic_number": 1,
+      "position": [
+        -2.248569,
+        1.799996,
+        -2.118308
+      ],
+      "formal_charge": 0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
@@ -548,181 +542,181 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -2.245688,
-        2.490208,
-        1.260477
+        0.060269,
+        -0.054755,
+        -1.781838
       ],
-      "formal_charge": 0,
-      "valence": 4.0,
-      "metal_valence": 0
+      "formal_charge": -1,
+      "valence": 3.0,
+      "metal_valence": 1.0
     },
     {
       "id": 38,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        -1.989832,
-        1.918597,
-        2.1645
+        -3.191482,
+        -1.976131,
+        -1.045659
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 39,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        -3.197326,
-        3.524238,
-        1.333703
+        -2.127011,
+        -2.260391,
+        -1.103868
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 40,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        -3.67636,
-        3.756786,
-        2.298341
+        -3.810111,
+        4.146115,
+        0.592501
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 41,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        -3.53255,
-        4.261469,
-        0.183866
+        -4.24231,
+        4.806367,
+        1.361258
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 42,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        -4.275496,
-        5.072952,
-        0.241888
+        4.338831,
+        3.710835,
+        0.587315
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 43,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        -2.905838,
-        3.962047,
-        -1.040141
+        4.839024,
+        4.328402,
+        1.35029
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 44,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        -3.15503,
-        4.539309,
-        -1.94511
+        5.892471,
+        -1.832145,
+        -0.882322
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 45,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        -1.953735,
-        2.929826,
-        -1.112636
+        6.963244,
+        -1.582753,
+        -0.955877
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 46,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        -1.458088,
-        2.720013,
-        -2.073601
+        3.049974,
+        2.12806,
+        -1.342068
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 47,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        -0.709619,
-        -2.587205,
-        0.720424
+        2.532243,
+        1.520887,
+        -2.101791
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 48,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        -1.36277,
-        -2.319067,
-        1.574714
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 49,
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        1.660124,
-        -2.134351,
-        0.040012
+        -3.681067,
+        4.59462,
+        -0.732474
       ],
       "formal_charge": 0,
       "valence": 4.0,
       "metal_valence": 0
     },
     {
-      "id": 50,
+      "id": 49,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        1.991912,
-        -3.18875,
-        -0.074696
+        -4.010621,
+        5.608845,
+        -1.008315
       ],
       "formal_charge": 0,
       "valence": 1.0,
+      "metal_valence": 0
+    },
+    {
+      "id": 50,
+      "symbol": "C",
+      "atomic_number": 6,
+      "position": [
+        5.433703,
+        -3.103066,
+        -1.277259
+      ],
+      "formal_charge": 0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
@@ -730,9 +724,9 @@
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        1.216863,
-        -1.829085,
-        -0.933888
+        6.146061,
+        -3.850615,
+        -1.661839
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -743,9 +737,9 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        2.833375,
-        -1.233229,
-        0.33737
+        -5.907742,
+        -1.247599,
+        -0.85986
       ],
       "formal_charge": 0,
       "valence": 4.0,
@@ -753,67 +747,67 @@
     },
     {
       "id": 53,
-      "symbol": "C",
-      "atomic_number": 6,
+      "symbol": "H",
+      "atomic_number": 1,
       "position": [
-        3.551736,
-        0.773369,
-        1.239203
+        -6.968557,
+        -0.958348,
+        -0.789333
       ],
       "formal_charge": 0,
-      "valence": 4.0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
       "id": 54,
-      "symbol": "H",
-      "atomic_number": 1,
+      "symbol": "C",
+      "atomic_number": 6,
       "position": [
-        3.300256,
-        1.688458,
-        1.795729
+        4.247631,
+        4.163606,
+        -0.739454
       ],
       "formal_charge": 0,
-      "valence": 1.0,
+      "valence": 4.0,
       "metal_valence": 0
     },
     {
       "id": 55,
-      "symbol": "C",
-      "atomic_number": 6,
-      "position": [
-        4.860417,
-        0.563294,
-        0.813532
-      ],
-      "formal_charge": 0,
-      "valence": 4.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 56,
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        5.611149,
-        1.331049,
-        1.040619
+        4.675156,
+        5.138571,
+        -1.022363
       ],
       "formal_charge": 0,
       "valence": 1.0,
       "metal_valence": 0
     },
     {
-      "id": 57,
+      "id": 56,
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        5.199489,
-        -0.632739,
-        0.109294
+        -4.185514,
+        -2.798475,
+        -1.608892
       ],
       "formal_charge": 0,
       "valence": 4.0,
+      "metal_valence": 0
+    },
+    {
+      "id": 57,
+      "symbol": "H",
+      "atomic_number": 1,
+      "position": [
+        -3.894537,
+        -3.726548,
+        -2.126427
+      ],
+      "formal_charge": 0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
@@ -821,9 +815,9 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        4.118826,
-        -1.539084,
-        -0.114783
+        -5.541476,
+        -2.437522,
+        -1.517291
       ],
       "formal_charge": 0,
       "valence": 4.0,
@@ -834,9 +828,9 @@
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        4.271558,
-        -2.486805,
-        -0.647909
+        -6.316395,
+        -3.081439,
+        -1.96318
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -847,9 +841,9 @@
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        -0.634738,
-        -4.121902,
-        0.653889
+        3.603534,
+        3.366211,
+        -1.70491
       ],
       "formal_charge": 0,
       "valence": 4.0,
@@ -860,9 +854,9 @@
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -1.652002,
-        -4.555058,
-        0.580712
+        3.52491,
+        3.714181,
+        -2.74715
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -873,103 +867,103 @@
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        -0.050527,
-        -4.482125,
-        -0.217283
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 63,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        -0.171589,
-        -4.524928,
-        1.578222
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 64,
-      "symbol": "C",
-      "atomic_number": 6,
-      "position": [
-        0.880007,
-        1.62484,
-        2.540523
-      ],
-      "formal_charge": -1,
-      "valence": 3.0,
-      "metal_valence": 1.0
-    },
-    {
-      "id": 65,
-      "symbol": "C",
-      "atomic_number": 6,
-      "position": [
-        -0.799138,
-        -0.178699,
-        2.83703
-      ],
-      "formal_charge": -1,
-      "valence": 3.0,
-      "metal_valence": 1.0
-    },
-    {
-      "id": 66,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        0.935312,
-        -2.439039,
-        1.933785
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 67,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        1.351649,
-        -0.635955,
-        3.100932
+        0.142444,
+        1.481442,
+        0.058914
       ],
       "formal_charge": -1,
       "valence": 0,
       "metal_valence": 1.0
     },
     {
-      "id": 68,
+      "id": 63,
+      "symbol": "O",
+      "atomic_number": 8,
+      "position": [
+        0.023056,
+        -2.723798,
+        -0.283437
+      ],
+      "formal_charge": 0,
+      "valence": 2.0,
+      "metal_valence": 1.0
+    },
+    {
+      "id": 64,
+      "symbol": "C",
+      "atomic_number": 6,
+      "position": [
+        -0.281763,
+        -2.575338,
+        0.954829
+      ],
+      "formal_charge": 0,
+      "valence": 4.0,
+      "metal_valence": 1.0
+    },
+    {
+      "id": 65,
       "symbol": "N",
       "atomic_number": 7,
       "position": [
-        6.47373,
-        -0.894431,
-        -0.319047
+        -1.098162,
+        -3.547684,
+        1.50905
       ],
       "formal_charge": 0,
       "valence": 3.0,
       "metal_valence": 0
     },
     {
-      "id": 69,
+      "id": 66,
+      "symbol": "H",
+      "atomic_number": 1,
+      "position": [
+        0.005152,
+        -1.097211,
+        2.197468
+      ],
+      "formal_charge": -1,
+      "valence": 2.0,
+      "metal_valence": 1.0
+    },
+    {
+      "id": 67,
+      "symbol": "H",
+      "atomic_number": 1,
+      "position": [
+        -1.308311,
+        -3.443504,
+        2.504384
+      ],
+      "formal_charge": 0,
+      "valence": 1.0,
+      "metal_valence": 0
+    },
+    {
+      "id": 68,
       "symbol": "C",
       "atomic_number": 6,
       "position": [
-        6.767381,
-        -2.136046,
-        -1.026827
+        -1.58821,
+        -4.752025,
+        0.839578
       ],
       "formal_charge": 0,
       "valence": 4.0,
+      "metal_valence": 0
+    },
+    {
+      "id": 69,
+      "symbol": "H",
+      "atomic_number": 1,
+      "position": [
+        -1.297897,
+        -5.672231,
+        1.391061
+      ],
+      "formal_charge": 0,
+      "valence": 1.0,
       "metal_valence": 0
     },
     {
@@ -977,9 +971,9 @@
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        6.178392,
-        -2.224987,
-        -1.966391
+        -2.694392,
+        -4.75041,
+        0.723275
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -990,74 +984,9 @@
       "symbol": "H",
       "atomic_number": 1,
       "position": [
-        6.552437,
-        -3.031101,
-        -0.401487
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 72,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        7.838856,
-        -2.156862,
-        -1.294521
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 73,
-      "symbol": "C",
-      "atomic_number": 6,
-      "position": [
-        7.545038,
-        0.059624,
-        -0.050542
-      ],
-      "formal_charge": 0,
-      "valence": 4.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 74,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        7.696605,
-        0.216537,
-        1.040578
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 75,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        7.342124,
-        1.050213,
-        -0.51436
-      ],
-      "formal_charge": 0,
-      "valence": 1.0,
-      "metal_valence": 0
-    },
-    {
-      "id": 76,
-      "symbol": "H",
-      "atomic_number": 1,
-      "position": [
-        8.489429,
-        -0.326789,
-        -0.473536
+        -1.128563,
+        -4.777462,
+        -0.167956
       ],
       "formal_charge": 0,
       "valence": 1.0,
@@ -1067,185 +996,130 @@
   "edges": [
     {
       "idx1": 0,
-      "idx2": 13,
+      "idx2": 37,
       "bond_order": 1.0,
-      "distance": 2.0389507456817095,
+      "distance": 1.8274364393075344,
       "metal_coord": true,
       "bond_type": [
-        "Fe",
+        "Ru",
         "C"
       ]
     },
     {
       "idx1": 0,
-      "idx2": 11,
+      "idx2": 62,
       "bond_order": 1.0,
-      "distance": 2.0497414171990083,
+      "distance": 1.5763768978347152,
       "metal_coord": true,
       "bond_type": [
-        "Fe",
-        "C"
+        "Ru",
+        "H"
       ]
     },
     {
       "idx1": 0,
-      "idx2": 9,
+      "idx2": 1,
       "bond_order": 1.0,
-      "distance": 2.051545825975379,
+      "distance": 2.330468541771375,
       "metal_coord": true,
       "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 0,
-      "idx2": 8,
-      "bond_order": 1.0,
-      "distance": 2.0524204068382286,
-      "metal_coord": true,
-      "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 0,
-      "idx2": 7,
-      "bond_order": 1.0,
-      "distance": 2.0541705944003286,
-      "metal_coord": true,
-      "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 0,
-      "idx2": 19,
-      "bond_order": 1.0,
-      "distance": 2.0551937930642943,
-      "metal_coord": true,
-      "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 0,
-      "idx2": 21,
-      "bond_order": 1.0,
-      "distance": 2.056243258832962,
-      "metal_coord": true,
-      "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 0,
-      "idx2": 23,
-      "bond_order": 1.0,
-      "distance": 2.0565358653050523,
-      "metal_coord": true,
-      "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 0,
-      "idx2": 17,
-      "bond_order": 1.0,
-      "distance": 2.0582690981793417,
-      "metal_coord": true,
-      "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 0,
-      "idx2": 15,
-      "bond_order": 1.0,
-      "distance": 2.0593133202961127,
-      "metal_coord": true,
-      "bond_type": [
-        "Fe",
-        "C"
-      ]
-    },
-    {
-      "idx1": 1,
-      "idx2": 64,
-      "bond_order": 1.0,
-      "distance": 1.749987412990162,
-      "metal_coord": true,
-      "bond_type": [
-        "Mn",
-        "C"
-      ]
-    },
-    {
-      "idx1": 1,
-      "idx2": 65,
-      "bond_order": 1.0,
-      "distance": 1.7507499582073394,
-      "metal_coord": true,
-      "bond_type": [
-        "Mn",
-        "C"
-      ]
-    },
-    {
-      "idx1": 1,
-      "idx2": 6,
-      "bond_order": 1.0,
-      "distance": 2.073128109275932,
-      "metal_coord": true,
-      "bond_type": [
-        "Mn",
-        "N"
-      ]
-    },
-    {
-      "idx1": 1,
-      "idx2": 2,
-      "bond_order": 1.0,
-      "distance": 2.2726152103149797,
-      "metal_coord": true,
-      "bond_type": [
-        "Mn",
+        "Ru",
         "P"
       ]
     },
     {
-      "idx1": 1,
-      "idx2": 67,
+      "idx1": 0,
+      "idx2": 2,
       "bond_order": 1.0,
-      "distance": 1.5896224676777817,
+      "distance": 2.348937033184585,
       "metal_coord": true,
       "bond_type": [
-        "Mn",
+        "Ru",
+        "P"
+      ]
+    },
+    {
+      "idx1": 0,
+      "idx2": 3,
+      "bond_order": 1.0,
+      "distance": 2.2392926855315274,
+      "metal_coord": true,
+      "bond_type": [
+        "Ru",
+        "N"
+      ]
+    },
+    {
+      "idx1": 0,
+      "idx2": 64,
+      "bond_order": 1.0,
+      "distance": 2.665522441260812,
+      "metal_coord": true,
+      "bond_type": [
+        "Ru",
+        "C"
+      ]
+    },
+    {
+      "idx1": 0,
+      "idx2": 63,
+      "bond_order": 1.0,
+      "distance": 2.652048437954707,
+      "metal_coord": true,
+      "bond_type": [
+        "Ru",
+        "O"
+      ]
+    },
+    {
+      "idx1": 0,
+      "idx2": 66,
+      "bond_order": 1.0,
+      "distance": 2.3757769598819665,
+      "metal_coord": true,
+      "bond_type": [
+        "Ru",
         "H"
+      ]
+    },
+    {
+      "idx1": 1,
+      "idx2": 12,
+      "bond_order": 1.0,
+      "distance": 1.8527799281331285,
+      "metal_coord": false,
+      "bond_type": [
+        "P",
+        "C"
       ]
     },
     {
       "idx1": 1,
       "idx2": 5,
       "bond_order": 1.0,
-      "distance": 2.153250554290884,
-      "metal_coord": true,
+      "distance": 1.8546735931980052,
+      "metal_coord": false,
       "bond_type": [
-        "Mn",
-        "N"
+        "P",
+        "C"
+      ]
+    },
+    {
+      "idx1": 1,
+      "idx2": 22,
+      "bond_order": 1.0,
+      "distance": 1.8710315225214673,
+      "metal_coord": false,
+      "bond_type": [
+        "P",
+        "C"
       ]
     },
     {
       "idx1": 2,
-      "idx2": 7,
+      "idx2": 11,
       "bond_order": 1.0,
-      "distance": 1.84574272803281,
+      "distance": 1.8520975580122663,
       "metal_coord": false,
       "bond_type": [
         "P",
@@ -1256,7 +1130,7 @@
       "idx1": 2,
       "idx2": 25,
       "bond_order": 1.0,
-      "distance": 1.8671721650273712,
+      "distance": 1.8537163768778115,
       "metal_coord": false,
       "bond_type": [
         "P",
@@ -1265,9 +1139,9 @@
     },
     {
       "idx1": 2,
-      "idx2": 36,
+      "idx2": 19,
       "bond_order": 1.0,
-      "distance": 1.8677392340139454,
+      "distance": 1.8714927157710233,
       "metal_coord": false,
       "bond_type": [
         "P",
@@ -1276,31 +1150,31 @@
     },
     {
       "idx1": 3,
-      "idx2": 64,
-      "bond_order": 3.0,
-      "distance": 1.1886875148284346,
+      "idx2": 6,
+      "bond_order": 1.0,
+      "distance": 1.4758576613772751,
       "metal_coord": false,
       "bond_type": [
-        "O",
+        "N",
         "C"
       ]
     },
     {
-      "idx1": 4,
-      "idx2": 65,
-      "bond_order": 3.0,
-      "distance": 1.1902012774438617,
+      "idx1": 3,
+      "idx2": 26,
+      "bond_order": 1.0,
+      "distance": 1.477113828601574,
       "metal_coord": false,
       "bond_type": [
-        "O",
+        "N",
         "C"
       ]
     },
     {
-      "idx1": 5,
+      "idx1": 3,
       "idx2": 66,
       "bond_order": 1.0,
-      "distance": 1.028977616349355,
+      "distance": 1.0804747207505596,
       "metal_coord": false,
       "bond_type": [
         "N",
@@ -1308,76 +1182,21 @@
       ]
     },
     {
-      "idx1": 5,
-      "idx2": 49,
-      "bond_order": 1.0,
-      "distance": 1.4798805764821026,
+      "idx1": 4,
+      "idx2": 37,
+      "bond_order": 3.0,
+      "distance": 1.1821128769525355,
       "metal_coord": false,
       "bond_type": [
-        "N",
+        "O",
         "C"
       ]
     },
     {
       "idx1": 5,
-      "idx2": 47,
-      "bond_order": 1.0,
-      "distance": 1.5019004433443648,
-      "metal_coord": false,
-      "bond_type": [
-        "N",
-        "C"
-      ]
-    },
-    {
-      "idx1": 6,
-      "idx2": 53,
-      "bond_order": 1.5,
-      "distance": 1.358738243745277,
-      "metal_coord": false,
-      "bond_type": [
-        "N",
-        "C"
-      ]
-    },
-    {
-      "idx1": 6,
-      "idx2": 52,
-      "bond_order": 1.5,
-      "distance": 1.3638923910243064,
-      "metal_coord": false,
-      "bond_type": [
-        "N",
-        "C"
-      ]
-    },
-    {
-      "idx1": 7,
-      "idx2": 13,
-      "bond_order": 1.5,
-      "distance": 1.4512221882988832,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 7,
-      "idx2": 8,
-      "bond_order": 1.5,
-      "distance": 1.4639185530612693,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 8,
       "idx2": 9,
       "bond_order": 1.5,
-      "distance": 1.4462628609720294,
+      "distance": 1.4115666787073857,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1385,21 +1204,54 @@
       ]
     },
     {
-      "idx1": 8,
-      "idx2": 47,
-      "bond_order": 1.0,
-      "distance": 1.5244010648940125,
+      "idx1": 5,
+      "idx2": 35,
+      "bond_order": 1.5,
+      "distance": 1.415250698749165,
       "metal_coord": false,
       "bond_type": [
         "C",
         "C"
+      ]
+    },
+    {
+      "idx1": 6,
+      "idx2": 19,
+      "bond_order": 1.0,
+      "distance": 1.531977449746895,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 6,
+      "idx2": 8,
+      "bond_order": 1.0,
+      "distance": 1.1127448905378088,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 6,
+      "idx2": 7,
+      "bond_order": 1.0,
+      "distance": 1.1156369888265627,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
       ]
     },
     {
       "idx1": 9,
-      "idx2": 11,
+      "idx2": 40,
       "bond_order": 1.5,
-      "distance": 1.4373692130054825,
+      "distance": 1.4085358522313163,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1410,7 +1262,7 @@
       "idx1": 9,
       "idx2": 10,
       "bond_order": 1.0,
-      "distance": 1.09715230835878,
+      "distance": 1.1006353523760717,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1419,9 +1271,9 @@
     },
     {
       "idx1": 11,
-      "idx2": 13,
+      "idx2": 17,
       "bond_order": 1.5,
-      "distance": 1.4362673269823414,
+      "distance": 1.4135849610299343,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1430,20 +1282,64 @@
     },
     {
       "idx1": 11,
-      "idx2": 12,
-      "bond_order": 1.0,
-      "distance": 1.0983022971595753,
+      "idx2": 31,
+      "bond_order": 1.5,
+      "distance": 1.4137524275650246,
       "metal_coord": false,
       "bond_type": [
         "C",
-        "H"
+        "C"
+      ]
+    },
+    {
+      "idx1": 12,
+      "idx2": 38,
+      "bond_order": 1.5,
+      "distance": 1.4124205866136335,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 12,
+      "idx2": 15,
+      "bond_order": 1.5,
+      "distance": 1.4140631162193575,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 13,
+      "idx2": 42,
+      "bond_order": 1.5,
+      "distance": 1.4084686092646863,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 13,
+      "idx2": 25,
+      "bond_order": 1.5,
+      "distance": 1.4115987061799822,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
       ]
     },
     {
       "idx1": 13,
       "idx2": 14,
       "bond_order": 1.0,
-      "distance": 1.097557483291422,
+      "distance": 1.1006417064013156,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1452,20 +1348,9 @@
     },
     {
       "idx1": 15,
-      "idx2": 17,
+      "idx2": 52,
       "bond_order": 1.5,
-      "distance": 1.4395040612922911,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 15,
-      "idx2": 23,
-      "bond_order": 1.5,
-      "distance": 1.4420477694206248,
+      "distance": 1.4052270639028408,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1476,7 +1361,7 @@
       "idx1": 15,
       "idx2": 16,
       "bond_order": 1.0,
-      "distance": 1.0979785807701352,
+      "distance": 1.1021072433919485,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1485,9 +1370,9 @@
     },
     {
       "idx1": 17,
-      "idx2": 19,
+      "idx2": 29,
       "bond_order": 1.5,
-      "distance": 1.4407843282566617,
+      "distance": 1.4074744003700386,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1498,7 +1383,7 @@
       "idx1": 17,
       "idx2": 18,
       "bond_order": 1.0,
-      "distance": 1.0984084569061732,
+      "distance": 1.1063119227261358,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1508,19 +1393,19 @@
     {
       "idx1": 19,
       "idx2": 21,
-      "bond_order": 1.5,
-      "distance": 1.44071268519785,
+      "bond_order": 1.0,
+      "distance": 1.1089991223680027,
       "metal_coord": false,
       "bond_type": [
         "C",
-        "C"
+        "H"
       ]
     },
     {
       "idx1": 19,
       "idx2": 20,
       "bond_order": 1.0,
-      "distance": 1.098299480281221,
+      "distance": 1.1104602784890598,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1528,10 +1413,10 @@
       ]
     },
     {
-      "idx1": 21,
-      "idx2": 23,
-      "bond_order": 1.5,
-      "distance": 1.439884493693157,
+      "idx1": 22,
+      "idx2": 26,
+      "bond_order": 1.0,
+      "distance": 1.5332362901960026,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1539,10 +1424,10 @@
       ]
     },
     {
-      "idx1": 21,
-      "idx2": 22,
+      "idx1": 22,
+      "idx2": 23,
       "bond_order": 1.0,
-      "distance": 1.0983087501986861,
+      "distance": 1.1087271704337365,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1550,10 +1435,10 @@
       ]
     },
     {
-      "idx1": 23,
+      "idx1": 22,
       "idx2": 24,
       "bond_order": 1.0,
-      "distance": 1.0976419705869487,
+      "distance": 1.110171739530871,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1562,31 +1447,9 @@
     },
     {
       "idx1": 25,
-      "idx2": 34,
+      "idx2": 46,
       "bond_order": 1.5,
-      "distance": 1.4123022340650035,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 25,
-      "idx2": 26,
-      "bond_order": 1.5,
-      "distance": 1.4167093952769565,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 26,
-      "idx2": 28,
-      "bond_order": 1.5,
-      "distance": 1.404408598305351,
+      "distance": 1.415339284066545,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1597,7 +1460,7 @@
       "idx1": 26,
       "idx2": 27,
       "bond_order": 1.0,
-      "distance": 1.1026075837400175,
+      "distance": 1.1127035054541705,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1605,21 +1468,10 @@
       ]
     },
     {
-      "idx1": 28,
-      "idx2": 30,
-      "bond_order": 1.5,
-      "distance": 1.408560499219327,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 28,
-      "idx2": 29,
+      "idx1": 26,
+      "idx2": 28,
       "bond_order": 1.0,
-      "distance": 1.1019985952159828,
+      "distance": 1.1157059356452306,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1627,219 +1479,21 @@
       ]
     },
     {
-      "idx1": 30,
-      "idx2": 32,
-      "bond_order": 1.5,
-      "distance": 1.4053814819596135,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 30,
-      "idx2": 31,
-      "bond_order": 1.0,
-      "distance": 1.101658474350831,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 32,
-      "idx2": 34,
-      "bond_order": 1.5,
-      "distance": 1.4087803171172573,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 32,
-      "idx2": 33,
-      "bond_order": 1.0,
-      "distance": 1.1020644906283845,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 34,
-      "idx2": 35,
-      "bond_order": 1.0,
-      "distance": 1.1011898569642748,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 36,
-      "idx2": 37,
-      "bond_order": 1.5,
-      "distance": 1.4116384704948362,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 36,
-      "idx2": 45,
-      "bond_order": 1.5,
-      "distance": 1.4145777620565791,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 37,
-      "idx2": 39,
-      "bond_order": 1.5,
-      "distance": 1.4071940061768313,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 37,
-      "idx2": 38,
-      "bond_order": 1.0,
-      "distance": 1.0997540691381866,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 39,
-      "idx2": 41,
-      "bond_order": 1.5,
-      "distance": 1.4064173648337823,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 39,
-      "idx2": 40,
-      "bond_order": 1.0,
-      "distance": 1.101852356944432,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 41,
-      "idx2": 43,
-      "bond_order": 1.5,
-      "distance": 1.407343099985572,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 41,
-      "idx2": 42,
-      "bond_order": 1.0,
-      "distance": 1.1017440586129794,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 43,
-      "idx2": 45,
-      "bond_order": 1.5,
-      "distance": 1.4061421835913326,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 43,
-      "idx2": 44,
-      "bond_order": 1.0,
-      "distance": 1.1019514328993814,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 45,
-      "idx2": 46,
-      "bond_order": 1.0,
-      "distance": 1.1014268812785533,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 47,
-      "idx2": 60,
-      "bond_order": 1.0,
-      "distance": 1.5379625977880609,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 47,
-      "idx2": 48,
-      "bond_order": 1.0,
-      "distance": 1.1082940133128032,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 49,
-      "idx2": 52,
-      "bond_order": 1.0,
-      "distance": 1.5089600882889518,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 49,
+      "idx1": 29,
       "idx2": 50,
+      "bond_order": 1.5,
+      "distance": 1.4065612476408562,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 29,
+      "idx2": 30,
       "bond_order": 1.0,
-      "distance": 1.1113048427002377,
+      "distance": 1.1020318607399695,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1847,10 +1501,197 @@
       ]
     },
     {
-      "idx1": 49,
+      "idx1": 31,
+      "idx2": 44,
+      "bond_order": 1.5,
+      "distance": 1.4056711838726719,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 31,
+      "idx2": 32,
+      "bond_order": 1.0,
+      "distance": 1.1017463455541845,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 33,
+      "idx2": 35,
+      "bond_order": 1.5,
+      "distance": 1.403876720308803,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 33,
+      "idx2": 48,
+      "bond_order": 1.5,
+      "distance": 1.408170364029509,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 33,
+      "idx2": 34,
+      "bond_order": 1.0,
+      "distance": 1.101608758556775,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 35,
+      "idx2": 36,
+      "bond_order": 1.0,
+      "distance": 1.1018524133412786,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 38,
+      "idx2": 56,
+      "bond_order": 1.5,
+      "distance": 1.4076862873698104,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 38,
+      "idx2": 39,
+      "bond_order": 1.0,
+      "distance": 1.103308907388135,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 40,
+      "idx2": 48,
+      "bond_order": 1.5,
+      "distance": 1.4047661156171158,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 40,
+      "idx2": 41,
+      "bond_order": 1.0,
+      "distance": 1.1016877979509438,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 42,
+      "idx2": 54,
+      "bond_order": 1.5,
+      "distance": 1.4048612023264078,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 42,
+      "idx2": 43,
+      "bond_order": 1.0,
+      "distance": 1.1016863833972896,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 44,
+      "idx2": 50,
+      "bond_order": 1.5,
+      "distance": 1.4077228065333032,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 44,
+      "idx2": 45,
+      "bond_order": 1.0,
+      "distance": 1.1018899787265524,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 46,
+      "idx2": 60,
+      "bond_order": 1.5,
+      "distance": 1.4039590055856328,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 46,
+      "idx2": 47,
+      "bond_order": 1.0,
+      "distance": 1.1017638027358678,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 48,
+      "idx2": 49,
+      "bond_order": 1.0,
+      "distance": 1.1015200619244299,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 50,
       "idx2": 51,
       "bond_order": 1.0,
-      "distance": 1.1127213734250816,
+      "distance": 1.1019007232800058,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1861,7 +1702,7 @@
       "idx1": 52,
       "idx2": 58,
       "bond_order": 1.5,
-      "distance": 1.3965578719963596,
+      "distance": 1.4079357401692734,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1869,21 +1710,32 @@
       ]
     },
     {
-      "idx1": 53,
+      "idx1": 52,
+      "idx2": 53,
+      "bond_order": 1.0,
+      "distance": 1.1018024609497838,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
+      ]
+    },
+    {
+      "idx1": 54,
+      "idx2": 60,
+      "bond_order": 1.5,
+      "distance": 1.408121095421129,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "C"
+      ]
+    },
+    {
+      "idx1": 54,
       "idx2": 55,
-      "bond_order": 1.5,
-      "distance": 1.392111082359091,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 53,
-      "idx2": 54,
       "bond_order": 1.0,
-      "distance": 1.1001596506857538,
+      "distance": 1.101531606051774,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1891,54 +1743,32 @@
       ]
     },
     {
-      "idx1": 55,
-      "idx2": 57,
-      "bond_order": 1.5,
-      "distance": 1.4287812704948926,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "C"
-      ]
-    },
-    {
-      "idx1": 55,
-      "idx2": 56,
-      "bond_order": 1.0,
-      "distance": 1.0975494437236075,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 57,
-      "idx2": 68,
-      "bond_order": 1.0,
-      "distance": 1.3695432965868586,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "N"
-      ]
-    },
-    {
-      "idx1": 57,
+      "idx1": 56,
       "idx2": 58,
       "bond_order": 1.5,
-      "distance": 1.4281121386372284,
+      "distance": 1.4061688223161541,
       "metal_coord": false,
       "bond_type": [
         "C",
         "C"
+      ]
+    },
+    {
+      "idx1": 56,
+      "idx2": 57,
+      "bond_order": 1.0,
+      "distance": 1.1017393448919761,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "H"
       ]
     },
     {
       "idx1": 58,
       "idx2": 59,
       "bond_order": 1.0,
-      "distance": 1.0980553217124354,
+      "distance": 1.1017919766321589,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1949,7 +1779,7 @@
       "idx1": 60,
       "idx2": 61,
       "bond_order": 1.0,
-      "distance": 1.108063644093154,
+      "distance": 1.101602955640552,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1957,10 +1787,32 @@
       ]
     },
     {
-      "idx1": 60,
-      "idx2": 62,
+      "idx1": 63,
+      "idx2": 64,
+      "bond_order": 2.0,
+      "distance": 1.2838448820309252,
+      "metal_coord": false,
+      "bond_type": [
+        "O",
+        "C"
+      ]
+    },
+    {
+      "idx1": 64,
+      "idx2": 65,
       "bond_order": 1.0,
-      "distance": 1.1090553439003843,
+      "distance": 1.3853248672271785,
+      "metal_coord": false,
+      "bond_type": [
+        "C",
+        "N"
+      ]
+    },
+    {
+      "idx1": 64,
+      "idx2": 66,
+      "bond_order": 1.0,
+      "distance": 1.95226313023501,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1968,10 +1820,32 @@
       ]
     },
     {
-      "idx1": 60,
-      "idx2": 63,
+      "idx1": 65,
+      "idx2": 67,
       "bond_order": 1.0,
-      "distance": 1.109652399522481,
+      "distance": 1.02259759737494,
+      "metal_coord": false,
+      "bond_type": [
+        "N",
+        "H"
+      ]
+    },
+    {
+      "idx1": 65,
+      "idx2": 68,
+      "bond_order": 1.0,
+      "distance": 1.4624558268094798,
+      "metal_coord": false,
+      "bond_type": [
+        "N",
+        "C"
+      ]
+    },
+    {
+      "idx1": 68,
+      "idx2": 71,
+      "bond_order": 1.0,
+      "distance": 1.107721610664882,
       "metal_coord": false,
       "bond_type": [
         "C",
@@ -1982,84 +1856,18 @@
       "idx1": 68,
       "idx2": 69,
       "bond_order": 1.0,
-      "distance": 1.459037781013912,
+      "distance": 1.111392918680878,
       "metal_coord": false,
       "bond_type": [
-        "N",
-        "C"
+        "C",
+        "H"
       ]
     },
     {
       "idx1": 68,
-      "idx2": 73,
-      "bond_order": 1.0,
-      "distance": 1.4594576763010294,
-      "metal_coord": false,
-      "bond_type": [
-        "N",
-        "C"
-      ]
-    },
-    {
-      "idx1": 69,
-      "idx2": 72,
-      "bond_order": 1.0,
-      "distance": 1.1046049335020187,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 69,
       "idx2": 70,
       "bond_order": 1.0,
-      "distance": 1.1124742934998548,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 69,
-      "idx2": 71,
-      "bond_order": 1.0,
-      "distance": 1.1128227584665045,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 73,
-      "idx2": 76,
-      "bond_order": 1.0,
-      "distance": 1.1045873851742103,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 73,
-      "idx2": 75,
-      "bond_order": 1.0,
-      "distance": 1.1124602444316831,
-      "metal_coord": false,
-      "bond_type": [
-        "C",
-        "H"
-      ]
-    },
-    {
-      "idx1": 73,
-      "idx2": 74,
-      "bond_order": 1.0,
-      "distance": 1.1127160911292693,
+      "distance": 1.1122803662557388,
       "metal_coord": false,
       "bond_type": [
         "C",

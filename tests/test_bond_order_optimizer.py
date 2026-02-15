@@ -237,3 +237,179 @@ def test_invalid_optimizer_mode(optimizer):
     G = nx.Graph()
     with pytest.raises(ValueError, match="Unknown optimizer mode"):
         optimizer.optimize(G, mode="invalid")
+
+
+# ---- Kekulé initialisation & aromatic detection ----
+#
+# Two-step process tested separately:
+#   1. init_kekule:  assigns alternating single/double (1.0/2.0) Kekulé
+#      pattern to validated aromatic rings.  This is a *localised* picture.
+#   2. detect_aromatic_rings:  converts Kekulé bonds to aromatic BO=1.5
+#      using Hückel 4n+2 π-electron counting.
+#
+# Uses _make_graph to build minimal graphs with known topology, then
+# calls each step directly — no scoring or formal charges involved.
+
+
+# Indole: fused 6+5 bicyclic (benzene + pyrrole).
+# 10 ring bonds, all should become BO=1.5 after Kekulé init.
+INDOLE_ATOMS = [
+    ("C", (-1.204, -0.695, 0.0)),  # 0  C3a (junction)
+    ("C", (-1.204, 0.695, 0.0)),  # 1  C4
+    ("C", (0.000, 1.390, 0.0)),  # 2  C5
+    ("C", (1.204, 0.695, 0.0)),  # 3  C6
+    ("C", (1.204, -0.695, 0.0)),  # 4  C7
+    ("C", (0.000, -1.390, 0.0)),  # 5  C7a (junction)
+    ("C", (-2.237, -1.626, 0.0)),  # 6  C3
+    ("C", (-1.672, -2.896, 0.0)),  # 7  C2
+    ("N", (-0.290, -2.750, 0.0)),  # 8  N1
+    ("H", (-2.139, 1.235, 0.0)),  # 9  H-C4
+    ("H", (0.000, 2.470, 0.0)),  # 10 H-C5
+    ("H", (2.139, 1.235, 0.0)),  # 11 H-C6
+    ("H", (2.139, -1.235, 0.0)),  # 12 H-C7
+    ("H", (-3.292, -1.401, 0.0)),  # 13 H-C3
+    ("H", (-2.212, -3.831, 0.0)),  # 14 H-C2
+    ("H", (0.386, -3.500, 0.0)),  # 15 H-N1
+]
+INDOLE_EDGES = [
+    # 6-ring (benzene): C3a-C4-C5-C6-C7-C7a
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (4, 5),
+    (5, 0),
+    # 5-ring (pyrrole): C3a-C3-C2-N1-C7a
+    (0, 6),
+    (6, 7),
+    (7, 8),
+    (8, 5),
+    # C-H / N-H bonds
+    (1, 9),
+    (2, 10),
+    (3, 11),
+    (4, 12),
+    (6, 13),
+    (7, 14),
+    (8, 15),
+]
+
+# Anthracene: three linearly fused 6-rings (C14H10).
+# 16 ring bonds, all should become BO=1.5 after Kekulé init.
+ANTHRACENE_ATOMS = [
+    ("C", (0.000, 1.399, 0.0)),  # 0  (centre ring, top-left)
+    ("C", (1.212, 0.700, 0.0)),  # 1  junction (centre-right)
+    ("C", (1.212, -0.700, 0.0)),  # 2  junction (centre-right)
+    ("C", (0.000, -1.399, 0.0)),  # 3  (centre ring, bottom-left)
+    ("C", (-1.212, -0.700, 0.0)),  # 4  junction (centre-left)
+    ("C", (-1.212, 0.700, 0.0)),  # 5  junction (centre-left)
+    ("C", (2.424, 1.399, 0.0)),  # 6  (right ring)
+    ("C", (3.636, 0.700, 0.0)),  # 7  (right ring)
+    ("C", (3.636, -0.700, 0.0)),  # 8  (right ring)
+    ("C", (2.424, -1.399, 0.0)),  # 9  (right ring)
+    ("C", (-2.424, 1.399, 0.0)),  # 10 (left ring)
+    ("C", (-3.636, 0.700, 0.0)),  # 11 (left ring)
+    ("C", (-3.636, -0.700, 0.0)),  # 12 (left ring)
+    ("C", (-2.424, -1.399, 0.0)),  # 13 (left ring)
+    ("H", (0.000, 2.489, 0.0)),  # 14
+    ("H", (0.000, -2.489, 0.0)),  # 15
+    ("H", (2.424, 2.489, 0.0)),  # 16
+    ("H", (4.572, 1.244, 0.0)),  # 17
+    ("H", (4.572, -1.244, 0.0)),  # 18
+    ("H", (2.424, -2.489, 0.0)),  # 19
+    ("H", (-2.424, 2.489, 0.0)),  # 20
+    ("H", (-4.572, 1.244, 0.0)),  # 21
+    ("H", (-4.572, -1.244, 0.0)),  # 22
+    ("H", (-2.424, -2.489, 0.0)),  # 23
+]
+ANTHRACENE_EDGES = [
+    # Centre ring: 0-1-2-3-4-5
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (4, 5),
+    (5, 0),
+    # Right ring: 1-6-7-8-9-2
+    (1, 6),
+    (6, 7),
+    (7, 8),
+    (8, 9),
+    (9, 2),
+    # Left ring: 5-10-11-12-13-4
+    (5, 10),
+    (10, 11),
+    (11, 12),
+    (12, 13),
+    (13, 4),
+    # C-H bonds
+    (0, 14),
+    (3, 15),
+    (6, 16),
+    (7, 17),
+    (8, 18),
+    (9, 19),
+    (10, 20),
+    (11, 21),
+    (12, 22),
+    (13, 23),
+]
+
+
+def test_indole_kekule_then_aromatic(optimizer):
+    """Indole: Kekulé init then aromatic detection on a single graph.
+
+    The pyrrole N (idx 8) needs valence 3, so both N-ring bonds must be
+    single.  This forces C3=C2 double (6,7) and C3a-C3 single (0,6).
+    The benzene ring alternates from there; either way all FC must be 0.
+    Then detect_aromatic_rings converts everything to BO=1.5.
+    """
+    G = _make_graph(INDOLE_ATOMS, INDOLE_EDGES)
+
+    # -- Step 1: Kekulé init --
+    n_init = optimizer.init_kekule(G)
+    assert n_init == 2  # one 6-ring + one 5-ring
+
+    # Pyrrole bonds forced by N valence
+    assert G.edges[7, 8]["bond_order"] == pytest.approx(1.0), "C2-N1 must be single"
+    assert G.edges[8, 5]["bond_order"] == pytest.approx(1.0), "N1-C7a must be single"
+    assert G.edges[6, 7]["bond_order"] == pytest.approx(2.0), "C3=C2 must be double"
+    assert G.edges[0, 6]["bond_order"] == pytest.approx(1.0), "C3a-C3 must be single"
+
+    # Valid Kekulé => all formal charges are 0
+    charges = optimizer.compute_formal_charges(G)
+    assert all(c == 0 for c in charges), f"Expected all FC=0, got {charges}"
+
+    # -- Step 2: aromatic detection --
+    optimizer.detect_aromatic_rings(G)
+    for i, j in INDOLE_EDGES:
+        if i < 9 and j < 9:  # only check ring bonds, not C-H / N-H
+            assert G.edges[i, j]["bond_order"] == pytest.approx(1.5), (
+                f"indole edge {i}-{j} BO={G.edges[i, j]['bond_order']}, expected 1.5"
+            )
+
+
+def test_anthracene_kekule_then_aromatic(optimizer):
+    """Anthracene: Kekulé init then aromatic detection on a single graph.
+
+    Three fused 6-rings, all C.  Kekulé gives alternating 1.0/2.0 with
+    all FC=0.  Then detect_aromatic_rings converts to BO=1.5.
+    """
+    G = _make_graph(ANTHRACENE_ATOMS, ANTHRACENE_EDGES)
+    ring_edges = [(i, j) for i, j in ANTHRACENE_EDGES if i < 14 and j < 14]
+
+    # -- Step 1: Kekulé init --
+    n_init = optimizer.init_kekule(G)
+    assert n_init == 3  # three 6-rings
+    assert len(ring_edges) == 16
+
+    # Valid Kekulé => all formal charges are 0
+    charges = optimizer.compute_formal_charges(G)
+    assert all(c == 0 for c in charges), f"Expected all FC=0, got {charges}"
+
+    # -- Step 2: aromatic detection --
+    optimizer.detect_aromatic_rings(G)
+    for i, j in ring_edges:
+        assert G.edges[i, j]["bond_order"] == pytest.approx(1.5), (
+            f"anthracene edge {i}-{j} BO={G.edges[i, j]['bond_order']}, expected 1.5"
+        )
