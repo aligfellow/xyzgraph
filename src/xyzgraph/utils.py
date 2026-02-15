@@ -1,6 +1,7 @@
 """Utility functions."""
 
 import logging
+from collections import Counter
 from typing import List, Optional, Tuple
 
 import networkx as nx
@@ -8,6 +9,31 @@ import networkx as nx
 from .data_loader import BOHR_TO_ANGSTROM, DATA
 
 PREF_CHARGE_ORDER = ["gasteiger", "mulliken", "gasteiger_raw"]
+
+
+def compute_formula(G: nx.Graph) -> None:
+    """Compute chemical formula and element counts on a molecular graph.
+
+    Sets ``G.graph["_element_counts"]`` and ``G.graph["formula"]`` using the
+    Hill system (C first, then H, then remaining elements alphabetically).
+    If ``_element_counts`` is already present it is reused rather than
+    recomputed.
+    """
+    if "_element_counts" in G.graph:
+        element_counts = G.graph["_element_counts"]
+    else:
+        element_counts = dict(Counter(d["symbol"] for _, d in G.nodes(data=True)))
+        G.graph["_element_counts"] = element_counts
+
+    formula_parts: list[str] = []
+    if "C" in element_counts:
+        formula_parts.append(f"C{element_counts['C']}" if element_counts["C"] > 1 else "C")
+    if "H" in element_counts:
+        formula_parts.append(f"H{element_counts['H']}" if element_counts["H"] > 1 else "H")
+    for elem in sorted(element_counts.keys()):
+        if elem not in ("C", "H"):
+            formula_parts.append(f"{elem}{element_counts[elem]}" if element_counts[elem] > 1 else elem)
+    G.graph["formula"] = "".join(formula_parts)
 
 
 def graph_to_dict(G: nx.Graph) -> dict:

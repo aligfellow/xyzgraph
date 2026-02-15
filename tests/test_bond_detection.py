@@ -73,12 +73,15 @@ def test_h2_diatomic(detector):
 
 def test_formula_hill_system(detector):
     """Chemical formula follows Hill system (C, H, then alphabetical)."""
+    from xyzgraph.utils import compute_formula
+
     atoms = [
         ("O", (0.0, 0.0, 0.0)),
         ("C", (1.2, 0.0, 0.0)),
         ("H", (1.8, 0.9, 0.0)),
     ]
     G = detector.detect(atoms)
+    compute_formula(G)
     assert G.graph["formula"] == "CHO"
 
 

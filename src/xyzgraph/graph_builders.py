@@ -260,6 +260,11 @@ class GraphBuilder:
         else:
             raise ValueError(f"Unknown method: {self.method}")
 
+        # Compute formula
+        from .utils import compute_formula
+
+        compute_formula(self.graph)
+
         # Rename useful computed data for clean output (no _ prefix)
         if "_rings" in self.graph.graph:
             self.graph.graph["rings"] = self.graph.graph.pop("_rings")

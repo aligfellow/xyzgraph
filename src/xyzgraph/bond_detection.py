@@ -214,21 +214,9 @@ class BondDetector:
 
         self._log(f"Added {len(atoms)} atoms", 1)
 
-        # Chemical formula (Hill system: C, H, then alphabetical)
+        # Element counts (needed during geometry checks)
         element_counts = Counter(symbols)
         G.graph["_element_counts"] = dict(element_counts)
-
-        formula_parts = []
-        if "C" in element_counts:
-            formula_parts.append(f"C{element_counts['C']}" if element_counts["C"] > 1 else "C")
-        if "H" in element_counts:
-            formula_parts.append(f"H{element_counts['H']}" if element_counts["H"] > 1 else "H")
-        for elem in sorted(element_counts.keys()):
-            if elem not in ("C", "H"):
-                formula_parts.append(f"{elem}{element_counts[elem]}" if element_counts[elem] > 1 else elem)
-        G.graph["formula"] = "".join(formula_parts)
-
-        self._log(f"Chemical formula: {G.graph['formula']}", 1)
 
         # Check for custom thresholds
         has_custom = (
