@@ -294,16 +294,19 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 7. Gasteiger Partial Charges                                    │
+│ 7. Optional: Gasteiger Partial Charges                          │
+│    • compute_gasteiger_charges(G, target_charge)                │
 │    • Convert bond orders to RDKit bond types                    │
 │    • Compute Gasteiger charges                                  │
 │    • Adjust for total charge conservation                       │
 │    • Aggregate H charges onto heavy atoms                       │
+│    • Stored in G.nodes[i]["charges"]["gasteiger"]               │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 9. Output Graph                                                 │
-│    Nodes: symbol, formal_charge, charges{}, agg_charge, valence │
+│ 8. Output Graph                                                 │
+│    Nodes: symbol, formal_charge, valence, metal_valence,        │
+│           oxidation_state (metals only)                         │
 │    Edges: bond_order, bond_type, metal_coord                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -348,7 +351,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
 │ 6. Output Graph                                                 │
-│    Nodes: symbol, charges{'mulliken': ...}, agg_charge, valence │
+│    Nodes: symbol, charges{'mulliken': ...}, agg_charge,         │
+│           valence, metal_valence                                │
 │    Edges: bond_order (Wiberg), bond_type, metal_coord           │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -390,7 +394,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ### Optimizer Algorithms (cheminf full mode only)
 
-**Beam Search Optimizer** (`--optimizer beam` default, `--beam-width 3` default):
+**Beam Search Optimizer** (`--optimizer beam` default, `--beam-width 5` default):
 
 - Explores multiple optimization paths in parallel
 - Maintains top-k hypotheses at each iteration (of top candidates)
@@ -1276,7 +1280,7 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 |---------------|-------------------|----------------|
 | H-H | 0.38 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
-| H-metal | 0.48 × (r₁ + r₂) | `threshold_h_metal` |
+| H-metal | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
 | Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
 | Metal-Metal (same type) | 0.7 × (2r) | `threshold_metal_metal_self` |
@@ -1304,7 +1308,7 @@ xyzgraph structure.xyz --threshold 1.2 --relaxed --debug
 
 The two-step construction with geometric validation helps reject spurious diagonals even at higher thresholds. The `--relaxed` flag can be used for more permissive angle and diagonal thresholds (**but note:** *this is likely to produce spurious structures*).
 
-**Example workflow**: See [vib_analysis](https://github.com/aligfellow/vib_analysis) for a complete workflow analyzing transition state vibrational modes using xyzgraph connectivity.
+**Example workflow**: See [vib_analysis](https://github.com/aligfellow/graphRC) for a complete workflow analyzing transition state vibrational modes using xyzgraph connectivity.
 
 ### Advanced Threshold Modification (Not Recommended)
 
