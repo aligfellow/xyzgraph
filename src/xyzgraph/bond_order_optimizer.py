@@ -436,7 +436,6 @@ class BondOrderOptimizer:
             cycles = nx.cycle_basis(G)
             G.graph["_rings"] = cycles
 
-        initialized = 0
         self._log("\n" + "=" * 80, 0)
         self._log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
         self._log("=" * 80, 0)
@@ -528,6 +527,8 @@ class BondOrderOptimizer:
         self._log(f"Valid rings for Kekulé initialization: \n\t{sorted(valid_rings)}", 0)
 
         # --- Phase 2: Kekulé initialization ---
+        processed_rings: set = set()  # Track rings handled by any priority
+
         def max_val(n):
             return self.data.max_aromatic_valence.get(G.nodes[n].get("symbol"), 4)
 
@@ -594,7 +595,7 @@ class BondOrderOptimizer:
                 for rot in range(L):
                     p = base[-rot:] + base[:-rot]
                     if apply_pattern(r_idx, p):
-                        initialized += 1
+                        processed_rings.add(r_idx)
                         applied = True
                         self._log(f"✓ Cp-like 5-ring {r_idx} initialized (rotation {rot})", 3)
                         break
@@ -630,8 +631,8 @@ class BondOrderOptimizer:
                 p[(pos + 3) % 5] = 2.0
                 p[(pos + 4) % 5] = 1.0
                 if apply_pattern(r_idx, p):
-                    initialized += 1
                     hetero_initialized.add(r_idx)
+                    processed_rings.add(r_idx)
                     self._log(f"✓ 5-heterocycle {r_idx} (lp {lp}) initialized", 3)
                 else:
                     self._log(
@@ -652,7 +653,7 @@ class BondOrderOptimizer:
                 for start_double in (True, False):
                     p = alt_patterns(6, start_with_double=start_double)
                     if apply_pattern(r_idx, p):
-                        initialized += 1
+                        processed_rings.add(r_idx)
                         success = True
                         self._log(f"✓ Propagated init to fused ring {r_idx} (6-ring)", 3)
                         break
@@ -661,7 +662,7 @@ class BondOrderOptimizer:
                 for rot in range(5):
                     p = base[-rot:] + base[:-rot]
                     if apply_pattern(r_idx, p):
-                        initialized += 1
+                        processed_rings.add(r_idx)
                         success = True
                         self._log(
                             f"✓ Propagated init to fused ring {r_idx} (5-ring rotation {rot})",
@@ -765,7 +766,7 @@ class BondOrderOptimizer:
                 for seed in (True, False):
                     assigned = try_component(seed, comp_sorted)
                     if assigned is not None:
-                        initialized += len(comp_sorted)
+                        processed_rings.update(comp_sorted)
                         self._log(f"✓ Initialized fused benzene block rings {comp_sorted}", 3)
                         break
                 if assigned is None:
@@ -774,11 +775,24 @@ class BondOrderOptimizer:
                         3,
                     )
 
+        # --- Priority 4: isolated 6-membered rings ---
+        for r_idx in six_ring_indices:
+            if r_idx in processed_rings:
+                continue
+            p = alt_patterns(6, start_with_double=True)
+            if apply_pattern(r_idx, p):
+                processed_rings.add(r_idx)
+                self._log(f"✓ Initialized isolated 6-ring {r_idx}", 3)
+            else:
+                self._log(f"• Could not safely init isolated 6-ring {r_idx}", 4)
+
         # --- Priority 5: remaining carbon-only 5-membered rings ---
         for r_idx in valid_rings:
             if len(cycles[r_idx]) != 5:
                 continue
             if any(G.nodes[i]["symbol"] != "C" for i in cycles[r_idx]):
+                continue
+            if r_idx in processed_rings:
                 continue
             fused = any(len(edge_to_rings[frozenset((a, b))]) > 1 for a, b in ring_edges[r_idx])
             if fused:
@@ -786,15 +800,15 @@ class BondOrderOptimizer:
                 continue
             pattern = [2.0, 1.0, 2.0, 1.0, 1.0]
             if apply_pattern(r_idx, pattern):
-                initialized += 1
+                processed_rings.add(r_idx)
                 self._log(f"✓ Initialized isolated carbon-5 ring {r_idx}", 3)
             else:
                 self._log(f"• Could not safely init isolated carbon-5 ring {r_idx}", 4)
 
         self._log("\n" + "-" * 80, 0)
-        self._log(f"SUMMARY: Initialized {initialized} ring(s) with Kekulé pattern", 1)
+        self._log(f"SUMMARY: Initialized {len(processed_rings)} ring(s) with Kekulé pattern", 1)
         self._log("-" * 80, 0)
-        return initialized
+        return len(processed_rings)
 
     # =========================================================================
     # Quick mode: Simple heuristic valence adjustment
