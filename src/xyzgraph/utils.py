@@ -268,22 +268,21 @@ def count_frames_and_atoms(filepath: str) -> tuple[int, int]:
         (num_frames, num_atoms_per_frame)
     """
     with open(filepath, "r") as f:
-        line = f.readline()
-        if not line:
-            raise ValueError("Empty XYZ file")
-        try:
-            num_atoms = int(line.strip())
-        except ValueError:
-            raise ValueError("Invalid XYZ format: first line should be atom count") from None
+        lines = f.read().rstrip().splitlines()
 
-        frame_size = num_atoms + 2
-        f.seek(0)
-        total_lines = sum(1 for _ in f)
+    if not lines:
+        raise ValueError("Empty XYZ file")
+    try:
+        num_atoms = int(lines[0].strip())
+    except ValueError:
+        raise ValueError("Invalid XYZ format: first line should be atom count") from None
 
-        if total_lines % frame_size != 0:
-            raise ValueError(f"File has {total_lines} lines, not evenly divisible by frame size {frame_size}")
+    frame_size = num_atoms + 2
 
-        return total_lines // frame_size, num_atoms
+    if len(lines) % frame_size != 0:
+        raise ValueError(f"File has {len(lines)} lines, not evenly divisible by frame size {frame_size}")
+
+    return len(lines) // frame_size, num_atoms
 
 
 def read_xyz_file(
