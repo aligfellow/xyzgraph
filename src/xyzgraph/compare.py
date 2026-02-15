@@ -63,7 +63,7 @@ def compare_with_rdkit(
     """
     # If no RDKit graph provided, build it from reference graph nodes
     if rdkit_graph is None:
-        from .graph_builders import build_graph_rdkit
+        from .graph_builders_rdkit import build_graph_rdkit
 
         atoms = [
             (reference_graph.nodes[i]["symbol"], reference_graph.nodes[i]["position"]) for i in reference_graph.nodes()

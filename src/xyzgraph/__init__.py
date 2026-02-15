@@ -8,47 +8,46 @@ __citation__ = (
     f"Coordinates, v{__version__}, 2025, https://github.com/aligfellow/xyzgraph.git."
 )
 
-# Eagerly load data
-# Utilities
+# Data access
+# Comparison & visualization
 from .ascii_renderer import graph_to_ascii
 from .compare import compare_with_rdkit
+from .data_loader import DATA
 
-# Import default parameters from config
-from .config import DEFAULT_PARAMS
-from .data_loader import BOHR_TO_ANGSTROM, DATA
+# Featurisers
+from .featurisers import compute_gasteiger_charges
 
-# Main interfaces (imported after DEFAULT_PARAMS to avoid circular import)
-from .graph_builders import (
-    GraphBuilder,
-    build_graph,
-    build_graph_orca,
-    build_graph_rdkit,
-    build_graph_rdkit_tm,
-)
+# Main API
+from .graph_builders import build_graph
+from .graph_builders_orca import build_graph_orca
+from .graph_builders_rdkit import build_graph_rdkit
+from .graph_builders_rdkit_tm import build_graph_rdkit_tm
+from .graph_builders_xtb import build_graph_xtb
 
-# ORCA parser
+# ORCA support
 from .orca_parser import OrcaParseError, parse_orca_output
-from .utils import graph_debug_report, read_xyz_file
+from .utils import count_frames_and_atoms, graph_debug_report, graph_to_dict, read_xyz_file
 
 __all__ = [
-    "BOHR_TO_ANGSTROM",
     # Data access
-    "DATA",  # Access as DATA.vdw, DATA.metals, etc.
-    # Configuration
-    "DEFAULT_PARAMS",
-    # Main interfaces
-    "GraphBuilder",
+    "DATA",
+    # ORCA support
     "OrcaParseError",
+    # Main API
     "build_graph",
     "build_graph_orca",
     "build_graph_rdkit",
     "build_graph_rdkit_tm",
+    "build_graph_xtb",
+    # Comparison & visualization
     "compare_with_rdkit",
-    "graph_debug_report",
-    # Visualization
-    "graph_to_ascii",
-    # ORCA support
-    "parse_orca_output",
+    # Featurisers
+    "compute_gasteiger_charges",
     # Utilities
+    "count_frames_and_atoms",
+    "graph_debug_report",
+    "graph_to_ascii",
+    "graph_to_dict",
+    "parse_orca_output",
     "read_xyz_file",
 ]

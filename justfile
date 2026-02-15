@@ -9,7 +9,7 @@ type:
     uv run ty check 
 
 test:
-    uv run pytest --cov --cov-report=xml
+    uv run python -m pytest --cov --cov-report=xml -v
 
 fix:
     uv run ruff format .
@@ -20,3 +20,4 @@ build:
 
 setup:
     uv sync --dev
+    uv pip install -e ".[rdkit-tm]"

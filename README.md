@@ -162,8 +162,8 @@ atoms = read_xyz_file("trajectory.xyz", frame=2)
 G = build_graph(atoms, charge=0)
 
 # Process all frames
-from xyzgraph.utils import _count_frames_and_get_atom_count
-num_frames, _ = _count_frames_and_get_atom_count("trajectory.xyz")
+from xyzgraph import count_frames_and_atoms
+num_frames, _ = count_frames_and_atoms("trajectory.xyz")
 for i in range(num_frames):
     atoms = read_xyz_file("trajectory.xyz", frame=i)
     G = build_graph(atoms, charge=0)
@@ -294,16 +294,19 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 7. Gasteiger Partial Charges                                    │
+│ 7. Optional: Gasteiger Partial Charges                          │
+│    • compute_gasteiger_charges(G, target_charge)                │
 │    • Convert bond orders to RDKit bond types                    │
 │    • Compute Gasteiger charges                                  │
 │    • Adjust for total charge conservation                       │
 │    • Aggregate H charges onto heavy atoms                       │
+│    • Stored in G.nodes[i]["charges"]["gasteiger"]               │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 9. Output Graph                                                 │
-│    Nodes: symbol, formal_charge, charges{}, agg_charge, valence │
+│ 8. Output Graph                                                 │
+│    Nodes: symbol, formal_charge, valence, metal_valence,        │
+│           oxidation_state (metals only)                         │
 │    Edges: bond_order, bond_type, metal_coord                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -348,7 +351,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
 │ 6. Output Graph                                                 │
-│    Nodes: symbol, charges{'mulliken': ...}, agg_charge, valence │
+│    Nodes: symbol, charges{'mulliken': ...}, agg_charge,         │
+│           valence, metal_valence                                │
 │    Edges: bond_order (Wiberg), bond_type, metal_coord           │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -390,7 +394,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ### Optimizer Algorithms (cheminf full mode only)
 
-**Beam Search Optimizer** (`--optimizer beam` default, `--beam-width 3` default):
+**Beam Search Optimizer** (`--optimizer beam` default, `--beam-width 5` default):
 
 - Explores multiple optimization paths in parallel
 - Maintains top-k hypotheses at each iteration (of top candidates)
@@ -414,12 +418,12 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ```text
 > xyzgraph -h
-
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [-q] [--max-iter MAX_ITER] [-t THRESHOLD] [--relaxed] [--edge-per-iter EDGE_PER_ITER] [-o {greedy,beam}]
-                [-bw BEAM_WIDTH] [--bond BOND] [--unbond UNBOND] [-c CHARGE] [-m MULTIPLICITY] [-b] [-d] [-a] [-as ASCII_SCALE] [-H] [--show-h-idx SHOW_H_IDX] [--compare-rdkit]
-                [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD] [--no-clean] [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL]
-                [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
-                [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF] [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [--relaxed] [-t THRESHOLD] [-d] [-a] [--json] [-as ASCII_SCALE] [-H]
+                [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD]
+                [-o {greedy,beam}] [-bw BEAM_WIDTH] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [--bond BOND] [--unbond UNBOND] [--threshold-h-h THRESHOLD_H_H]
+                [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND]
+                [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds] [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF]
+                [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
                 [input_file]
 
 Build molecular graph from XYZ or ORCA output.
@@ -429,59 +433,76 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --version             Print version information and exit
-  --citation            Print citation information and exit
+  --version             Print version and exit
+  --citation            Print citation and exit
+
+Common Options:
   --method {cheminf,xtb}
                         Graph construction method (default: cheminf)
-  -q, --quick           Quick mode: fast heuristics, less accuracy (NOT recommended)
-  --max-iter MAX_ITER   Maximum iterations for bond order optimization (default: 50, cheminf only)
-  -t THRESHOLD, --threshold THRESHOLD
-                        Scaling factor for bond detection thresholds (default: 1.0)
-  --relaxed             Relaxed mode: use more permissive geometric validation
-  --edge-per-iter EDGE_PER_ITER
-                        Number of edges to adjust per iteration (default: 10, cheminf only)
-  -o {greedy,beam}, --optimizer {greedy,beam}
-                        Optimization algorithm (default: beam, BEAM recommended)
-  -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
-                        Beam width for beam search (default: 5)
-  --bond BOND           Force specific bonds. Example: --bond 0,1 2,3
-  --unbond UNBOND       Prevent specific bonds. Example: --unbond 0,1 1,2
+  --no-clean            Keep temporary xTB files (only for --method xtb)
   -c CHARGE, --charge CHARGE
                         Total molecular charge (default: 0)
   -m MULTIPLICITY, --multiplicity MULTIPLICITY
-                        Spin multiplicity (auto-detected if not specified)
-  -b, --bohr            XYZ file in Bohr units (default is Angstrom)
+                        Spin multiplicity (default: auto estimation)
+  -q, --quick           Quick mode: connectivity only, no formal charge optimization
+  --relaxed             Relaxed geometric validation (for transition states)
+  -t THRESHOLD, --threshold THRESHOLD
+                        Global scaling for bond thresholds (default: 1.0)
+
+Output Options:
   -d, --debug           Enable debug output
   -a, --ascii           Show 2D ASCII depiction
+  --json                Output graph as JSON (for generating test fixtures)
   -as ASCII_SCALE, --ascii-scale ASCII_SCALE
                         ASCII scaling factor (default: 2.5)
   -H, --show-h          Include hydrogens in visualizations
   --show-h-idx SHOW_H_IDX
-                        Show specific hydrogen atoms (comma-separated, e.g., '3,7,12')
+                        Show specific H atoms (comma-separated indices)
+
+Input Options:
+  -b, --bohr            XYZ file in Bohr units (default: Angstrom)
+  --frame FRAME         Frame index for trajectory files, 0-indexed (default: 0)
+  --all-frames          Process all frames in trajectory
+
+Comparison Options:
   --compare-rdkit       Compare with RDKit graph
-  --compare-rdkit-tm    Compare with RDKit graph from xyz2mol_tm (Jan Jensen)
+  --compare-rdkit-tm    Compare with RDKit xyz2mol_tm graph
   --orca-out ORCA_OUT   ORCA output file for comparison
   --orca-threshold ORCA_THRESHOLD
-                        Minimum Mayer bond order for ORCA graphs (default: 0.25)
-  --no-clean            Keep temporary xTB files (only for --method xtb)
+                        Min Mayer bond order for ORCA (default: 0.25)
+
+Optimizer Options:
+  -o {greedy,beam}, --optimizer {greedy,beam}
+                        Algorithm (default: beam)
+  -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
+                        Beam width (default: 5)
+  --max-iter MAX_ITER   Max iterations (default: 50)
+  --edge-per-iter EDGE_PER_ITER
+                        Edges per iteration (default: 10)
+
+Bond Constraints:
+  --bond BOND           Force bonds (e.g., --bond 0,1 2,3)
+  --unbond UNBOND       Prevent bonds (e.g., --unbond 0,1)
+
+Advanced Thresholds:
   --threshold-h-h THRESHOLD_H_H
-                        ADVANCED: vdW threshold for H-H bonds (default: 0.38)
+                        H-H vdW threshold (default: 0.38)
   --threshold-h-nonmetal THRESHOLD_H_NONMETAL
-                        ADVANCED: vdW threshold for H-nonmetal bonds (default: 0.42)
+                        H-nonmetal vdW threshold (default: 0.42)
   --threshold-h-metal THRESHOLD_H_METAL
-                        ADVANCED: vdW threshold for H-metal bonds (default: 0.48)
+                        H-metal vdW threshold (default: 0.45)
   --threshold-metal-ligand THRESHOLD_METAL_LIGAND
-                        ADVANCED: vdW threshold for metal-ligand bonds (default: 0.65)
+                        Metal-ligand vdW threshold (default: 0.65)
   --threshold-nonmetal THRESHOLD_NONMETAL
-                        ADVANCED: vdW threshold for nonmetal-nonmetal bonds (default: 0.55)
+                        Nonmetal-nonmetal vdW threshold (default: 0.55)
   --allow-metal-metal-bonds
-                        ADVANCED: Allow metal-metal bonds (True by default)
+                        Allow metal-metal bonds (default: True)
   --threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF
-                        ADVANCED: vdW threshold for metal-metal bonds (default: 0.7)
+                        Metal-metal vdW threshold (default: 0.7)
   --period-scaling-h-bonds PERIOD_SCALING_H_BONDS
-                        ADVANCED: Period scaling for H bonds (default: 0.05, 0=disabled)
+                        Period scaling for H bonds (default: 0.05)
   --period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS
-                        ADVANCED: Period scaling for nonmetal bonds (default: 0.0, 0=disabled)                      
+                        Period scaling for nonmetal bonds (default: 0.0)
 ```
 
 **Method comparison**:
@@ -620,15 +641,16 @@ print(report)
                           A. S. Goodfellow, 2025
 ================================================================================
 
-Version:        xyzgraph v1.1.0
+Version:        xyzgraph v1.5.0
 Citation:       A. S. Goodfellow, xyzgraph: Molecular Graph Construction from
-                Cartesian Coordinates, v1.1.0, 2025,
+                Cartesian Coordinates, v1.5.0, 2025,
                 https://github.com/aligfellow/xyzgraph.git.
 Input:          benzene_NH4-cation-pi.xyz
 Parameters:     charge=1
 
 ================================================================================
 
+# Building cheminf graph from examples/benzene_NH4-cation-pi.xyz...
 
 ================================================================================
 BUILDING GRAPH (CHEMINF, FULL MODE)
@@ -636,7 +658,11 @@ Atoms: 17, Charge: 1, Multiplicity: 1
 ================================================================================
 
   Added 17 atoms
+  Chemical formula: C6H10N
   Step 1: Found 16 baseline bonds (using default thresholds)
+  ...
+  ...
+  ...
   Step 1: 16 baseline bonds added, 0 rejected
   Found 1 rings from initial bonding (excluding metal cycles)
   Total bonds in graph: 16
@@ -646,8 +672,12 @@ Atoms: 17, Charge: 1, Multiplicity: 1
 KEKULE INITIALIZATION FOR AROMATIC RINGS
 ================================================================================
     
-Ring 1 (6-membered): ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
+Ring 0 (6-membered): ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
       π electrons estimate: 6
+--------------------------------------------------------------------------------
+Valid rings for Kekulé initialization: 
+        [0]
+      ✓ Initialized isolated 6-ring 0
 
 --------------------------------------------------------------------------------
   SUMMARY: Initialized 1 ring(s) with Kekulé pattern
@@ -691,28 +721,32 @@ Ring 1 (6-membered): ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
   SUMMARY: 1 aromatic rings, 6 bonds set to 1.5
 --------------------------------------------------------------------------------
 
-    Gasteiger charge calculation failed: Explicit valence for atom # 12 N, 4, is greater than permitted
 
 ================================================================================
 GRAPH CONSTRUCTION COMPLETE
 ================================================================================
 
+Constructed graph with chemical formula: C6H10N
+
+================================================================================
+# CHEMINF GRAPH DETAILS
+================================================================================
 # Molecular Graph: 17 atoms, 16 bonds
-# total_charge=1  multiplicity=1  sum(gasteiger)=+1.000  sum(gasteiger_raw)=+0.000
-# (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)
-# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)
+# total_charge=1  multiplicity=1
+# (C-H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)
+# [idx] Sym  val=.. metal=.. formal=.. | neighbors: idx(order / aromatic flag)
 # (val = organic valence excluding metal bonds; metal = metal coordination bonds)
-[  0]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 1(1.50*) 5(1.50*)
-[  1]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 0(1.50*) 2(1.50*)
-[  2]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 1(1.50*) 3(1.50*)
-[  3]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 2(1.50*) 4(1.50*)
-[  4]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 3(1.50*) 5(1.50*)
-[  5]  C  val=4.00  metal=0.00  formal=0   chg=+0.059  agg=+0.118 | 0(1.50*) 4(1.50*)
-[ 12]  N  val=4.00  metal=0.00  formal=+1  chg=+0.059  agg=+0.294 | 13(1.00) 14(1.00) 15(1.00) 16(1.00)
-[ 13]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
-[ 14]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
-[ 15]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
-[ 16]  H  val=1.00  metal=0.00  formal=0   chg=+0.059  agg=+0.059 | 12(1.00)
+[  0]  C  val=4.00  metal=0.00  formal=0  | 1(1.50*) 5(1.50*)
+[  1]  C  val=4.00  metal=0.00  formal=0  | 0(1.50*) 2(1.50*)
+[  2]  C  val=4.00  metal=0.00  formal=0  | 1(1.50*) 3(1.50*)
+[  3]  C  val=4.00  metal=0.00  formal=0  | 2(1.50*) 4(1.50*)
+[  4]  C  val=4.00  metal=0.00  formal=0  | 3(1.50*) 5(1.50*)
+[  5]  C  val=4.00  metal=0.00  formal=0  | 0(1.50*) 4(1.50*)
+[ 12]  N  val=4.00  metal=0.00  formal=+1 | 13(1.00) 14(1.00) 15(1.00) 16(1.00)
+[ 13]  H  val=1.00  metal=0.00  formal=0  | 12(1.00)
+[ 14]  H  val=1.00  metal=0.00  formal=0  | 12(1.00)
+[ 15]  H  val=1.00  metal=0.00  formal=0  | 12(1.00)
+[ 16]  H  val=1.00  metal=0.00  formal=0  | 12(1.00)
 
 # Bonds (i-j: order) (filtered)
 [ 0- 1]: 1.50
@@ -727,7 +761,7 @@ GRAPH CONSTRUCTION COMPLETE
 [12-16]: 1.00
 
 ================================================================================
-# ASCII Depiction
+# ASCII Depiction (cheminf)
 ================================================================================
 
             -C------------------------C-
@@ -847,22 +881,30 @@ xyzgraph examples/mnh.xyz --ascii --debug
 KEKULE INITIALIZATION FOR AROMATIC RINGS
 ================================================================================
     
-Ring 1 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
+Ring 0 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
       ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
       π electrons estimate: 6
     
-Ring 2 (6-membered): ['C37', 'C39', 'C41', 'C43', 'C45', 'C36']
+Ring 1 (6-membered): ['C37', 'C39', 'C41', 'C43', 'C45', 'C36']
       π electrons estimate: 6
     
-Ring 3 (6-membered): ['C34', 'C32', 'C30', 'C28', 'C26', 'C25']
+Ring 2 (6-membered): ['C34', 'C32', 'C30', 'C28', 'C26', 'C25']
       π electrons estimate: 6
     
-Ring 4 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
+Ring 3 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
       π electrons estimate: 6
     
-Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
+Ring 4 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
       ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
       π electrons estimate: 6
+--------------------------------------------------------------------------------
+Valid rings for Kekulé initialization: 
+        [0, 1, 2, 3, 4]
+      ✓ Cp-like 5-ring 0 initialized (rotation 0)
+      ✓ Cp-like 5-ring 4 initialized (rotation 0)
+      ✓ Initialized isolated 6-ring 1
+      ✓ Initialized isolated 6-ring 2
+      ✓ Initialized isolated 6-ring 3
 
 --------------------------------------------------------------------------------
   SUMMARY: Initialized 5 ring(s) with Kekulé pattern
@@ -872,32 +914,52 @@ Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
 BEAM SEARCH OPTIMIZATION (width=5)
 ================================================================================
   Locked 16 metal bonds
-  Initial score: 456.70
+  Initial score: 936.20
   
 Iteration 1:
-      Generated 2 candidates, keeping top 2
-      ✓ New best: O3-C64      Δtotal =  81.00  score =   375.70
+      Generated 7 candidates, keeping top 5
+      ✓ New best: C7-C8       Δtotal = 132.00  score =   804.20
   
 Iteration 2:
-      Generated 4 candidates, keeping top 4
-      ✓ New best: O4-C65      Δtotal =  81.00  score =   294.70
+      Generated 35 candidates, keeping top 5
+      ✓ New best: C15-C17     Δtotal = 132.00  score =   672.20
   
 Iteration 3:
-      Generated 6 candidates, keeping top 5
-      ✓ New best: O3-C64      Δtotal =  20.00  score =   274.70
+      Generated 35 candidates, keeping top 5
+      ✓ New best: O3-C64      Δtotal =  81.00  score =   591.20
   
 Iteration 4:
+      Generated 35 candidates, keeping top 5
+      ✓ New best: O4-C65      Δtotal =  81.00  score =   510.20
+  
+Iteration 5:
+      Generated 35 candidates, keeping top 5
+      ✓ New best: C9-C11      Δtotal =  72.00  score =   438.20
+  
+Iteration 6:
+      Generated 25 candidates, keeping top 5
+      ✓ New best: C19-C21     Δtotal =  72.00  score =   366.20
+  
+Iteration 7:
+      Generated 15 candidates, keeping top 5
+      ✓ New best: N6-C52      Δtotal =  71.50  score =   294.70
+  
+Iteration 8:
+      Generated 10 candidates, keeping top 5
+      ✓ New best: O3-C64      Δtotal =  20.00  score =   274.70
+  
+Iteration 9:
       Generated 5 candidates, keeping top 5
       ✓ New best: O4-C65      Δtotal =  20.00  score =   254.70
   
-Iteration 5:
+Iteration 10:
       No improvements found in any beam, stopping
   
 Applying best solution to graph...
 --------------------------------------------------------------------------------
-  Explored 181 states across 5 iterations
-  Found 4 improvements
-  Score: 456.70 → 254.70
+  Explored 511 states across 10 iterations
+  Found 9 improvements
+  Score: 936.20 → 254.70
 --------------------------------------------------------------------------------
 
 ================================================================================
@@ -922,14 +984,14 @@ Metal coordination summary:
           •      N ( 0)  [donor: N5]
     
 Metal complex detected: 
-        Residual: +4 (represents metal oxidation states)
+        Residual: +3 (represents metal oxidation states)
 
 ================================================================================
 AROMATIC RING DETECTION (Hückel 4n+2)
 ================================================================================
   
 Ring 1 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
-    π electrons: 6 (C7:1, C13:1, C11:1, C9:1, C8:1+1(charge))
+    π electrons: 6 (C7:1, C13:2(fc=-1), C11:1, C9:1, C8:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
 Ring 2 (6-membered): ['C37', 'C39', 'C41', 'C43', 'C45', 'C36']
@@ -945,14 +1007,19 @@ Ring 4 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
     ✓ AROMATIC (4n+2 rule: n=1)
   
 Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
-    π electrons: 6 (C15:1, C17:1, C19:1, C21:1, C23:1+1(charge))
+    π electrons: 6 (C15:1, C17:1, C19:1, C21:1, C23:2(fc=-1))
     ✓ AROMATIC (4n+2 rule: n=1)
 
 --------------------------------------------------------------------------------
   SUMMARY: 5 aromatic rings, 28 bonds set to 1.5
 --------------------------------------------------------------------------------
 
-# Selected atoms from molecular graph:
+
+================================================================================
+GRAPH CONSTRUCTION COMPLETE
+================================================================================
+
+### Selected atoms from molecular graph:
 [  0] Fe  val=10.00  metal=0.00  formal=0   | 7(1.00) 8(1.00) 9(1.00) 11(1.00) 13(1.00) ...
 [  1] Mn  val=6.00  metal=0.00  formal=0   | 2(1.00) 5(1.00) 6(1.00) 64(1.00) 65(1.00) 67(1.00)
 [  3]  O  val=3.00  metal=0.00  formal=+1  | 64(3.00)
@@ -991,7 +1058,7 @@ Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
 C----- \\\ /---   |                Mn----     \                /           \
  |    ----Fe---   |                |           \              /            \
  |  ---- /|\\  ----C               |           \             /              \
- C--    /|   \\---|                |             \           /                \
+ C--    /|   \\---|               |             \           /                \
   \\  // |---- \\|                |              C---------C                 \
    \\/---|     --C\               |             /                             C
     C-\\|  ----    \\\          --N-          //
@@ -1047,6 +1114,7 @@ Atoms: 52, Charge: 1, Multiplicity: 1
 ================================================================================
 
   Added 52 atoms
+  Chemical formula: C23H25N2OS
   Step 1: Found 55 baseline bonds (using default thresholds)
   Step 1: 55 baseline bonds added, 0 rejected
   Found 4 rings from initial bonding (excluding metal cycles)
@@ -1057,18 +1125,23 @@ Atoms: 52, Charge: 1, Multiplicity: 1
 KEKULE INITIALIZATION FOR AROMATIC RINGS
 ================================================================================
     
-Ring 1 (6-membered): ['C24', 'C23', 'C22', 'C21', 'C26', 'C25']
+Ring 0 (6-membered): ['C24', 'C23', 'C22', 'C21', 'C26', 'C25']
       π electrons estimate: 6
     
-Ring 2 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
+Ring 1 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
       π electrons estimate: 7
-      ✗ Hückel rule violated (π=7, need 6 or 10)
+      ✗ Hückel rule violated (π=7)
     
-Ring 3 (6-membered): ['N18', 'C17', 'C13', 'C6', 'N5', 'C19']
+Ring 2 (6-membered): ['N18', 'C17', 'C13', 'C6', 'N5', 'C19']
       ✗ Not planar
     
-Ring 4 (6-membered): ['C8', 'C9', 'C10', 'C11', 'C12', 'C7']
+Ring 3 (6-membered): ['C8', 'C9', 'C10', 'C11', 'C12', 'C7']
       π electrons estimate: 6
+--------------------------------------------------------------------------------
+Valid rings for Kekulé initialization: 
+        [0, 3]
+      ✓ Initialized isolated 6-ring 0
+      ✓ Initialized isolated 6-ring 3
 
 --------------------------------------------------------------------------------
   SUMMARY: Initialized 2 ring(s) with Kekulé pattern
@@ -1121,8 +1194,8 @@ Ring 1 (6-membered): ['C24', 'C23', 'C22', 'C21', 'C26', 'C25']
     ✓ AROMATIC (4n+2 rule: n=1)
   
 Ring 2 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
-    π electrons: 7 (N18:2(LP), C19:1, S20:2(LP), C21:1, C26:1)
-    ✗ Not aromatic (4n+2 rule violated)
+    π electrons: 6 (N18:1(fc=+1), C19:1, S20:2(LP), C21:1, C26:1)
+    ✓ AROMATIC (4n+2 rule: n=1)
   
 Ring 3 (6-membered): ['N18', 'C17', 'C13', 'C6', 'N5', 'C19']
     ✗ Not planar, skipping aromaticity check
@@ -1132,47 +1205,51 @@ Ring 4 (6-membered): ['C8', 'C9', 'C10', 'C11', 'C12', 'C7']
     ✓ AROMATIC (4n+2 rule: n=1)
 
 --------------------------------------------------------------------------------
-  SUMMARY: 2 aromatic rings, 12 bonds set to 1.5
+  SUMMARY: 3 aromatic rings, 16 bonds set to 1.5
 --------------------------------------------------------------------------------
 
-    Gasteiger charge calculation failed: Explicit valence for atom # 18 N, 4, is greater than permitted
 
 ================================================================================
 GRAPH CONSTRUCTION COMPLETE
 ================================================================================
 
+Constructed graph with chemical formula: C23H25N2OS
+
+================================================================================
+# CHEMINF GRAPH DETAILS
+================================================================================
 # Molecular Graph: 52 atoms, 55 bonds
-# total_charge=1  multiplicity=1  sum(gasteiger)=+1.000  sum(gasteiger_raw)=+0.000
-# (C–H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)
-# [idx] Sym  val=.. metal=.. formal=.. chg=.. agg=.. | neighbors: idx(order / aromatic flag)
+# total_charge=1  multiplicity=1
+# (C-H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)
+# [idx] Sym  val=.. metal=.. formal=.. | neighbors: idx(order / aromatic flag)
 # (val = organic valence excluding metal bonds; metal = metal coordination bonds)
-[  0]  O  val=2.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 1(2.00)
-[  1]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 0(2.00) 2(1.00) 5(1.00)
-[  2]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 1(1.00) 3(2.00)
-[  3]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 2(2.00) 4(1.00)
-[  4]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.077 | 3(1.00)
-[  5]  N  val=3.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 1(1.00) 6(1.00) 19(1.00)
-[  6]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 5(1.00) 7(1.00) 13(1.00)
-[  7]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 6(1.00) 8(1.50*) 12(1.50*)
-[  8]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 7(1.50*) 9(1.50*)
-[  9]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 8(1.50*) 10(1.50*)
-[ 10]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 9(1.50*) 11(1.50*)
-[ 11]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 10(1.50*) 12(1.50*)
-[ 12]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 7(1.50*) 11(1.50*)
-[ 13]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 6(1.00) 14(1.00) 17(1.00)
-[ 14]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 13(1.00) 15(1.00) 16(1.00)
-[ 15]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.077 | 14(1.00)
-[ 16]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.077 | 14(1.00)
-[ 17]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.058 | 13(1.00) 18(1.00)
-[ 18]  N  val=4.00  metal=0.00  formal=+1  chg=+0.019  agg=+0.019 | 17(1.00) 19(2.00) 26(1.00)
-[ 19]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 5(1.00) 18(2.00) 20(1.00)
-[ 20]  S  val=2.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 19(1.00) 21(1.00)
-[ 21]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 20(1.00) 22(1.50*) 26(1.50*)
-[ 22]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 21(1.50*) 23(1.50*)
-[ 23]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 22(1.50*) 24(1.50*)
-[ 24]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 23(1.50*) 25(1.50*)
-[ 25]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.038 | 24(1.50*) 26(1.50*)
-[ 26]  C  val=4.00  metal=0.00  formal=0   chg=+0.019  agg=+0.019 | 18(1.00) 21(1.50*) 25(1.50*)
+[  0]  O  val=2.00  metal=0.00  formal=0  | 1(2.00)
+[  1]  C  val=4.00  metal=0.00  formal=0  | 0(2.00) 2(1.00) 5(1.00)
+[  2]  C  val=4.00  metal=0.00  formal=0  | 1(1.00) 3(2.00)
+[  3]  C  val=4.00  metal=0.00  formal=0  | 2(2.00) 4(1.00)
+[  4]  C  val=4.00  metal=0.00  formal=0  | 3(1.00)
+[  5]  N  val=3.00  metal=0.00  formal=0  | 1(1.00) 6(1.00) 19(1.00)
+[  6]  C  val=4.00  metal=0.00  formal=0  | 5(1.00) 7(1.00) 13(1.00)
+[  7]  C  val=4.00  metal=0.00  formal=0  | 6(1.00) 8(1.50*) 12(1.50*)
+[  8]  C  val=4.00  metal=0.00  formal=0  | 7(1.50*) 9(1.50*)
+[  9]  C  val=4.00  metal=0.00  formal=0  | 8(1.50*) 10(1.50*)
+[ 10]  C  val=4.00  metal=0.00  formal=0  | 9(1.50*) 11(1.50*)
+[ 11]  C  val=4.00  metal=0.00  formal=0  | 10(1.50*) 12(1.50*)
+[ 12]  C  val=4.00  metal=0.00  formal=0  | 7(1.50*) 11(1.50*)
+[ 13]  C  val=4.00  metal=0.00  formal=0  | 6(1.00) 14(1.00) 17(1.00)
+[ 14]  C  val=4.00  metal=0.00  formal=0  | 13(1.00) 15(1.00) 16(1.00)
+[ 15]  C  val=4.00  metal=0.00  formal=0  | 14(1.00)
+[ 16]  C  val=4.00  metal=0.00  formal=0  | 14(1.00)
+[ 17]  C  val=4.00  metal=0.00  formal=0  | 13(1.00) 18(1.00)
+[ 18]  N  val=4.00  metal=0.00  formal=+1 | 17(1.00) 19(1.50*) 26(1.50*)
+[ 19]  C  val=4.00  metal=0.00  formal=0  | 5(1.00) 18(1.50*) 20(1.50*)
+[ 20]  S  val=3.00  metal=0.00  formal=0  | 19(1.50*) 21(1.50*)
+[ 21]  C  val=4.50  metal=0.00  formal=0  | 20(1.50*) 22(1.50*) 26(1.50*)
+[ 22]  C  val=4.00  metal=0.00  formal=0  | 21(1.50*) 23(1.50*)
+[ 23]  C  val=4.00  metal=0.00  formal=0  | 22(1.50*) 24(1.50*)
+[ 24]  C  val=4.00  metal=0.00  formal=0  | 23(1.50*) 25(1.50*)
+[ 25]  C  val=4.00  metal=0.00  formal=0  | 24(1.50*) 26(1.50*)
+[ 26]  C  val=4.50  metal=0.00  formal=0  | 18(1.50*) 21(1.50*) 25(1.50*)
 
 # Bonds (i-j: order) (filtered)
 [ 0- 1]: 2.00
@@ -1195,10 +1272,10 @@ GRAPH CONSTRUCTION COMPLETE
 [14-15]: 1.00
 [14-16]: 1.00
 [17-18]: 1.00
-[18-19]: 2.00
-[18-26]: 1.00
-[19-20]: 1.00
-[20-21]: 1.00
+[18-19]: 1.50
+[18-26]: 1.50
+[19-20]: 1.50
+[20-21]: 1.50
 [21-22]: 1.50
 [21-26]: 1.50
 [22-23]: 1.50
@@ -1207,7 +1284,7 @@ GRAPH CONSTRUCTION COMPLETE
 [25-26]: 1.50
 
 ================================================================================
-# ASCII Depiction
+# ASCII Depiction (cheminf)
 ================================================================================
 
                                   /C
@@ -1225,11 +1302,11 @@ GRAPH CONSTRUCTION COMPLETE
      C----                  \              /S\
    //     ---C               \            /   \\
  //           \               N----    ///      \\     ----C\
-C             \             //     ---C\          \C---      \
- \             \           /           \\         /           \\\
+C             \             //     ---C           \C---      \
+ \             \           /           \          /           \\\
   \             C---     //             \         /              C
-  \           //    ----C               \\        /             /
-   C---     //           \               N\------C              /
+  \           //    ----C               \         /             /
+   C---     //           \               N-------C              /
        ----C              \           ///         \\\           /
                           \          /               \      ---C
                            C-------C/                 \C----
@@ -1260,7 +1337,7 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 |---------------|-------------------|----------------|
 | H-H | 0.38 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
-| H-metal | 0.48 × (r₁ + r₂) | `threshold_h_metal` |
+| H-metal | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
 | Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
 | Metal-Metal (same type) | 0.7 × (2r) | `threshold_metal_metal_self` |
@@ -1288,7 +1365,7 @@ xyzgraph structure.xyz --threshold 1.2 --relaxed --debug
 
 The two-step construction with geometric validation helps reject spurious diagonals even at higher thresholds. The `--relaxed` flag can be used for more permissive angle and diagonal thresholds (**but note:** *this is likely to produce spurious structures*).
 
-**Example workflow**: See [vib_analysis](https://github.com/aligfellow/vib_analysis) for a complete workflow analyzing transition state vibrational modes using xyzgraph connectivity.
+**Example workflow**: See [vib_analysis](https://github.com/aligfellow/graphRC) for a complete workflow analyzing transition state vibrational modes using xyzgraph connectivity.
 
 ### Advanced Threshold Modification (Not Recommended)
 
