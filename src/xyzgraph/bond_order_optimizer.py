@@ -142,17 +142,6 @@ class BondOrderOptimizer:
     # Public API
     # =========================================================================
 
-    def init_kekule(self, G: nx.Graph) -> int:
-        """Initialize Kekulé patterns for aromatic rings.
-
-        Validates rings (planarity, aromatic atoms, sp2 carbons, Hückel)
-        and initializes alternating single/double bond patterns.
-        Handles fused ring systems with propagation.
-
-        Returns number of rings initialized.
-        """
-        return self._init_kekule_for_aromatic_rings(G)
-
     def optimize(self, G: nx.Graph, mode: str = "beam", quick: bool = False) -> Dict[str, Any]:
         """Optimize bond orders.
 
@@ -178,37 +167,11 @@ class BondOrderOptimizer:
             return self._beam_search_optimize(G)
         raise ValueError(f"Unknown optimizer mode: {mode}")
 
-    def compute_formal_charges(self, G: nx.Graph) -> List[int]:
-        """Compute formal charges for all atoms and balance to total charge.
-
-        Returns list of formal charges (one per node).
-        """
-        return self._compute_formal_charges(G)
-
-    def detect_aromatic_rings(self, G: nx.Graph) -> int:
-        """Detect aromatic rings using Hückel rule (4n+2 π electrons).
-
-        Sets bond orders to 1.5 for aromatic ring edges.
-        Returns number of bonds set to aromatic.
-        """
-        return self._detect_aromatic_rings(G)
-
-    def classify_metal_ligands(self, G: nx.Graph, formal_charges: Optional[List[int]] = None) -> Dict[str, Any]:
-        """Infer ligand types and metal oxidation state from formal charges.
-
-        Returns dict with dative_bonds, ionic_bonds, and metal_ox_states.
-        """
-        return self._classify_metal_ligands(G, formal_charges)
-
-    def check_valence_violation(self, G: nx.Graph, limits: Optional[Dict[str, float]] = None, tol: float = 0.3) -> bool:
-        """Check for valence violations (e.g. pentavalent carbon)."""
-        return self._check_valence_violation(G, limits, tol)
-
     # =========================================================================
     # Validation
     # =========================================================================
 
-    def _check_valence_violation(
+    def check_valence_violation(
         self,
         G: nx.Graph,
         limits: Optional[Dict[str, float]] = None,
@@ -235,7 +198,7 @@ class BondOrderOptimizer:
     # Formal charge computation
     # =========================================================================
 
-    def _compute_formal_charges(self, G: nx.Graph) -> List[int]:
+    def compute_formal_charges(self, G: nx.Graph) -> List[int]:
         """Compute formal charges for all atoms and balance to total charge."""
         formal = []
 
@@ -285,7 +248,7 @@ class BondOrderOptimizer:
             self._log("\nMetal coordination summary:", 3)
 
             # Compute ligand classification inline, passing formal charges
-            ligand_classification = self._classify_metal_ligands(G, formal)
+            ligand_classification = self.classify_metal_ligands(G, formal)
 
             for metal_idx, ox_state in sorted(ligand_classification["metal_ox_states"].items()):
                 metal_sym = G.nodes[metal_idx]["symbol"]
@@ -425,7 +388,7 @@ class BondOrderOptimizer:
 
         return pi_electrons
 
-    def _init_kekule_for_aromatic_rings(self, G: nx.Graph) -> int:
+    def init_kekule(self, G: nx.Graph) -> int:
         """Initialize Kekulé patterns for aromatic rings.
 
         1) Validate rings (planarity, aromatic atoms, sp2 carbons, Huckel, Cp-like).
@@ -998,7 +961,7 @@ class BondOrderOptimizer:
 
     def _score_assignment(self, G: nx.Graph, rings: Optional[List[List[int]]] = None) -> Tuple[float, List[int]]:
         """Scoring that uses pre-computed valence cache."""
-        if self._check_valence_violation(G):
+        if self.check_valence_violation(G):
             return 1e9, [0 for _ in G.nodes()]
 
         # Ring cache
@@ -1472,7 +1435,7 @@ class BondOrderOptimizer:
     # Aromatic detection (post-optimization)
     # =========================================================================
 
-    def _detect_aromatic_rings(self, G: nx.Graph) -> int:
+    def detect_aromatic_rings(self, G: nx.Graph) -> int:
         """Detect aromatic rings using Hückel rule (4n+2 π electrons).
 
         Only performed on 5 and 6 member rings with C, N, O, S, P atoms.
@@ -1635,7 +1598,7 @@ class BondOrderOptimizer:
 
         return charge, ligand_id
 
-    def _classify_metal_ligands(self, G: nx.Graph, formal_charges: Optional[List[int]] = None) -> Dict[str, Any]:
+    def classify_metal_ligands(self, G: nx.Graph, formal_charges: Optional[List[int]] = None) -> Dict[str, Any]:
         """Infer ligand types and metal oxidation state from formal charges.
 
         Handles: monatomic (H⁻, Cl⁻), linear chains (CO, CN⁻), rings (Cp⁻).
