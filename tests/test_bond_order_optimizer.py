@@ -387,6 +387,8 @@ def test_indole_kekule_then_aromatic(optimizer):
             assert G.edges[i, j]["bond_order"] == pytest.approx(1.5), (
                 f"indole edge {i}-{j} BO={G.edges[i, j]['bond_order']}, expected 1.5"
             )
+    # Both rings should be flagged aromatic
+    assert len(G.graph["_aromatic_rings"]) == 2
 
 
 def test_anthracene_kekule_then_aromatic(optimizer):
@@ -413,3 +415,77 @@ def test_anthracene_kekule_then_aromatic(optimizer):
         assert G.edges[i, j]["bond_order"] == pytest.approx(1.5), (
             f"anthracene edge {i}-{j} BO={G.edges[i, j]['bond_order']}, expected 1.5"
         )
+
+
+# Benzyne (1,2-didehydrobenzene, C6H4): aromatic 6-ring with a triple
+# bond between the two dehydrogenated carbons (C3, C4).
+BENZYNE_ATOMS = [
+    ("C", (-0.08896, 0.83348, 0.00000)),  # 0
+    ("C", (-0.38460, -0.52113, 0.01487)),  # 1
+    ("C", (0.63922, -1.45543, 0.01309)),  # 2
+    ("C", (1.96067, -1.03512, -0.00356)),  # 3  (no H)
+    ("C", (2.25731, 0.31948, -0.01844)),  # 4  (no H)
+    ("C", (1.23249, 1.25379, -0.01666)),  # 5
+    ("H", (-0.88781, 1.56177, 0.00139)),  # 6
+    ("H", (-1.41567, -0.84876, 0.02378)),  # 7
+    ("H", (0.40799, -2.51135, 0.02469)),  # 8
+    ("H", (1.46371, 2.30971, -0.02825)),  # 9
+]
+BENZYNE_EDGES = [
+    # Ring: C0-C1-C2-C3-C4-C5
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (4, 5),
+    (5, 0),
+    # C-H bonds (C3 and C4 have no H)
+    (0, 6),
+    (1, 7),
+    (2, 8),
+    (5, 9),
+]
+
+
+def test_benzyne_kekule_and_aromatic(optimizer):
+    """Benzyne: smart Kekulé init + optimisation + aromatic guard.
+
+    The smart parity in init_kekule should place a double bond on the
+    edge between the two undercoordinated carbons (C3, C4), so the
+    beam search only needs one promotion (2→3).  The aromatic detector
+    flags the ring (6π, Hückel-valid) but keeps the Kekulé+triple
+    structure because the triple bond cannot be represented at 1.5.
+    """
+    G = _make_graph(BENZYNE_ATOMS, BENZYNE_EDGES)
+
+    # -- Step 1: Kekulé init --
+    n_init = optimizer.init_kekule(G)
+    assert n_init == 1
+    # Smart parity should place double bond on the undercoordinated edge
+    assert G.edges[3, 4]["bond_order"] == pytest.approx(2.0), "C3-C4 should be double after Kekulé init"
+
+    # -- Step 2: beam search optimisation --
+    stats = optimizer.optimize(G, mode="beam")
+    assert stats["improvements"] == 1, "Only one promotion (C3-C4: 2→3) needed"
+
+    # Final bond orders: 1 triple, 2 doubles, 3 singles
+    ring_bos = sorted(G.edges[i, j]["bond_order"] for i, j in BENZYNE_EDGES[:6])
+    assert ring_bos == pytest.approx([1.0, 1.0, 1.0, 2.0, 2.0, 3.0])
+    assert G.edges[3, 4]["bond_order"] == pytest.approx(3.0), "C3-C4 must be triple"
+
+    # All formal charges should be 0
+    charges = optimizer.compute_formal_charges(G)
+    for i, fc in enumerate(charges):
+        G.nodes[i]["formal_charge"] = fc
+    assert all(c == 0 for c in charges), f"Expected all FC=0, got {charges}"
+
+    # -- Step 3: aromatic detection --
+    optimizer.detect_aromatic_rings(G)
+
+    # Ring is flagged aromatic (Hückel 4n+2: 6π electrons)
+    assert len(G.graph["_aromatic_rings"]) == 1
+
+    # But bonds are NOT set to 1.5 (triple bond blocks conversion)
+    assert G.edges[3, 4]["bond_order"] == pytest.approx(3.0), "Triple bond must be preserved"
+    for i, j in BENZYNE_EDGES[:6]:
+        assert G.edges[i, j]["bond_order"] != pytest.approx(1.5), f"Bond {i}-{j} should not be aromatic 1.5"
