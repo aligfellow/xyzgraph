@@ -742,11 +742,27 @@ class BondOrderOptimizer:
         for r_idx in six_ring_indices:
             if r_idx in processed_rings:
                 continue
-            p = alt_patterns(6, start_with_double=True)
-            if apply_pattern(r_idx, p):
-                processed_rings.add(r_idx)
-                self._log(f"✓ Initialized isolated 6-ring {r_idx}", 3)
-            else:
+            # Choose parity so double bonds fall on edges that give
+            # the optimizer a head start toward the correct bonding.
+            preferred = True
+            for k, (i, j) in enumerate(ring_edges[r_idx]):
+                if (
+                    G.nodes[i]["symbol"] == "C"
+                    and G.nodes[j]["symbol"] == "C"
+                    and sum(1 for nb in G.neighbors(i) if G.nodes[nb]["symbol"] not in self.data.metals) < 3
+                    and sum(1 for nb in G.neighbors(j) if G.nodes[nb]["symbol"] not in self.data.metals) < 3
+                ):
+                    preferred = k % 2 == 0
+                    break
+
+            applied = False
+            for sd in (preferred, not preferred):
+                if apply_pattern(r_idx, alt_patterns(6, start_with_double=sd)):
+                    processed_rings.add(r_idx)
+                    self._log(f"✓ Initialized isolated 6-ring {r_idx}", 3)
+                    applied = True
+                    break
+            if not applied:
                 self._log(f"• Could not safely init isolated 6-ring {r_idx}", 4)
 
         # --- Priority 5: remaining carbon-only 5-membered rings ---
@@ -1439,7 +1455,9 @@ class BondOrderOptimizer:
         """Detect aromatic rings using Hückel rule (4n+2 π electrons).
 
         Only performed on 5 and 6 member rings with C, N, O, S, P atoms.
-        Sets bond orders to 1.5 for aromatic rings.
+        Sets bond orders to 1.5 for aromatic rings where this does not
+        introduce valence violations.
+        Stores aromatic ring indices in G.graph["_aromatic_rings"].
         """
         self._log(f"\n{'=' * 80}", 0)
         self._log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
@@ -1449,6 +1467,7 @@ class BondOrderOptimizer:
         cycles = G.graph.get("_rings", [])
         aromatic_count = 0
         aromatic_rings = 0
+        G.graph["_aromatic_rings"] = []
 
         for ring_idx, cycle in enumerate(cycles):
             if len(cycle) not in (5, 6):
@@ -1530,7 +1549,26 @@ class BondOrderOptimizer:
             if is_aromatic:
                 n = (pi_electrons - 2) // 4
                 self._log(f"✓ AROMATIC (4n+2 rule: n={n})", 2)
-                # Set all ring edges to 1.5
+                G.graph["_aromatic_rings"].append(cycle)
+
+                # If any ring bond has order > 2 (e.g. triple bond in
+                # benzyne), 1.5 cannot represent that bonding and the
+                # conversion would invalidate the optimised valence/charge.
+                ring_edges = [(cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))]
+                high_order = next(
+                    ((i, j) for i, j in ring_edges if G.has_edge(i, j) and G.edges[i, j]["bond_order"] > 2.01),
+                    None,
+                )
+                if high_order is not None:
+                    i, j = high_order
+                    bo = G.edges[i, j]["bond_order"]
+                    self._log(
+                        f"  ✗ Bond {G.nodes[i]['symbol']}{i}-{G.nodes[j]['symbol']}{j} "
+                        f"has order {bo:.1f} > 2, keeping Kekulé structure",
+                        2,
+                    )
+                    continue
+
                 ring_edges = [(cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))]
 
                 bonds_set = 0

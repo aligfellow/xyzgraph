@@ -270,6 +270,8 @@ class GraphBuilder:
             self.graph.graph["rings"] = self.graph.graph.pop("_rings")
         if "_element_counts" in self.graph.graph:
             self.graph.graph["element_counts"] = self.graph.graph.pop("_element_counts")
+        if "_aromatic_rings" in self.graph.graph:
+            self.graph.graph["aromatic_rings"] = self.graph.graph.pop("_aromatic_rings")
 
         # Store build log in graph
         self.graph.graph["build_log"] = self.get_log()
