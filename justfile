@@ -19,5 +19,5 @@ build:
     uv build
 
 setup:
-    uv sync --dev
+    uv sync --dev --group rdkit-tm
     uv pip install -e ".[rdkit-tm]"

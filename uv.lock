@@ -1805,7 +1805,7 @@ source = { git = "https://github.com/jensengroup/xyz2mol_tm.git#532e1196f53fa86a
 
 [[package]]
 name = "xyzgraph"
-version = "1.5.0"
+version = "1.5.1"
 source = { editable = "." }
 dependencies = [
     { name = "networkx", version = "3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -1825,7 +1825,6 @@ rdkit-tm = [
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "scipy", version = "1.17.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "xyz2mol-tm" },
 ]
 
 [package.dev-dependencies]
@@ -1841,6 +1840,13 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+rdkit-tm = [
+    { name = "scipy", version = "1.10.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "scipy", version = "1.17.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "xyz2mol-tm" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1848,7 +1854,6 @@ requires-dist = [
     { name = "numpy" },
     { name = "rdkit" },
     { name = "scipy", marker = "extra == 'rdkit-tm'" },
-    { name = "xyz2mol-tm", marker = "extra == 'rdkit-tm'", git = "https://github.com/jensengroup/xyz2mol_tm.git" },
 ]
 provides-extras = ["rdkit-tm"]
 
@@ -1859,4 +1864,8 @@ dev = [
     { name = "pytest-cov", specifier = ">=5.0.0" },
     { name = "ruff", specifier = ">=0.14.14" },
     { name = "ty", specifier = ">=0.0.14" },
+]
+rdkit-tm = [
+    { name = "scipy" },
+    { name = "xyz2mol-tm", git = "https://github.com/jensengroup/xyz2mol_tm.git" },
 ]

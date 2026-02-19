@@ -34,9 +34,13 @@ where = ["src"]
 "xyzgraph.data" = ["*.json", "*.yaml"]
 
 [project.optional-dependencies]
-rdkit-tm = ["xyz2mol_tm @ git+https://github.com/jensengroup/xyz2mol_tm.git", "scipy"]
+rdkit-tm = ["scipy"]  # xyz2mol_tm must be installed separately: pip install xyz2mol_tm@git+https://github.com/jensengroup/xyz2mol_tm.git
 
 [dependency-groups]
+rdkit-tm = [
+    "xyz2mol_tm @ git+https://github.com/jensengroup/xyz2mol_tm.git",
+    "scipy",
+]
 dev = [
     "pre-commit>=3.5.0",
     "pytest>=8.3.5",

@@ -73,12 +73,21 @@ pip install git+https://github.com/aligfellow/xyzgraph.git
 
 - **Core**: `numpy`, `networkx`, `rdkit`
 - **Optional**: [xTB binary](https://github.com/grimme-lab/xtb) (for `--method xtb`)
+- **Optional**: [xyz2mol_tm](https://github.com/jensengroup/xyz2mol_tm) + `scipy` (for `--compare-rdkit-tm`)
 
 To install xTB (Linux/macOS) see [here](https://github.com/grimme-lab/xtb):
 
 ```bash
 conda install -c conda-forge xtb # or download from GitHub releases
 ```
+
+To install xyz2mol_tm (required for `--compare-rdkit-tm`):
+
+```bash
+pip install "xyzgraph[rdkit-tm]" xyz2mol_tm@git+https://github.com/jensengroup/xyz2mol_tm.git
+```
+
+This installs `scipy` (via the `rdkit-tm` extra) and `xyz2mol_tm` from source in one command. This extra step is necessary because `xyz2mol_tm` is not hosted on `pypi`.
 
 ---
 
