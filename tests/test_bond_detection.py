@@ -159,7 +159,7 @@ def test_unbond_invalidates_ring_cache(detector):
 
     # Ring cache must not contain any ring that references the removed edge
     for ring in G.graph["_rings"]:
-        edges = list(zip(ring, ring[1:] + [ring[0]]))
+        edges = list(zip(ring, [*ring[1:], ring[0]]))
         for i, j in edges:
             assert G.has_edge(i, j) or G.has_edge(j, i), (
                 f"Stale ring cache: ring {ring} references removed edge ({i}, {j})"
