@@ -129,3 +129,38 @@ def test_benzene_ring_detection(detector):
     assert G.number_of_nodes() == 12
     assert G.number_of_edges() == 12  # 6 C-C + 6 C-H
     assert len(G.graph["_rings"]) >= 1  # At least one ring detected
+
+
+def test_unbond_invalidates_ring_cache(detector):
+    """Ring cache must not reference edges removed by unbond.
+
+    Regression test: unbond removing a ring edge left a stale _rings cache,
+    causing KeyError in downstream bond-order optimization when iterating
+    cached ring edges that no longer exist in the graph.
+    """
+    # Benzene geometry — has a 6-membered ring
+    atoms = [
+        ("C", (1.396, 0.000, 0.000)),
+        ("C", (0.698, 1.209, 0.000)),
+        ("C", (-0.698, 1.209, 0.000)),
+        ("C", (-1.396, 0.000, 0.000)),
+        ("C", (-0.698, -1.209, 0.000)),
+        ("C", (0.698, -1.209, 0.000)),
+        ("H", (2.479, 0.000, 0.000)),
+        ("H", (1.240, 2.147, 0.000)),
+        ("H", (-1.240, 2.147, 0.000)),
+        ("H", (-2.479, 0.000, 0.000)),
+        ("H", (-1.240, -2.147, 0.000)),
+        ("H", (1.240, -2.147, 0.000)),
+    ]
+    # Remove edge (0,1) which is part of the ring
+    G = detector.detect(atoms, unbond=[(0, 1)])
+    assert not G.has_edge(0, 1)
+
+    # Ring cache must not contain any ring that references the removed edge
+    for ring in G.graph["_rings"]:
+        edges = list(zip(ring, ring[1:] + [ring[0]]))
+        for i, j in edges:
+            assert G.has_edge(i, j) or G.has_edge(j, i), (
+                f"Stale ring cache: ring {ring} references removed edge ({i}, {j})"
+            )
