@@ -403,13 +403,13 @@ class BondDetector:
                     sj = symbols[j]
                     self._log(f"Removed user-specified bond {si}{i}-{sj}{j}", 2)
 
-        # Final ring update if extended bonds were added
-        if has_custom:
+        # Final ring update if graph topology was modified
+        if has_custom or bond or unbond:
             non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]
             G_no_metals = G.subgraph(non_metal_nodes).copy()
             rings = nx.cycle_basis(G_no_metals)
             G.graph["_rings"] = rings
-            self._log(f"Final: {len(rings)} rings after extended bonds", 1)
+            self._log(f"Final: {len(rings)} rings after bond modifications", 1)
 
         total_bonds = G.number_of_edges()
         self._log(f"Total bonds in graph: {total_bonds}", 1)
