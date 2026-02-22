@@ -949,13 +949,11 @@ The intramolecular S...O chalcogen bond is detected via the sigma-hole on S20 di
 
 ---
 
-## Limitations & Future Work
-
-### Current Limitations
+## Current Limitations
 
 1. **Metal Complexes**
    - Bond orders locked at 1.0 (no d-orbital chemistry)
-   - Metal-metal bonds *partially* supported (single bond allowed)
+   - Metal-metal bonds *partially* supported but not well tested (single bond allowed)
    - Can deal with **both** ionic *and* neutral ligands
 
 2. **Radicals & Open-Shell Systems**
@@ -966,16 +964,13 @@ The intramolecular S...O chalcogen bond is detected via the sigma-hole on S20 di
 3. **Zwitterions**
    - Formal charge and valence analysis does identify `-[N+](=O)(-[O-])` bonding and formal charge pattern
    - This is performed **without pattern matching**
-   - *May* not always be fully robust
+   - *May* not always be fully robust, and does not account for delocalisation
 
-4. **Large Conjugated Systems**
-   - May need many iterations for convergence (kekule initialised rings)
-
-5. **Charged Aromatics**
+4. **Charged Aromatics**
    - Hückel electron counting is simplistic
    - Should still solve with valence/charge optimisation
 
-6. **Inorganic Cages**
+5. **Inorganic Cages**
    - Homogeneous clusters (≥8 atoms, same element) bypass standard ring validation
    - Unlikely to be fully accurately described, *e.g.* C/B cage structures
 
