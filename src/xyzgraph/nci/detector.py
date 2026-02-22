@@ -82,6 +82,7 @@ class NCIDetector:
         if self._thr.report_bifurcated:
             results = self._detect_bifurcated(results)
 
+        logger.debug("NCI detection complete: %d interactions found", len(results))
         return results
 
     # ------------------------------------------------------------------
@@ -112,9 +113,11 @@ class NCIDetector:
                             site_a=(d,),
                             site_b=(a,),
                             aux_atoms=(h,),
-                            geometry={"d_DA": dist_da, "d_HA": dist_ha, "angle_DHA": ang},
+                            geometry={"distance": dist_da, "h_distance": dist_ha, "angle": ang},
                         )
                     )
+                    logger.debug("  hbond: D=%d A=%d H=%d dist=%.2f angle=%.1f", d, a, h, dist_da, ang)
+        logger.debug("H-bonds: %d detected from %d pairs", len(results), len(hb_pairs))
         return results
 
     # ------------------------------------------------------------------
@@ -146,12 +149,14 @@ class NCIDetector:
                     site_b=tuple(site),
                     aux_atoms=(h,),
                     geometry={
-                        "d_H_centroid": d_centroid,
-                        "angle_DH_centroid": angle_dhc,
-                        "cos_plane_align": float(cos_align),
+                        "distance": d_centroid,
+                        "angle": angle_dhc,
+                        "plane_alignment": float(cos_align),
                     },
                 )
             )
+            logger.debug("  hb_pi: D=%d H=%d dist=%.2f angle=%.1f", d, h, d_centroid, angle_dhc)
+        logger.debug("HB-pi: %d detected from %d pairs", len(results), len(hbpi_pairs))
         return results
 
     # ------------------------------------------------------------------
@@ -178,10 +183,12 @@ class NCIDetector:
                             site_a=(x,),
                             site_b=(a,),
                             aux_atoms=(n,),
-                            geometry={"d_XA": dist, "angle_CXA": ang},
+                            geometry={"distance": dist, "angle": ang},
                         )
                     )
+                    logger.debug("  halogen_bond: X=%d A=%d dist=%.2f angle=%.1f", x, a, dist, ang)
                     break
+        logger.debug("Halogen bonds: %d detected from %d pairs", len(results), len(xb_pairs))
         return results
 
     def _detect_chalcogen_bonds(self, pos: np.ndarray, chb_pairs: list) -> list[NCIData]:
@@ -202,10 +209,12 @@ class NCIDetector:
                             site_a=(y,),
                             site_b=(a,),
                             aux_atoms=(n,),
-                            geometry={"d_YA": dist, "angle_NYA": ang},
+                            geometry={"distance": dist, "angle": ang},
                         )
                     )
+                    logger.debug("  chalcogen_bond: Y=%d A=%d dist=%.2f angle=%.1f", y, a, dist, ang)
                     break
+        logger.debug("Chalcogen bonds: %d detected from %d pairs", len(results), len(chb_pairs))
         return results
 
     def _detect_pnictogen_bonds(self, pos: np.ndarray, pnb_pairs: list) -> list[NCIData]:
@@ -226,10 +235,12 @@ class NCIDetector:
                             site_a=(p,),
                             site_b=(a,),
                             aux_atoms=(n,),
-                            geometry={"d_PA": dist, "angle_NPA": ang},
+                            geometry={"distance": dist, "angle": ang},
                         )
                     )
+                    logger.debug("  pnictogen_bond: Pn=%d A=%d dist=%.2f angle=%.1f", p, a, dist, ang)
                     break
+        logger.debug("Pnictogen bonds: %d detected from %d pairs", len(results), len(pnb_pairs))
         return results
 
     # ------------------------------------------------------------------
@@ -273,9 +284,11 @@ class NCIDetector:
                         site_a=(x,),
                         site_b=tuple(site),
                         aux_atoms=(),
-                        geometry={"d_X_centroid": dist, "angle_normal": ang},
+                        geometry={"distance": dist, "angle": ang},
                     )
                 )
+                logger.debug("  halogen_pi: X=%d dist=%.2f angle=%.1f", x, dist, ang)
+        logger.debug("Halogen-pi: %d detected from %d pairs", len(results), len(halpi_pairs))
         return results
 
     # ------------------------------------------------------------------
@@ -294,6 +307,8 @@ class NCIDetector:
             nci = self._classify_pi_pair(pi1, pi2, pos, rn, dn)
             if nci is not None:
                 results.append(nci)
+                logger.debug("  %s: dist=%.2f angle=%.1f", nci.type, nci.geometry["distance"], nci.geometry["angle"])
+        logger.debug("Pi-pi stacking: %d detected from %d pairs", len(results), len(pipi_pairs))
         return results
 
     def _classify_pi_pair(
@@ -339,7 +354,7 @@ class NCIDetector:
                 site_a=tuple(site1),
                 site_b=tuple(site2),
                 aux_atoms=(),
-                geometry={"d_centroid": dcc, "h_separation": h, "angle_planes": ang, "d_lateral": d_lat},
+                geometry={"distance": dcc, "h_separation": h, "angle": ang, "lateral_disp": d_lat},
             )
 
         # T-shaped check
@@ -361,7 +376,7 @@ class NCIDetector:
                 site_a=tuple(site1),
                 site_b=tuple(site2),
                 aux_atoms=(),
-                geometry={"d_centroid": dcc, "h_separation": h, "angle_planes": ang},
+                geometry={"distance": dcc, "h_separation": h, "angle": ang},
             )
         return None
 
@@ -432,9 +447,11 @@ class NCIDetector:
                         site_a=(c,),
                         site_b=tuple(site),
                         aux_atoms=(),
-                        geometry={"d_cation_centroid": d, "angle_to_normal": ang},
+                        geometry={"distance": d, "angle": ang},
                     )
                 )
+                logger.debug("  cation_pi: C=%d dist=%.2f angle=%.1f", c, d, ang)
+        logger.debug("Cation-pi: %d detected from %d pairs", len(results), len(catpi_pairs))
         return results
 
     def _detect_anion_pi(
@@ -464,9 +481,11 @@ class NCIDetector:
                         site_a=(a,),
                         site_b=tuple(site),
                         aux_atoms=(),
-                        geometry={"d_anion_centroid": d, "angle_to_normal": ang},
+                        geometry={"distance": d, "angle": ang},
                     )
                 )
+                logger.debug("  anion_pi: A=%d dist=%.2f angle=%.1f", a, d, ang)
+        logger.debug("Anion-pi: %d detected from %d pairs", len(results), len(anpi_pairs))
         return results
 
     # ------------------------------------------------------------------
@@ -498,12 +517,14 @@ class NCIDetector:
                     site_b=tuple(site),
                     aux_atoms=(h,),
                     geometry={
-                        "d_H_centroid": d_centroid,
-                        "angle_CH_centroid": ang,
-                        "cos_plane_align": float(cos_theta),
+                        "distance": d_centroid,
+                        "angle": ang,
+                        "plane_alignment": float(cos_theta),
                     },
                 )
             )
+            logger.debug("  ch_pi: C=%d H=%d dist=%.2f angle=%.1f", c, h, d_centroid, ang)
+        logger.debug("CH-pi: %d detected from %d pairs", len(results), len(chpi_pairs))
         return results
 
     # ------------------------------------------------------------------
@@ -522,9 +543,11 @@ class NCIDetector:
                         site_a=(c,),
                         site_b=(lp,),
                         aux_atoms=(),
-                        geometry={"d_cation_lp": dist},
+                        geometry={"distance": dist},
                     )
                 )
+                logger.debug("  cation_lp: C=%d LP=%d dist=%.2f", c, lp, dist)
+        logger.debug("Cation-LP: %d detected from %d pairs", len(results), len(catlp_pairs))
         return results
 
     # ------------------------------------------------------------------
@@ -543,9 +566,11 @@ class NCIDetector:
                         site_a=(c,),
                         site_b=(a,),
                         aux_atoms=(),
-                        geometry={"d_cation_anion": dist},
+                        geometry={"distance": dist},
                     )
                 )
+                logger.debug("  ionic: C=%d A=%d dist=%.2f", c, a, dist)
+        logger.debug("Ionic: %d detected from %d pairs", len(results), len(ionic_pairs))
         return results
 
     def _detect_salt_bridges(
@@ -562,15 +587,15 @@ class NCIDetector:
 
         for ion in ionic:
             c, a = ion.site_a[0], ion.site_b[0]
+            dist_ca = float(np.linalg.norm(pos[c] - pos[a]))
+            rcut = thr.sb_vdw_scale * (self._vdw[self._sym[c]] + self._vdw[self._sym[a]])
+            if dist_ca > rcut:
+                continue
             best_h, best_dist, best_ang = None, float("inf"), 0.0
             for n in self._G.neighbors(c):
                 if self._sym[n] != "H":
                     continue
                 h = n
-                dist_ca = float(np.linalg.norm(pos[c] - pos[a]))
-                rcut = thr.sb_vdw_scale * (self._vdw[self._sym[c]] + self._vdw[self._sym[a]])
-                if dist_ca > rcut:
-                    continue
                 v_ch = pos[c] - pos[h]
                 v_ha = pos[a] - pos[h]
                 ang = geom.angle_deg(v_ch, v_ha)
@@ -586,7 +611,7 @@ class NCIDetector:
                         site_a=(c,),
                         site_b=(a,),
                         aux_atoms=(best_h,),
-                        geometry={"d_HA": best_dist, "angle_CHA": best_ang},
+                        geometry={"distance": dist_ca, "h_distance": best_dist, "angle": best_ang},
                     )
                 )
                 remove_ionic.append(ion)

@@ -94,12 +94,15 @@ def display_ncis(G, args, show_h_indices):
 
     ncis = detect_ncis(G)
     print(format_nci_table(G, ncis, debug=args.debug))
-    print(render_nci_ascii(
-        G, ncis,
-        scale=max(0.2, args.ascii_scale),
-        include_h=args.show_h,
-        show_h_indices=show_h_indices,
-    ))
+    print(
+        render_nci_ascii(
+            G,
+            ncis,
+            scale=max(0.2, args.ascii_scale),
+            include_h=args.show_h,
+            show_h_indices=show_h_indices,
+        )
+    )
 
 
 def compare_graphs(G1, G2, label1, label2):
@@ -486,6 +489,10 @@ def main():
         if args.json:
             import json
 
+            if args.nci:
+                from .nci import detect_ncis
+
+                detect_ncis(G_primary)
             print(json.dumps(graph_to_dict(G_primary), indent=2))
             continue  # Skip to next frame or exit
 

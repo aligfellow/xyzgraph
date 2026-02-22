@@ -34,7 +34,7 @@ for nci in G.graph["ncis"]:
     print(nci.site_a)      # donor atom indices, e.g. (0,)
     print(nci.site_b)      # acceptor atom indices, e.g. (3,)
     print(nci.aux_atoms)   # bridging atoms, e.g. (2,) for the H
-    print(nci.geometry)    # {"d_DA": 2.85, "d_HA": 1.92, "angle_DHA": 168.3}
+    print(nci.geometry)    # {"distance": 2.85, "h_distance": 1.92, "angle": 168.3}
 ```
 
 Filter by interaction type:
@@ -53,6 +53,75 @@ for nci in G.graph["ncis"]:
     print(f"{nci.type}: {syms_a} ... {syms_b}")
 ```
 
+## Geometry Keys
+
+All interactions use standardized geometry keys. The `type` field identifies
+the interaction, so keys are generic rather than type-specific:
+
+| Key | Meaning | Present in |
+|---|---|---|
+| `distance` | Primary distance (D-A, centroid-centroid, ion-ion, etc.) | All types |
+| `angle` | Primary angle (D-H-A, C-X-A, plane-plane, etc.) | Most types |
+| `h_distance` | H-to-acceptor distance | `hbond`, `salt_bridge` |
+| `h_separation` | Inter-plane separation | `pi_pi_parallel`, `pi_pi_t_shaped`, `pi_pi_ring_domain`, `pi_pi_domain_domain` |
+| `lateral_disp` | Lateral displacement of centroids | `pi_pi_parallel` |
+| `plane_alignment` | Cosine of H-centroid vector to plane normal | `ch_pi`, `hb_pi` |
+
+## Serialization
+
+`NCIData.to_dict()` converts each interaction to a JSON-compatible dictionary:
+
+```python
+nci = ncis[0]
+d = nci.to_dict()
+# {"type": "hbond", "site_a": [0], "site_b": [3], "aux_atoms": [2],
+#  "geometry": {"distance": 2.85, "h_distance": 1.92, "angle": 168.3},
+#  "score": 1.0}
+```
+
+`graph_to_dict()` automatically includes NCIs when present:
+
+```python
+from xyzgraph.utils import graph_to_dict
+
+detect_ncis(G)
+d = graph_to_dict(G)
+d["ncis"]  # list of NCI dicts
+```
+
+CLI: `xyzgraph molecule.xyz --nci --json` outputs the full graph with NCIs as JSON.
+
+## NCI Graph
+
+`build_nci_graph()` returns a copy of the molecular graph decorated with NCI
+edges and pi-system centroid nodes. This is useful for renderers or downstream
+tools that work with graph objects:
+
+```python
+from xyzgraph import build_graph, detect_ncis
+from xyzgraph.nci import build_nci_graph
+
+G = build_graph("molecule.xyz")
+detect_ncis(G)
+nci_G = build_nci_graph(G)
+
+# NCI edges have bond_order=0.0, NCI=True, nci_type="hbond" etc.
+for i, j, d in nci_G.edges(data=True):
+    if d.get("NCI"):
+        print(f"NCI edge {i}-{j}: {d['nci_type']}")
+
+# Pi-system centroids are nodes with symbol="*"
+for cid in nci_G.graph["nci_centroid"]:
+    print(f"Centroid node {cid} at {nci_G.nodes[cid]['position']}")
+
+# Or find centroids by symbol
+centroids = [n for n, d in nci_G.nodes(data=True) if d.get("symbol") == "*"]
+```
+
+The original graph `G` is never modified. The returned graph can be passed
+directly to any renderer that understands `NCI=True` edges (e.g. as dotted
+lines) and `symbol="*"` nodes (e.g. as centroid markers).
+
 ## Batch / Trajectory Analysis
 
 For multiple frames sharing the same topology, use `NCIAnalyzer` to avoid
@@ -68,8 +137,14 @@ G = build_graph("frame0.xyz")
 analyzer = NCIAnalyzer(G)  # topology work done once
 
 for positions in trajectory_frames:
-    ncis = analyzer.detect(positions)  # geometry checks only
+    ncis = analyzer.detect(positions)  # returns list[NCIData]
+    for nci in ncis:
+        d = nci.to_dict()  # clean dict for aggregation
 ```
+
+Each call to `analyzer.detect(positions)` returns a plain `list[NCIData]` --
+no graph objects per frame, just lightweight data suitable for building
+DataFrames or time-series statistics.
 
 ## Supported Interaction Types
 
@@ -140,10 +215,15 @@ nci/
   sites.py          # atom classification (donors, acceptors, ions, etc.)
   pairs.py          # candidate pair enumeration
   detector.py       # per-frame geometry validation for all NCI types
+  graph.py          # build_nci_graph: decorate graph with NCI edges/centroids
+  display.py        # format_nci_table, render_nci_ascii (CLI output)
 ```
 
 **Pipeline**: `build_graph` (once) -> `NCIAnalyzer` topology setup (once) ->
 `detect(positions)` geometry checks (per frame).
+
+**For rendering**: `detect_ncis(G)` -> `build_nci_graph(G)` -> pass decorated
+graph to any renderer.
 
 ## Site Detection
 

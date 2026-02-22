@@ -79,14 +79,20 @@ def graph_to_dict(G: nx.Graph) -> dict:
     # - _ prefixed: internal caches (_rings before rename, _element_counts, etc.)
     # - ligand_classification: derived from formal charges, redundant in JSON
     # - build_log: debug info, not molecule data
-    exclude_keys = {"ligand_classification", "build_log"}
+    # - ncis: serialized separately below via NCIData.to_dict()
+    exclude_keys = {"ligand_classification", "build_log", "ncis"}
     graph_attrs = {k: v for k, v in G.graph.items() if not k.startswith("_") and k not in exclude_keys}
 
-    return {
+    result = {
         "graph": graph_attrs,
         "nodes": nodes,
         "edges": edges,
     }
+
+    if "ncis" in G.graph:
+        result["ncis"] = [nci.to_dict() for nci in G.graph["ncis"]]
+
+    return result
 
 
 def configure_debug_logging():

@@ -35,3 +35,14 @@ class NCIData:
     aux_atoms: tuple[int, ...]  # e.g. H in D-H···A
     geometry: dict[str, float]  # measured distances/angles
     score: float = 1.0  # 1.0 = binary detected, later 0.0-1.0 decay
+
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-compatible dictionary."""
+        return {
+            "type": self.type,
+            "site_a": list(self.site_a),
+            "site_b": list(self.site_b),
+            "aux_atoms": list(self.aux_atoms),
+            "geometry": dict(self.geometry),
+            "score": self.score,
+        }

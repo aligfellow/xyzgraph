@@ -53,9 +53,9 @@ class TestWaterHBond:
 
     def test_geometry_keys(self, ncis):
         hb = _by_type(ncis, "hbond")[0]
-        assert "d_DA" in hb.geometry
-        assert "d_HA" in hb.geometry
-        assert "angle_DHA" in hb.geometry
+        assert "distance" in hb.geometry
+        assert "h_distance" in hb.geometry
+        assert "angle" in hb.geometry
 
     def test_stored_in_graph(self):
         G = build_graph(str(STRUCTURES / "water-HB.xyz"))
@@ -163,9 +163,9 @@ class TestHalogenBond:
 
     def test_geometry(self, ncis):
         xb = _by_type(ncis, "halogen_bond")[0]
-        assert "d_XA" in xb.geometry
-        assert "angle_CXA" in xb.geometry
-        assert xb.geometry["angle_CXA"] >= 140.0
+        assert "distance" in xb.geometry
+        assert "angle" in xb.geometry
+        assert xb.geometry["angle"] >= 140.0
 
 
 # ------------------------------------------------------------------
@@ -220,9 +220,9 @@ class TestPiPiParallel:
 
     def test_geometry(self, ncis):
         pp = _by_type(ncis, "pi_pi_parallel")[0]
-        assert "d_centroid" in pp.geometry
-        assert "angle_planes" in pp.geometry
-        assert pp.geometry["angle_planes"] < 30.0
+        assert "distance" in pp.geometry
+        assert "angle" in pp.geometry
+        assert pp.geometry["angle"] < 30.0
 
 
 # ------------------------------------------------------------------
@@ -245,8 +245,8 @@ class TestPiPiTShaped:
 
     def test_geometry(self, ncis):
         ts = _by_type(ncis, "pi_pi_t_shaped")[0]
-        assert "angle_planes" in ts.geometry
-        assert ts.geometry["angle_planes"] >= 60.0
+        assert "angle" in ts.geometry
+        assert ts.geometry["angle"] >= 60.0
 
 
 # ------------------------------------------------------------------
@@ -322,8 +322,9 @@ class TestSaltBridge:
     def test_geometry(self, ncis):
         sb = _by_type(ncis, "salt_bridge")
         for s in sb:
-            assert "d_HA" in s.geometry
-            assert "angle_CHA" in s.geometry
+            assert "distance" in s.geometry
+            assert "h_distance" in s.geometry
+            assert "angle" in s.geometry
 
 
 # ------------------------------------------------------------------
@@ -352,9 +353,9 @@ class TestPnictogenBond:
 
     def test_geometry(self, ncis):
         pnb = _by_type(ncis, "pnictogen_bond")[0]
-        assert "d_PA" in pnb.geometry
-        assert "angle_NPA" in pnb.geometry
-        assert pnb.geometry["angle_NPA"] >= 140.0
+        assert "distance" in pnb.geometry
+        assert "angle" in pnb.geometry
+        assert pnb.geometry["angle"] >= 140.0
 
 
 # ------------------------------------------------------------------
@@ -383,8 +384,8 @@ class TestCHPi:
 
     def test_geometry(self, ncis):
         chpi = _by_type(ncis, "ch_pi")[0]
-        assert "d_H_centroid" in chpi.geometry
-        assert "angle_CH_centroid" in chpi.geometry
+        assert "distance" in chpi.geometry
+        assert "angle" in chpi.geometry
 
 
 # ------------------------------------------------------------------
@@ -413,8 +414,8 @@ class TestHBPi:
 
     def test_geometry(self, ncis):
         hbpi = _by_type(ncis, "hb_pi")[0]
-        assert "d_H_centroid" in hbpi.geometry
-        assert "angle_DH_centroid" in hbpi.geometry
+        assert "distance" in hbpi.geometry
+        assert "angle" in hbpi.geometry
 
 
 # ------------------------------------------------------------------
@@ -438,7 +439,7 @@ class TestIonic:
 
     def test_geometry(self, ncis):
         ionic = _by_type(ncis, "ionic")[0]
-        assert "d_cation_anion" in ionic.geometry
+        assert "distance" in ionic.geometry
 
 
 # ------------------------------------------------------------------
@@ -470,8 +471,8 @@ class TestAnionPi:
 
     def test_geometry(self, ncis):
         anpi = _by_type(ncis, "anion_pi")[0]
-        assert "d_anion_centroid" in anpi.geometry
-        assert "angle_to_normal" in anpi.geometry
+        assert "distance" in anpi.geometry
+        assert "angle" in anpi.geometry
 
 
 # ------------------------------------------------------------------
@@ -502,8 +503,8 @@ class TestCationLP:
 
     def test_geometry(self, ncis):
         catlp = _by_type(ncis, "cation_lp")[0]
-        assert "d_cation_lp" in catlp.geometry
-        assert catlp.geometry["d_cation_lp"] == pytest.approx(3.5, abs=0.1)
+        assert "distance" in catlp.geometry
+        assert catlp.geometry["distance"] == pytest.approx(3.5, abs=0.1)
 
 
 # ------------------------------------------------------------------
@@ -534,7 +535,7 @@ class TestPiPiRingDomain:
 
     def test_geometry(self, ncis):
         rd = _by_type(ncis, "pi_pi_ring_domain")[0]
-        assert "d_centroid" in rd.geometry
+        assert "distance" in rd.geometry
         assert "h_separation" in rd.geometry
         assert rd.geometry["h_separation"] == pytest.approx(3.3, abs=0.1)
 
@@ -564,7 +565,7 @@ class TestPiPiDomainDomain:
 
     def test_geometry(self, ncis):
         dd = _by_type(ncis, "pi_pi_domain_domain")[0]
-        assert "d_centroid" in dd.geometry
+        assert "distance" in dd.geometry
         assert "h_separation" in dd.geometry
         assert dd.geometry["h_separation"] == pytest.approx(3.3, abs=0.1)
 
@@ -607,7 +608,7 @@ class TestNCIData:
             site_a=(0,),
             site_b=(3,),
             aux_atoms=(1,),
-            geometry={"d_DA": 2.8},
+            geometry={"distance": 2.8},
         )
         with pytest.raises(AttributeError):
             nci.type = "other"  # type: ignore[misc]
@@ -620,6 +621,83 @@ class TestNCIData:
             site_a=(0,),
             site_b=(3,),
             aux_atoms=(1,),
-            geometry={"d_DA": 2.8},
+            geometry={"distance": 2.8},
         )
         assert nci.score == 1.0
+
+    def test_to_dict_basic(self):
+        from xyzgraph.nci import NCIData
+
+        nci = NCIData(
+            type="hbond",
+            site_a=(0,),
+            site_b=(3,),
+            aux_atoms=(2,),
+            geometry={"distance": 2.85, "h_distance": 1.92, "angle": 168.3},
+        )
+        d = nci.to_dict()
+        assert d["type"] == "hbond"
+        assert d["site_a"] == [0]
+        assert d["site_b"] == [3]
+        assert d["aux_atoms"] == [2]
+        assert d["geometry"] == {"distance": 2.85, "h_distance": 1.92, "angle": 168.3}
+        assert d["score"] == 1.0
+
+    def test_to_dict_pi_site(self):
+        from xyzgraph.nci import NCIData
+
+        nci = NCIData(
+            type="cation_pi",
+            site_a=(12,),
+            site_b=(0, 1, 2, 3, 4, 5),
+            aux_atoms=(),
+            geometry={"distance": 3.2, "angle": 165.0},
+        )
+        d = nci.to_dict()
+        assert d["site_b"] == [0, 1, 2, 3, 4, 5]
+        assert d["aux_atoms"] == []
+
+    def test_to_dict_custom_score(self):
+        from xyzgraph.nci import NCIData
+
+        nci = NCIData(
+            type="ionic",
+            site_a=(0,),
+            site_b=(1,),
+            aux_atoms=(),
+            geometry={"distance": 3.0},
+            score=0.75,
+        )
+        d = nci.to_dict()
+        assert d["score"] == 0.75
+
+
+# ------------------------------------------------------------------
+# Serialization: graph_to_dict with NCIs
+# ------------------------------------------------------------------
+
+
+class TestNCISerialization:
+    def test_graph_to_dict_includes_ncis(self):
+        from xyzgraph.utils import graph_to_dict
+
+        G = build_graph(str(STRUCTURES / "water-HB.xyz"))
+        detect_ncis(G)
+        result = graph_to_dict(G)
+        assert "ncis" in result
+        assert len(result["ncis"]) >= 1
+        nci = result["ncis"][0]
+        assert "type" in nci
+        assert "site_a" in nci
+        assert "site_b" in nci
+        assert "aux_atoms" in nci
+        assert "geometry" in nci
+        assert "score" in nci
+        assert isinstance(nci["site_a"], list)
+
+    def test_graph_to_dict_without_ncis(self):
+        from xyzgraph.utils import graph_to_dict
+
+        G = build_graph(str(STRUCTURES / "water-HB.xyz"))
+        result = graph_to_dict(G)
+        assert "ncis" not in result
