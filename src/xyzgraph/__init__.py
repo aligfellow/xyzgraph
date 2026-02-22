@@ -24,6 +24,9 @@ from .graph_builders_rdkit import build_graph_rdkit
 from .graph_builders_rdkit_tm import build_graph_rdkit_tm
 from .graph_builders_xtb import build_graph_xtb
 
+# NCI detection
+from .nci import NCIAnalyzer, NCIThresholds, detect_ncis
+
 # ORCA support
 from .orca_parser import OrcaParseError, parse_orca_output
 from .utils import count_frames_and_atoms, graph_debug_report, graph_to_dict, read_xyz_file
@@ -31,6 +34,9 @@ from .utils import count_frames_and_atoms, graph_debug_report, graph_to_dict, re
 __all__ = [
     # Data access
     "DATA",
+    # NCI detection
+    "NCIAnalyzer",
+    "NCIThresholds",
     # ORCA support
     "OrcaParseError",
     # Main API
@@ -45,6 +51,7 @@ __all__ = [
     "compute_gasteiger_charges",
     # Utilities
     "count_frames_and_atoms",
+    "detect_ncis",
     "graph_debug_report",
     "graph_to_ascii",
     "graph_to_dict",

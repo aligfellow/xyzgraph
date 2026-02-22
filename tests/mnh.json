@@ -69,7 +69,7 @@
         -1.302099,
         -0.777978
       ],
-      "formal_charge": 0,
+      "formal_charge": 2,
       "oxidation_state": 2,
       "valence": 10.0,
       "metal_valence": 0
@@ -83,7 +83,7 @@
         0.035074,
         1.852175
       ],
-      "formal_charge": 0,
+      "formal_charge": 1,
       "oxidation_state": 1,
       "valence": 6.0,
       "metal_valence": 0

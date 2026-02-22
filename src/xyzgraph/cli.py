@@ -70,8 +70,8 @@ def display_graph(G, args, show_h_indices, label=""):
         print(graph_debug_report(G, include_h=args.show_h, show_h_indices=show_h_indices))
 
     # Determine if ASCII should be shown
-    has_explicit_output = args.debug or args.ascii or args.compare_rdkit or args.compare_rdkit_tm or args.orca_out
-    show_ascii = args.ascii or not has_explicit_output
+    has_explicit_output = args.ascii or args.compare_rdkit or args.compare_rdkit_tm or args.orca_out
+    show_ascii = (args.ascii or not has_explicit_output) and not args.nci
 
     if show_ascii:
         title = f"# ASCII Depiction ({label})" if label else "# ASCII Depiction"
@@ -85,6 +85,21 @@ def display_graph(G, args, show_h_indices, label=""):
         print(ascii_out)
 
     return show_ascii
+
+
+def display_ncis(G, args, show_h_indices):
+    """Run NCI detection, print summary, and render ASCII with NCI dotted lines."""
+    from .nci import detect_ncis
+    from .nci.display import format_nci_table, render_nci_ascii
+
+    ncis = detect_ncis(G)
+    print(format_nci_table(G, ncis, debug=args.debug))
+    print(render_nci_ascii(
+        G, ncis,
+        scale=max(0.2, args.ascii_scale),
+        include_h=args.show_h,
+        show_h_indices=show_h_indices,
+    ))
 
 
 def compare_graphs(G1, G2, label1, label2):
@@ -194,6 +209,11 @@ def main():
         type=float,
         default=2.5,
         help="ASCII scaling factor (default: 2.5)",
+    )
+    output.add_argument(
+        "--nci",
+        action="store_true",
+        help="Detect and report non-covalent interactions",
     )
     output.add_argument(
         "-H",
@@ -497,6 +517,10 @@ def main():
 
         # Display primary graph
         show_ascii = display_graph(G_primary, args, show_h_indices, label=args.method)
+
+        # NCI detection
+        if args.nci:
+            display_ncis(G_primary, args, show_h_indices)
 
         # Compare with ORCA if available
         if G_orca:
