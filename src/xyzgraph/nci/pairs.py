@@ -141,6 +141,7 @@ def enumerate_pairs(
 
     # Pi-pi (all combinations of rings + domains, excluding metal-bridged pairs)
     all_pi = list(pi_rings) + list(pi_domains)
+
     for i in range(len(all_pi)):
         for j in range(i + 1, len(all_pi)):
             si, sj = set(all_pi[i]), set(all_pi[j])

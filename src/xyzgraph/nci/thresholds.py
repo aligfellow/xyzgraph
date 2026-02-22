@@ -50,7 +50,7 @@ class NCIThresholds:
     # HB-pi
     hbpi_centroid_max: float = 4.0
     hbpi_dh_to_centroid_angle_min: float = 120.0
-    hbpi_plane_alignment_min: float = 0.3
+    hbpi_plane_alignment_min: float = 0.7
     hbpi_min_pi_atoms: int = 2
 
     # Sigma-hole bonds (halogen, chalcogen, pnictogen)

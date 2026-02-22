@@ -83,5 +83,14 @@ def build_nci_graph(G: nx.Graph, ncis: list[NCIData] | None = None) -> nx.Graph:
         if not nci_G.has_edge(node_a, node_b):
             nci_G.add_edge(node_a, node_b, bond_order=0.0, NCI=True, nci_type=nci.type)
 
-    nci_G.graph["nci_centroid"] = list(centroid_nodes.values())
+    # Remove orphan centroids (e.g. edge ring in T-shaped where H is used instead)
+    used = {cid for cid in centroid_nodes.values() if nci_G.degree(cid) > 0}
+    for cid in list(centroid_nodes.values()):
+        if cid not in used:
+            nci_G.remove_node(cid)
+
+    nci_G.graph["nci_centroid"] = sorted(used)
+    nci_G.graph["nci_centroid_sites"] = {
+        cid: atoms for atoms, cid in centroid_nodes.items() if cid in used
+    }
     return nci_G

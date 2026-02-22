@@ -302,14 +302,55 @@ class NCIDetector:
         rn: dict,
         dn: dict,
     ) -> list[NCIData]:
-        results: list[NCIData] = []
+        all_results: list[NCIData] = []
         for pi1, pi2 in pipi_pairs:
             nci = self._classify_pi_pair(pi1, pi2, pos, rn, dn)
             if nci is not None:
-                results.append(nci)
-                logger.debug("  %s: dist=%.2f angle=%.1f", nci.type, nci.geometry["distance"], nci.geometry["angle"])
-        logger.debug("Pi-pi stacking: %d detected from %d pairs", len(results), len(pipi_pairs))
+                all_results.append(nci)
+
+        # Fused-ring dedup: for each pair of fused groups, keep the
+        # interaction with the shortest centroid-centroid distance.
+        results = self._dedup_fused_pipi(all_results)
+        for nci in results:
+            logger.debug("  %s: dist=%.2f angle=%.1f", nci.type, nci.geometry["distance"], nci.geometry["angle"])
+        logger.debug("Pi-pi stacking: %d detected (%d before fused dedup) from %d pairs",
+                     len(results), len(all_results), len(pipi_pairs))
         return results
+
+    def _dedup_fused_pipi(self, ncis: list[NCIData]) -> list[NCIData]:
+        """Keep only the best interaction per fused-group pair."""
+        if not ncis:
+            return ncis
+
+        # Build fused groups from all known pi systems via union-find
+        all_pi = [tuple(sorted(r)) for r in self._rings] + [
+            tuple(sorted(d)) for d in self._domains
+        ]
+        parent: dict[tuple[int, ...], tuple[int, ...]] = {s: s for s in all_pi}
+
+        def find(x: tuple[int, ...]) -> tuple[int, ...]:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i, s1 in enumerate(all_pi):
+            for s2 in all_pi[i + 1 :]:
+                if not set(s1).isdisjoint(set(s2)):
+                    r1, r2 = find(s1), find(s2)
+                    if r1 != r2:
+                        parent[r2] = r1
+
+        # For each pair of fused groups, keep shortest distance
+        best: dict[tuple, NCIData] = {}
+        for nci in ncis:
+            ka = find(tuple(sorted(nci.site_a)))
+            kb = find(tuple(sorted(nci.site_b)))
+            gkey = (min(ka, kb), max(ka, kb))
+            dist = nci.geometry["distance"]
+            if gkey not in best or dist < best[gkey].geometry["distance"]:
+                best[gkey] = nci
+        return list(best.values())
 
     def _classify_pi_pair(
         self,
@@ -368,14 +409,21 @@ class NCIDetector:
             dev1, dev2 = abs(90.0 - approach1), abs(90.0 - approach2)
             if not any(d <= thr.pii_t_approach_angle_max for d in (dev1, dev2)):
                 return None
-            if thr.require_h_for_t_shaped and not self._check_t_shaped_h(site1, site2, pos):
+            h_result = self._find_t_shaped_h(site1, site2, pos)
+            if thr.require_h_for_t_shaped and h_result is None:
                 return None
             nci_type = self._pi_subtype("t_shaped", is_ring1, is_ring2)
+            aux = (h_result[0],) if h_result else ()
+            # Order so site_a is the edge ring (with H) and site_b is the face ring
+            if h_result and tuple(h_result[1]) == tuple(site1):
+                edge, face = site2, site1
+            else:
+                edge, face = site1, site2
             return NCIData(
                 type=nci_type,
-                site_a=tuple(site1),
-                site_b=tuple(site2),
-                aux_atoms=(),
+                site_a=tuple(edge),
+                site_b=tuple(face),
+                aux_atoms=aux,
                 geometry={"distance": dcc, "h_separation": h, "angle": ang},
             )
         return None
@@ -388,8 +436,14 @@ class NCIDetector:
             return "pi_pi_ring_domain"
         return "pi_pi_domain_domain"
 
-    def _check_t_shaped_h(self, site1: tuple[int, ...], site2: tuple[int, ...], pos: np.ndarray) -> bool:
-        """Check if closest atoms between pi-systems have H for T-shaped interaction."""
+    def _find_t_shaped_h(
+        self, site1: tuple[int, ...], site2: tuple[int, ...], pos: np.ndarray
+    ) -> tuple[int, tuple[int, ...]] | None:
+        """Find the H atom mediating a T-shaped pi-pi interaction.
+
+        Returns ``(h_index, face_site)`` where *face_site* is the ring
+        that the H points into, or ``None`` if no suitable H is found.
+        """
         min_dist = float("inf")
         closest = None
         for a1 in site1:
@@ -399,7 +453,7 @@ class NCIDetector:
                     min_dist = d
                     closest = (a1, a2)
         if closest is None:
-            return False
+            return None
 
         for atom, other_site in [(closest[0], site2), (closest[1], site1)]:
             other_centroid = pos[list(other_site)].mean(axis=0)
@@ -413,8 +467,8 @@ class NCIDetector:
                 v_ch = pos[nbr] - pos[atom]
                 cos_a = np.dot(v_ch, v_hc) / (np.linalg.norm(v_ch) * h_dist)
                 if cos_a > 0.15:
-                    return True
-        return False
+                    return (nbr, other_site)
+        return None
 
     # ------------------------------------------------------------------
     # Ion-pi interactions
