@@ -352,6 +352,26 @@ class BondOrderOptimizer:
         elif residual != 0 and has_metals:
             self._log("\nMetal complex detected: ", 2)
             self._log(f"  Residual: {residual:+d} (represents metal oxidation states)", 3)
+
+            # Assign oxidation states as formal charges on metals
+            for metal_idx, ox_state in ligand_classification["metal_ox_states"].items():
+                formal[metal_idx] = ox_state
+                self._log(
+                    f"  {G.nodes[metal_idx]['symbol']}{metal_idx}: formal_charge={ox_state:+d}",
+                    3,
+                )
+
+            # Handle remaining residual for isolated metals (no bonds, no ox_state)
+            residual = self.charge - sum(formal)
+            if residual != 0:
+                for i in G.nodes():
+                    if residual == 0:
+                        break
+                    if G.nodes[i]["symbol"] in self.data.metals and len(list(G.neighbors(i))) == 0 and formal[i] == 0:
+                        sign = 1 if residual > 0 else -1
+                        formal[i] += sign
+                        residual -= sign
+                        self._log(f"  Assigned {sign:+d} to isolated {G.nodes[i]['symbol']}{i}", 3)
         else:
             self._log("\nNo residual charge distribution needed (sum matches target)", 2)
 

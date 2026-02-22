@@ -23,10 +23,11 @@
 6. [CLI Reference](#cli-reference)
 7. [Python API](#python-api)
 8. [Visualization](#visualization)
-9. [Limitations & Future Work](#limitations--future-work)
-10. [Examples](#examples)
-11. [References](#references)
-12. [Contributing & Contact](#contributing--contact)
+9. [Non-Covalent Interactions](#non-covalent-interactions)
+10. [Limitations & Future Work](#limitations--future-work)
+11. [Examples](#examples)
+12. [References](#references)
+13. [Contributing & Contact](#contributing--contact)
 
 ---
 
@@ -47,6 +48,7 @@
 - **Aromatic detection**: Hückel 4n+2 rule for 6-membered rings
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
+- **Non-covalent interaction (NCI) detection**: 17 interaction types including hydrogen bonds, pi-stacking, halogen/chalcogen/pnictogen bonds, cation-pi, and more
 - **ASCII 2D depiction** with layout alignment for method comparison (see also [[5]](https://github.com/whitead/moltext))
 
 ---
@@ -130,6 +132,12 @@ xyzgraph molecule.xyz --orca-out molecule.out
 xyzgraph molecule.xyz --orca-out molecule.out --compare-rdkit
 ```
 
+**Detect non-covalent interactions**:
+
+```bash
+xyzgraph molecule.xyz --nci --charge 1
+```
+
 **Multi-frame trajectory files**:
 
 ```bash
@@ -177,6 +185,19 @@ for i in range(num_frames):
     atoms = read_xyz_file("trajectory.xyz", frame=i)
     G = build_graph(atoms, charge=0)
     # ... analyze G
+```
+
+**Non-covalent interaction detection**:
+
+```python
+from xyzgraph import build_graph
+from xyzgraph.nci import detect_ncis
+
+G = build_graph("molecule.xyz", charge=1)
+ncis = detect_ncis(G)
+
+for nci in ncis:
+    print(nci.type, nci.site_a, nci.site_b, nci.geometry)
 ```
 
 **Comparing methods**:
@@ -299,7 +320,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │      - L = max(0, target - B)  [target: 2 for H, 8 otherwise]   │
 │      - formal = V_electrons - (L + B/2)                         │
 │    • Balance total to match system charge                       │
-│    • Metals forced to 0 (coordination not oxidation state)      │
+│    • Metals assigned oxidation state as formal charge           │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
@@ -313,7 +334,17 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
-│ 8. Output Graph                                                 │
+│ 8. Optional: Non-Covalent Interaction Detection (--nci)         │
+│    • Classify sites: donors, acceptors, ions, halogens, etc.    │
+│    • Detect pi-systems: aromatic rings + conjugated domains     │
+│    • Enumerate candidate pairs (graph-distance filtered)        │
+│    • Geometry checks: distances, angles, plane alignment        │
+│    • 17 interaction types (H-bond, pi-stack, sigma-hole, ...)   │
+│    • Stored in G.graph["ncis"] as list[NCIData]                 │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+┌────────────────────▼────────────────────────────────────────────┐
+│ 9. Output Graph                                                 │
 │    Nodes: symbol, formal_charge, valence, metal_valence,        │
 │           oxidation_state (metals only)                         │
 │    Edges: bond_order, bond_type, metal_coord                    │
@@ -427,8 +458,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ```text
 > xyzgraph -h
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [--relaxed] [-t THRESHOLD] [-d] [-a] [--json] [-as ASCII_SCALE] [-H]
-                [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD]
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [--relaxed] [-t THRESHOLD] [-d] [-a] [--json] [-as ASCII_SCALE] [--nci]
+                [-H] [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD]
                 [-o {greedy,beam}] [-bw BEAM_WIDTH] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [--bond BOND] [--unbond UNBOND] [--threshold-h-h THRESHOLD_H_H]
                 [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND]
                 [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds] [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF]
@@ -464,6 +495,7 @@ Output Options:
   --json                Output graph as JSON (for generating test fixtures)
   -as ASCII_SCALE, --ascii-scale ASCII_SCALE
                         ASCII scaling factor (default: 2.5)
+  --nci                 Detect and report non-covalent interactions
   -H, --show-h          Include hydrogens in visualizations
   --show-h-idx SHOW_H_IDX
                         Show specific H atoms (comma-separated indices)
@@ -800,13 +832,128 @@ H------------------------N-------------------------H
 
 ---
 
-## Limitations & Future Work
+## Non-Covalent Interactions
 
-### Current Limitations
+xyzgraph includes a geometry-based NCI detection module that identifies 17 types of non-covalent interactions from the molecular graph. NCI detection runs on top of the constructed graph and requires no additional dependencies.
+
+### CLI Usage
+
+```bash
+xyzgraph molecule.xyz --nci --charge 1
+```
+
+### Supported Interaction Types
+
+| Type | Description |
+|---|---|
+| `hbond` | Classical hydrogen bond (D-H...A) |
+| `hbond_bifurcated` | Two donors sharing the same acceptor |
+| `halogen_bond` | Sigma-hole bond via halogen (X...A) |
+| `chalcogen_bond` | Sigma-hole bond via S, Se, Te |
+| `pnictogen_bond` | Sigma-hole bond via P, As, Sb, Bi |
+| `pi_pi_parallel` | Parallel-displaced pi-stacking (ring-ring) |
+| `pi_pi_t_shaped` | T-shaped (edge-to-face) pi-stacking |
+| `pi_pi_ring_domain` | Pi-stacking between ring and non-ring pi domain |
+| `pi_pi_domain_domain` | Pi-stacking between two non-ring pi domains |
+| `cation_pi` | Cation above aromatic ring |
+| `anion_pi` | Anion above aromatic ring |
+| `halogen_pi` | Halogen sigma-hole to pi-system |
+| `ch_pi` | C-H...pi interaction |
+| `hb_pi` | H-bond donor to pi-system |
+| `cation_lp` | Cation to lone pair donor |
+| `ionic` | Electrostatic cation-anion |
+| `salt_bridge` | H-mediated ionic (cation-H...anion) |
+
+### Python API
+
+```python
+from xyzgraph import build_graph
+from xyzgraph.nci import detect_ncis, NCIThresholds
+
+G = build_graph("molecule.xyz", charge=1)
+ncis = detect_ncis(G)
+
+for nci in ncis:
+    print(nci.type, nci.site_a, nci.site_b, nci.geometry)
+
+# Results are also stored on the graph
+ncis = G.graph["ncis"]
+
+# Custom thresholds
+thr = NCIThresholds(hb_da_max=3.0, pii_parallel_rmax=4.0)
+ncis = detect_ncis(G, thresholds=thr)
+```
+
+For trajectory analysis where topology is shared across frames, use `NCIAnalyzer` to avoid repeating site classification on every frame:
+
+```python
+from xyzgraph.nci import NCIAnalyzer
+
+analyzer = NCIAnalyzer(G)  # topology work done once
+for positions in trajectory_frames:
+    ncis = analyzer.detect(positions)  # geometry checks only
+```
+
+### Example: Acyl Isothiouronium (Chalcogen Bond)
+
+```bash
+xyzgraph examples/isothio.xyz -c 1 --nci
+```
+
+```text
+================================================================================
+# Non-Covalent Interactions
+================================================================================
+
+  1 interaction(s) detected:
+
+  chalcogen_bond          S20 ... O0
+
+================================================================================
+# ASCII Depiction (with NCI dotted lines)
+================================================================================
+
+        C\
+          \\          =C
+            \\   =======\\
+              \C= ===     \\         =O
+               ===          \\  =======.
+                              C= ===    .
+                              ===       .
+                              |          .               -C\
+     C----                   |            S----     -----   \\
+    /     ----C              |           /     ---C-          \\
+  //           \             N--       //         |             \C
+ /             \            /   ---   /           |              |
+C               \          /       --C            |              |
+ \              \          /          \           |              |
+ \               C----    /            \\         |              |
+  \             /     ---C               \     ---C\            /C
+  \           //          \               N----     \\       ///
+   C----     /            \              /            \\   //
+        ----C              \           //               \C/
+                           \          /
+                            C--------C
+                           /
+                         //
+               C---     /
+                   ----C
+                        \
+                        \
+                         \
+                         \
+                          C
+```
+
+The intramolecular S...O chalcogen bond is detected via the sigma-hole on S20 directed towards the carbonyl oxygen O0, shown as a dotted line in the ASCII depiction.
+
+---
+
+## Current Limitations
 
 1. **Metal Complexes**
    - Bond orders locked at 1.0 (no d-orbital chemistry)
-   - Metal-metal bonds *partially* supported (single bond allowed)
+   - Metal-metal bonds *partially* supported but not well tested (single bond allowed)
    - Can deal with **both** ionic *and* neutral ligands
 
 2. **Radicals & Open-Shell Systems**
@@ -817,16 +964,13 @@ H------------------------N-------------------------H
 3. **Zwitterions**
    - Formal charge and valence analysis does identify `-[N+](=O)(-[O-])` bonding and formal charge pattern
    - This is performed **without pattern matching**
-   - *May* not always be fully robust
+   - *May* not always be fully robust, and does not account for delocalisation
 
-4. **Large Conjugated Systems**
-   - May need many iterations for convergence (kekule initialised rings)
-
-5. **Charged Aromatics**
+4. **Charged Aromatics**
    - Hückel electron counting is simplistic
    - Should still solve with valence/charge optimisation
 
-6. **Inorganic Cages**
+5. **Inorganic Cages**
    - Homogeneous clusters (≥8 atoms, same element) bypass standard ring validation
    - Unlikely to be fully accurately described, *e.g.* C/B cage structures
 
@@ -994,6 +1138,8 @@ Metal coordination summary:
     
 Metal complex detected: 
         Residual: +3 (represents metal oxidation states)
+        Fe0: formal_charge=+2
+        Mn1: formal_charge=+1
 
 ================================================================================
 AROMATIC RING DETECTION (Hückel 4n+2)
@@ -1029,8 +1175,8 @@ GRAPH CONSTRUCTION COMPLETE
 ================================================================================
 
 ### Selected atoms from molecular graph:
-[  0] Fe  val=10.00  metal=0.00  formal=0   | 7(1.00) 8(1.00) 9(1.00) 11(1.00) 13(1.00) ...
-[  1] Mn  val=6.00  metal=0.00  formal=0   | 2(1.00) 5(1.00) 6(1.00) 64(1.00) 65(1.00) 67(1.00)
+[  0] Fe  val=10.00  metal=0.00  formal=+2 | 7(1.00) 8(1.00) 9(1.00) 11(1.00) 13(1.00) 15(1.00) 17(1.00) 19(1.00) 21(1.00) 23(1.00)
+[  1] Mn  val=6.00  metal=0.00  formal=+1 | 2(1.00) 5(1.00) 6(1.00) 64(1.00) 65(1.00) 67(1.00)
 [  3]  O  val=3.00  metal=0.00  formal=+1  | 64(3.00)
 [  4]  O  val=3.00  metal=0.00  formal=+1  | 65(3.00)
 [  8]  C  val=4.00  metal=1.00  formal=-1  | 0(1.00) 7(1.50*) 9(1.50*) 47(1.00)
