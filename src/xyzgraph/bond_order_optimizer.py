@@ -1471,7 +1471,7 @@ class BondOrderOptimizer:
     # Aromatic detection (post-optimization)
     # =========================================================================
 
-    def detect_aromatic_rings(self, G: nx.Graph) -> int:
+    def detect_aromatic_rings(self, G: nx.Graph, kekule: bool = False) -> int:
         """Detect aromatic rings using Hückel rule (4n+2 π electrons).
 
         Only performed on 5 and 6 member rings with C, N, O, S, P atoms.
@@ -1570,6 +1570,9 @@ class BondOrderOptimizer:
                 n = (pi_electrons - 2) // 4
                 self._log(f"✓ AROMATIC (4n+2 rule: n={n})", 2)
                 G.graph["_aromatic_rings"].append(cycle)
+
+                if kekule:
+                    continue
 
                 # If any ring bond has order > 2 (e.g. triple bond in
                 # benzyne), 1.5 cannot represent that bonding and the

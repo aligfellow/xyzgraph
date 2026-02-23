@@ -90,7 +90,5 @@ def build_nci_graph(G: nx.Graph, ncis: list[NCIData] | None = None) -> nx.Graph:
             nci_G.remove_node(cid)
 
     nci_G.graph["nci_centroid"] = sorted(used)
-    nci_G.graph["nci_centroid_sites"] = {
-        cid: atoms for atoms, cid in centroid_nodes.items() if cid in used
-    }
+    nci_G.graph["nci_centroid_sites"] = {cid: atoms for atoms, cid in centroid_nodes.items() if cid in used}
     return nci_G

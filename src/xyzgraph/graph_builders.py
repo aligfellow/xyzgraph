@@ -40,6 +40,7 @@ def compute_metadata(
     threshold_h_metal: float,
     threshold_metal_ligand: float,
     threshold_nonmetal_nonmetal: float,
+    kekule: bool,
     relaxed: bool,
     allow_metal_metal_bonds: bool,
     threshold_metal_metal_self: float,
@@ -87,6 +88,8 @@ def compute_metadata(
         non_default["threshold_metal_ligand"] = threshold_metal_ligand
     if threshold_nonmetal_nonmetal != DEFAULT_PARAMS["threshold_nonmetal_nonmetal"]:
         non_default["threshold_nonmetal_nonmetal"] = threshold_nonmetal_nonmetal
+    if kekule != DEFAULT_PARAMS["kekule"]:
+        non_default["kekule"] = kekule
     if relaxed != DEFAULT_PARAMS["relaxed"]:
         non_default["relaxed"] = relaxed
     if allow_metal_metal_bonds != DEFAULT_PARAMS["allow_metal_metal_bonds"]:
@@ -133,6 +136,7 @@ class GraphBuilder:
         threshold_h_metal: float = DEFAULT_PARAMS["threshold_h_metal"],
         threshold_metal_ligand: float = DEFAULT_PARAMS["threshold_metal_ligand"],
         threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS["threshold_nonmetal_nonmetal"],
+        kekule: bool = DEFAULT_PARAMS["kekule"],
         relaxed: bool = DEFAULT_PARAMS["relaxed"],
         allow_metal_metal_bonds: bool = DEFAULT_PARAMS["allow_metal_metal_bonds"],
         threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
@@ -144,6 +148,7 @@ class GraphBuilder:
         self.method = method
         self.optimizer = optimizer.lower()
         self.quick = quick
+        self.kekule = kekule
         self.max_iter = max_iter
         self.edge_per_iter = edge_per_iter
         self.beam_width = beam_width
@@ -328,7 +333,7 @@ class GraphBuilder:
             G.nodes[i]["formal_charge"] = fc
 
         # Aromatic detection (Hückel rule) - now can use formal charges
-        self._optimizer.detect_aromatic_rings(G)
+        self._optimizer.detect_aromatic_rings(G, kekule=self.kekule)
 
         # Collect optimizer logs
         self.log_buffer.extend(self._optimizer.get_log())
@@ -402,6 +407,7 @@ def build_graph(
     threshold_h_metal: float = DEFAULT_PARAMS["threshold_h_metal"],
     threshold_metal_ligand: float = DEFAULT_PARAMS["threshold_metal_ligand"],
     threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS["threshold_nonmetal_nonmetal"],
+    kekule: bool = DEFAULT_PARAMS["kekule"],
     relaxed: bool = DEFAULT_PARAMS["relaxed"],
     allow_metal_metal_bonds: bool = DEFAULT_PARAMS["allow_metal_metal_bonds"],
     threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
@@ -442,6 +448,7 @@ def build_graph(
             threshold_h_metal=threshold_h_metal,
             threshold_metal_ligand=threshold_metal_ligand,
             threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
+            kekule=kekule,
             relaxed=relaxed,
             allow_metal_metal_bonds=allow_metal_metal_bonds,
             threshold_metal_metal_self=threshold_metal_metal_self,
@@ -469,6 +476,7 @@ def build_graph(
         threshold_h_metal=threshold_h_metal,
         threshold_metal_ligand=threshold_metal_ligand,
         threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
+        kekule=kekule,
         relaxed=relaxed,
         allow_metal_metal_bonds=allow_metal_metal_bonds,
         threshold_metal_metal_self=threshold_metal_metal_self,
