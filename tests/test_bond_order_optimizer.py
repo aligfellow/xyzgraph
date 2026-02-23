@@ -392,7 +392,7 @@ def test_indole_kekule_then_aromatic(optimizer):
 
 
 def test_kekule_flag_skips_aromatic_bo(optimizer):
-    """With apply_aromatic_bo=False, rings are detected but bond orders stay Kekule."""
+    """With kekule=True, rings are detected but bond orders stay Kekule."""
     G = _make_graph(INDOLE_ATOMS, INDOLE_EDGES)
     optimizer.init_kekule(G)
     charges = optimizer.compute_formal_charges(G)
@@ -402,7 +402,7 @@ def test_kekule_flag_skips_aromatic_bo(optimizer):
     # Capture Kekule bond orders before aromatic detection
     kekule_bo = {(i, j): G.edges[i, j]["bond_order"] for i, j in INDOLE_EDGES}
 
-    optimizer.detect_aromatic_rings(G, apply_aromatic_bo=False)
+    optimizer.detect_aromatic_rings(G, kekule=True)
 
     # Rings are still detected
     assert len(G.graph["_aromatic_rings"]) == 2

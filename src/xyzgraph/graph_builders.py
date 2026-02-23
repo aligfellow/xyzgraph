@@ -333,7 +333,7 @@ class GraphBuilder:
             G.nodes[i]["formal_charge"] = fc
 
         # Aromatic detection (Hückel rule) - now can use formal charges
-        self._optimizer.detect_aromatic_rings(G, apply_aromatic_bo=not self.kekule)
+        self._optimizer.detect_aromatic_rings(G, kekule=self.kekule)
 
         # Collect optimizer logs
         self.log_buffer.extend(self._optimizer.get_log())
