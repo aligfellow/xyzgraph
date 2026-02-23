@@ -45,7 +45,7 @@
     - `--optimizer`:  
       **beam**: optimization across multiple paths (slightly slower, default)  
       **greedy**: iterative valence adjustment
-- **Aromatic detection**: Hückel 4n+2 rule for 6-membered rings
+- **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings (optional `--kekule` to keep Kekulé bond orders)
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
 - **Non-covalent interaction (NCI) detection**: 17 interaction types including hydrogen bonds, pi-stacking, halogen/chalcogen/pnictogen bonds, cation-pi, and more
@@ -309,7 +309,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │    • Find 5/6-membered rings with C/N/O/S/B                     │
 │    • Count π electrons (sp² carbons → 1e, N/O/S LP → 2e)        │
 │    • Apply Hückel rule: 4n+2 π electrons                        │
-│    • Set aromatic bonds to 1.5                                  │
+│    • Set aromatic bonds to 1.5 (unless --kekule / kekule=True)  │
+│    • Aromatic ring metadata always stored regardless            │
 │    • Other heteroatoms (e.g. P, Se) use Kekulé structures       │
 └────────────────────┬────────────────────────────────────────────┘
                      │
@@ -458,12 +459,11 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ```text
 > xyzgraph -h
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [--relaxed] [-t THRESHOLD] [-d] [-a] [--json] [-as ASCII_SCALE] [--nci]
-                [-H] [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD]
-                [-o {greedy,beam}] [-bw BEAM_WIDTH] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [--bond BOND] [--unbond UNBOND] [--threshold-h-h THRESHOLD_H_H]
-                [--threshold-h-nonmetal THRESHOLD_H_NONMETAL] [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND]
-                [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds] [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF]
-                [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [-k] [--relaxed] [-t THRESHOLD] [-d] [-a] [--json] [-as ASCII_SCALE] [--nci] [-H]
+                [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD] [-o {greedy,beam}]
+                [-bw BEAM_WIDTH] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [--bond BOND] [--unbond UNBOND] [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL]
+                [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
+                [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF] [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
                 [input_file]
 
 Build molecular graph from XYZ or ORCA output.
@@ -485,6 +485,7 @@ Common Options:
   -m MULTIPLICITY, --multiplicity MULTIPLICITY
                         Spin multiplicity (default: auto estimation)
   -q, --quick           Quick mode: connectivity only, no formal charge optimization
+  -k, --kekule          Keep Kekule bond orders (do not convert aromatic rings to 1.5)
   --relaxed             Relaxed geometric validation (for transition states)
   -t THRESHOLD, --threshold THRESHOLD
                         Global scaling for bond thresholds (default: 1.0)
@@ -578,6 +579,11 @@ G_full = build_graph(
       bond=[(0,1)],             # ensure a bond between 0 and 1
       debug=True
    )
+
+# Keep Kekule bond orders (no 1.5 aromatic conversion)
+G_kekule = build_graph('molecule.xyz', kekule=True)
+# Aromatic rings are still detected and stored in G_kekule.graph["aromatic_rings"]
+# Bond orders remain as optimised Kekule values (1.0/2.0)
 ```
 
 ---

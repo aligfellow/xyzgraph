@@ -391,6 +391,32 @@ def test_indole_kekule_then_aromatic(optimizer):
     assert len(G.graph["_aromatic_rings"]) == 2
 
 
+def test_kekule_flag_skips_aromatic_bo(optimizer):
+    """With apply_aromatic_bo=False, rings are detected but bond orders stay Kekule."""
+    G = _make_graph(INDOLE_ATOMS, INDOLE_EDGES)
+    optimizer.init_kekule(G)
+    charges = optimizer.compute_formal_charges(G)
+    for i, fc in enumerate(charges):
+        G.nodes[i]["formal_charge"] = fc
+
+    # Capture Kekule bond orders before aromatic detection
+    kekule_bo = {(i, j): G.edges[i, j]["bond_order"] for i, j in INDOLE_EDGES}
+
+    optimizer.detect_aromatic_rings(G, apply_aromatic_bo=False)
+
+    # Rings are still detected
+    assert len(G.graph["_aromatic_rings"]) == 2
+
+    # Bond orders unchanged from Kekule values
+    for i, j in INDOLE_EDGES:
+        assert G.edges[i, j]["bond_order"] == pytest.approx(kekule_bo[(i, j)]), (
+            f"edge {i}-{j} should keep Kekule BO={kekule_bo[(i, j)]}, got {G.edges[i, j]['bond_order']}"
+        )
+
+    # No 1.5 bond orders anywhere
+    assert not any(abs(G.edges[i, j]["bond_order"] - 1.5) < 0.01 for i, j in INDOLE_EDGES)
+
+
 def test_anthracene_kekule_then_aromatic(optimizer):
     """Anthracene: Kekulé init then aromatic detection on a single graph.
 

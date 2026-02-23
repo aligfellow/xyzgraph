@@ -25,6 +25,7 @@ class DefaultParamsType(TypedDict):
     threshold_metal_ligand: float
     threshold_nonmetal_nonmetal: float
     threshold_metal_metal_self: float
+    kekule: bool
     relaxed: bool
     allow_metal_metal_bonds: bool
     period_scaling_h_bonds: float
@@ -53,6 +54,7 @@ DEFAULT_PARAMS: DefaultParamsType = {
     "threshold_metal_ligand": 0.65,
     "threshold_nonmetal_nonmetal": 0.55,
     "threshold_metal_metal_self": 0.7,
+    "kekule": False,
     "relaxed": False,
     # Heavy element and metal bonding:
     "allow_metal_metal_bonds": True,

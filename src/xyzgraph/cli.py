@@ -184,6 +184,13 @@ def main():
         help="Quick mode: connectivity only, no formal charge optimization",
     )
     common.add_argument(
+        "-k",
+        "--kekule",
+        action="store_true",
+        default=DEFAULT_PARAMS["kekule"],
+        help="Keep Kekule bond orders (do not convert aromatic rings to 1.5)",
+    )
+    common.add_argument(
         "--relaxed",
         action="store_true",
         default=DEFAULT_PARAMS["relaxed"],
@@ -424,6 +431,7 @@ def main():
         threshold_h_metal=args.threshold_h_metal,
         threshold_metal_ligand=args.threshold_metal_ligand,
         threshold_nonmetal_nonmetal=args.threshold_nonmetal,
+        kekule=args.kekule,
         relaxed=args.relaxed,
         allow_metal_metal_bonds=args.allow_metal_metal_bonds,
         threshold_metal_metal_self=args.threshold_metal_metal_self,
@@ -476,6 +484,7 @@ def main():
             threshold_h_metal=args.threshold_h_metal,
             threshold_metal_ligand=args.threshold_metal_ligand,
             threshold_nonmetal_nonmetal=args.threshold_nonmetal,
+            kekule=args.kekule,
             relaxed=args.relaxed,
             allow_metal_metal_bonds=args.allow_metal_metal_bonds,
             threshold_metal_metal_self=args.threshold_metal_metal_self,

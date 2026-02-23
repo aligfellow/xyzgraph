@@ -313,8 +313,12 @@ class NCIDetector:
         results = self._dedup_fused_pipi(all_results)
         for nci in results:
             logger.debug("  %s: dist=%.2f angle=%.1f", nci.type, nci.geometry["distance"], nci.geometry["angle"])
-        logger.debug("Pi-pi stacking: %d detected (%d before fused dedup) from %d pairs",
-                     len(results), len(all_results), len(pipi_pairs))
+        logger.debug(
+            "Pi-pi stacking: %d detected (%d before fused dedup) from %d pairs",
+            len(results),
+            len(all_results),
+            len(pipi_pairs),
+        )
         return results
 
     def _dedup_fused_pipi(self, ncis: list[NCIData]) -> list[NCIData]:
@@ -323,9 +327,7 @@ class NCIDetector:
             return ncis
 
         # Build fused groups from all known pi systems via union-find
-        all_pi = [tuple(sorted(r)) for r in self._rings] + [
-            tuple(sorted(d)) for d in self._domains
-        ]
+        all_pi = [tuple(sorted(r)) for r in self._rings] + [tuple(sorted(d)) for d in self._domains]
         parent: dict[tuple[int, ...], tuple[int, ...]] = {s: s for s in all_pi}
 
         def find(x: tuple[int, ...]) -> tuple[int, ...]:
