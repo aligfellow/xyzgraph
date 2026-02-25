@@ -169,3 +169,45 @@ def test_ru_co_ts():
         assert got["idx1"] == exp["idx1"]
         assert got["idx2"] == exp["idx2"]
         assert got["metal_coord"] == exp["metal_coord"]
+
+
+# ===========================================================================
+# Organic: alizarin (1,2-dihydroxyanthraquinone, C14H8O4, charge 0)
+#
+# Why: three fused 6-membered rings — two aromatic and one quinone.
+# Tests that the quinone ring is NOT treated as aromatic (Kekulé), the two
+# C=O carbonyls are correctly assigned BO=2, and all C atoms stay at
+# valence 4 with formal charge 0.
+# ===========================================================================
+
+
+def test_alizarin():
+    """Alizarin: fused quinone/aromatic system, correct C=O and Kekulé."""
+    G = build_graph(str(EXAMPLES / "alizarin.xyz"), charge=0, kekule=True)
+    result = graph_to_dict(G)
+
+    assert result["graph"]["formula"] == "C14H8O4"
+
+    # Every C must have valence 4 and formal charge 0
+    for node in result["nodes"]:
+        if node["symbol"] == "C":
+            assert node["valence"] == pytest.approx(4.0), f"C{node['id']} valence {node['valence']}"
+            assert node["formal_charge"] == 0, f"C{node['id']} FC {node['formal_charge']}"
+
+    # Carbonyl oxygens (O7, O11): valence 2, FC 0, BO=2 to their carbon
+    for oid in (7, 11):
+        o_node = result["nodes"][oid]
+        assert o_node["symbol"] == "O"
+        assert o_node["formal_charge"] == 0, f"O{oid} FC {o_node['formal_charge']}"
+        o_edges = [e for e in result["edges"] if oid in (e["idx1"], e["idx2"])]
+        assert len(o_edges) == 1
+        assert o_edges[0]["bond_order"] == pytest.approx(2.0)
+
+    # Hydroxyl oxygens (O16, O17): single bond to C, single bond to H
+    for oid in (16, 17):
+        o_node = result["nodes"][oid]
+        assert o_node["symbol"] == "O"
+        assert o_node["formal_charge"] == 0
+        o_edges = [e for e in result["edges"] if oid in (e["idx1"], e["idx2"])]
+        assert len(o_edges) == 2
+        assert all(e["bond_order"] == pytest.approx(1.0) for e in o_edges)
