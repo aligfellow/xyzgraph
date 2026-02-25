@@ -16,7 +16,7 @@ Also handles:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 import networkx as nx
 
@@ -381,18 +381,33 @@ class BondOrderOptimizer:
     # Aromatic initialization (Kekulé patterns)
     # =========================================================================
 
+    # Typical degree when all bonds are single.  If an exocyclic neighbour's
+    # actual degree is below this, it must form a multiple bond to the ring
+    # atom, consuming that atom's p-orbital for exocyclic π rather than ring
+    # conjugation.
+    _EXO_PI_THRESHOLD: ClassVar[Dict[str, int]] = {"N": 3, "O": 2, "S": 2, "P": 3}
+
     def _estimate_pi_electrons(self, G: nx.Graph, cycle: List[int]) -> int:
         """Estimate π electrons using metal-bonding as hint.
 
         Heuristic: 5-membered C-ring bonded to metal → likely Cp⁻ → π=6
+        A ring carbon whose exocyclic neighbour is unsaturated (degree below
+        its typical single-bond valence) has its p-orbital engaged in an
+        exocyclic π bond and contributes 0 π electrons to the ring.
         """
         pi_electrons = 0
         bonded_to_metal = any(any(G.nodes[nbr]["symbol"] in self.data.metals for nbr in G.neighbors(c)) for c in cycle)
+        cycle_set = set(cycle)
 
         for idx in cycle:
             sym = G.nodes[idx]["symbol"]
             if sym == "C":
-                pi_electrons += 1
+                has_exo_pi = any(
+                    G.degree(nbr) < self._EXO_PI_THRESHOLD.get(G.nodes[nbr]["symbol"], 0)
+                    for nbr in G.neighbors(idx)
+                    if nbr not in cycle_set
+                )
+                pi_electrons += 0 if has_exo_pi else 1
             elif sym == "N":
                 degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]["symbol"] not in self.data.metals)
                 if degree == 3:
@@ -732,16 +747,20 @@ class BondOrderOptimizer:
                                     break
                             if not ok:
                                 return None
-                    # valence check and commit
+                    # valence check and commit (with rollback on failure)
+                    originals: Dict[tuple, float] = {}
                     for r in comp:
                         patt = assigned[r]
                         for idx_edge, (i, j) in enumerate(ring_edges[r]):
                             bo = patt[idx_edge]
                             if not can_set_edge(i, j, bo):
-                                if bo > 1.5 and can_set_edge(i, j, 1.0):
-                                    bo = 1.0
-                                else:
-                                    return None
+                                # Rollback all changes made so far
+                                for (oi, oj), orig_bo in originals.items():
+                                    G.edges[oi, oj]["bond_order"] = orig_bo
+                                return None
+                            key = (min(i, j), max(i, j))
+                            if key not in originals:
+                                originals[key] = G.edges[i, j].get("bond_order", 1.0)
                             G.edges[i, j]["bond_order"] = bo
                     return assigned
 
@@ -946,6 +965,12 @@ class BondOrderOptimizer:
 
         Returns a numeric penalty (larger = worse).
         """
+        # Atoms belonging to any ring — fused-ring junction bonds (where the
+        # neighbour is also a ring member) are not true exocyclic substituents.
+        all_ring_atoms: set = set()
+        for c in rings:
+            all_ring_atoms.update(c)
+
         conjugation_penalty = 0.0
         for ring in rings:
             if len(ring) not in (5, 6):
@@ -971,6 +996,10 @@ class BondOrderOptimizer:
                 for nbr, data in G[ring_atom].items():
                     if nbr not in ring_set:
                         nbr_sym = G.nodes[nbr]["symbol"]
+
+                        # Skip fused-ring junction bonds
+                        if nbr in all_ring_atoms:
+                            continue
 
                         # Skip metal bonds
                         if nbr_sym in self.data.metals:
