@@ -75,6 +75,9 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     elif cfg.dens_contours is not None:
         extra_lo = np.array([cfg.dens_contours.x_min, cfg.dens_contours.y_min])
         extra_hi = np.array([cfg.dens_contours.x_max, cfg.dens_contours.y_max])
+    elif cfg.nci_contours is not None:
+        extra_lo = np.array([cfg.nci_contours.x_min, cfg.nci_contours.y_min])
+        extra_hi = np.array([cfg.nci_contours.x_max, cfg.nci_contours.y_max])
     if cfg.esp_surface is not None:
         extra_lo = np.array([cfg.esp_surface.x_min, cfg.esp_surface.y_min])
         extra_hi = np.array([cfg.esp_surface.x_max, cfg.esp_surface.y_max])
@@ -338,6 +341,17 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     # --- Density surface (stacked z-layers on top of molecule) ---
     if cfg.dens_contours is not None:
         svg.extend(dens_layers_svg(cfg.dens_contours, cfg.surface_opacity, scale, cx, cy, canvas_w, canvas_h))
+
+    # --- NCI surface ---
+    # Static: per-pixel colored raster (blue=H-bond, green=vdW, red=steric)
+    # Rotatable (future GIF): per-lobe average color loops via nci_loops_svg
+    if cfg.nci_contours is not None:
+        from xyzrender.nci import nci_loops_svg, nci_static_svg
+
+        if cfg.nci_contours.nci_raster_png:
+            svg.extend(nci_static_svg(cfg.nci_contours, cfg.surface_opacity, scale, cx, cy, canvas_w, canvas_h))
+        else:
+            svg.extend(nci_loops_svg(cfg.nci_contours, cfg.surface_opacity, scale, cx, cy, canvas_w, canvas_h))
 
     # --- ESP surface (embedded heatmap on top of molecule) ---
     if cfg.esp_surface is not None:

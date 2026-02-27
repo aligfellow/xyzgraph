@@ -49,6 +49,7 @@ class LobeContour2D:
     phase: str  # "pos" or "neg"
     z_depth: float  # average z-coordinate (for front/back ordering)
     centroid_3d: tuple[float, float, float] = (0.0, 0.0, 0.0)  # for pairing
+    lobe_color: str | None = None  # per-lobe color override (NCI avg coloring)
 
 
 @dataclass
@@ -68,6 +69,8 @@ class MOContours:
     lobe_x_max: float | None = None
     lobe_y_min: float | None = None
     lobe_y_max: float | None = None
+    # NCI per-pixel colored raster (data URI, static rendering only)
+    nci_raster_png: str | None = None
 
 
 # ---------------------------------------------------------------------------

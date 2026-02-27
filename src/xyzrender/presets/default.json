@@ -18,6 +18,8 @@
   "mo_neg_color": "maroon",
   "dens_iso": 0.001,
   "dens_color": "steelblue",
+  "nci_iso": 0.3,
+  "nci_color": "forestgreen",
   "colors": {
     "C": "#AAAAAA"
   }

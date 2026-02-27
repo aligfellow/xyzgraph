@@ -137,7 +137,25 @@ def main() -> None:
         "--esp", default=None, metavar="CUBE", help="ESP cube file for potential coloring (implies --dens)"
     )
     surf_g.add_argument(
-        "--iso", type=float, default=None, help="Isosurface threshold (MO default: 0.05, density/ESP default: 0.001)"
+        "--nci-surf",
+        default=None,
+        metavar="CUBE",
+        dest="nci_surf",
+        help="NCI gradient cube file — find patches where RDG is low (implies density rendering)",
+    )
+    surf_g.add_argument("--nci-color", default=None, help="NCI patch colour (hex or named, default: forestgreen)")
+    surf_g.add_argument(
+        "--nci-coloring",
+        default=None,
+        choices=["avg", "pixel"],
+        dest="nci_coloring",
+        help="NCI surface coloring: avg=per-lobe mean sign(l2)*rho (MO-like), pixel=per-pixel static raster",
+    )
+    surf_g.add_argument(
+        "--iso",
+        type=float,
+        default=None,
+        help="Isosurface threshold (MO default: 0.05, density/ESP default: 0.001, NCI/RDG default: 0.5)",
     )
     surf_g.add_argument("--opacity", type=float, default=None, help="Surface opacity (default: 1.0, >1 boosts)")
 
@@ -153,7 +171,13 @@ def main() -> None:
     ts_g.add_argument("--ts", action="store_true", dest="ts_detect", help="Auto-detect TS bonds via graphRC")
     ts_g.add_argument("--ts-frame", type=int, default=0, help="TS reference frame for graphRC (0-indexed)")
     ts_g.add_argument("--ts-bond", default="", help='Manual TS bond pair(s), 1-indexed: "1-6,3-4"')
-    ts_g.add_argument("--nci", action="store_true", help="Auto-detect NCI interactions via xyzgraph")
+    ts_g.add_argument(
+        "--nci",
+        "--nci-detect",
+        action="store_true",
+        dest="nci_detect",
+        help="Auto-detect NCI interactions via xyzgraph",
+    )
     ts_g.add_argument("--nci-bond", default="", help='Manual NCI bond pair(s), 1-indexed: "1-5,2-8"')
 
     # --- GIF animation ---
@@ -277,6 +301,14 @@ def main() -> None:
         p.error("--esp requires a .cube density input file")
     if args.esp and wants_gif:
         p.error("--esp does not support GIF rotation")
+    if args.nci_surf and (args.mo or args.dens or args.esp):
+        p.error("--nci-surf is mutually exclusive with --mo, --dens, and --esp")
+    if args.nci_surf and args.vdw is not None:
+        p.error("--nci-surf and --vdw are mutually exclusive")
+    if args.nci_surf and not is_cube:
+        p.error("--nci-surf requires a .cube density input file")
+    if args.nci_surf and wants_gif:
+        p.error("--nci-surf does not support GIF animation")
     if wants_gif:
         gif_path = args.gif_output or f"{base}.gif"
         gif_ext = gif_path.rsplit(".", 1)[-1].lower()
@@ -306,7 +338,7 @@ def main() -> None:
         p.error("No input file and stdin is a terminal")
 
     # Post-load analysis
-    if args.nci:
+    if args.nci_detect:
         graph = detect_nci(graph)
 
     # Orientation
@@ -492,6 +524,63 @@ def main() -> None:
             normals_phys=normals_phys,
         )
 
+    # NCI surface computation (grad cube defines the surface, dens cube provides geometry)
+    if args.nci_surf and cube_data is not None:
+        from typing import cast
+
+        import numpy as np
+
+        from xyzrender.cube import parse_cube
+        from xyzrender.nci import build_nci_contours
+        from xyzrender.types import resolve_color
+        from xyzrender.utils import kabsch_rotation, pca_orient
+
+        cube = cast("CubeData", cube_data)
+        nci_grad_cube = parse_cube(args.nci_surf)
+
+        if cube.grid_shape != nci_grad_cube.grid_shape:
+            p.error(
+                f"Grid shape mismatch: density cube {cube.grid_shape} vs NCI gradient cube "
+                f"{nci_grad_cube.grid_shape}. Both cubes must come from the same calculation."
+            )
+
+        nci_color = resolve_color(args.nci_color or config_data.get("nci_color", "forestgreen"))
+        nci_isovalue = args.iso if args.iso is not None else config_data.get("nci_iso", 0.3)
+        nci_coloring = args.nci_coloring or "uniform"
+
+        rot = None
+        if cfg.auto_orient:
+            node_ids = list(graph.nodes())
+            pos = np.array([graph.nodes[i]["position"] for i in node_ids], dtype=float)
+            oriented, rot = pca_orient(pos, return_matrix=True)
+            for idx, nid in enumerate(node_ids):
+                graph.nodes[nid]["position"] = tuple(oriented[idx].tolist())
+            cfg.auto_orient = False
+
+        if rot is None:
+            orig = np.array([p for _, p in cube.atoms], dtype=float)
+            curr = np.array([graph.nodes[i]["position"] for i in graph.nodes()], dtype=float)
+            if not np.allclose(orig, curr, atol=1e-6):
+                rot = kabsch_rotation(orig, curr)
+
+        atom_centroid = np.array([p for _, p in cube.atoms], dtype=float).mean(axis=0)
+        node_ids_nci = list(graph.nodes())
+        curr_centroid = np.array(
+            [graph.nodes[i]["position"] for i in node_ids_nci],
+            dtype=float,
+        ).mean(axis=0)
+
+        cfg.nci_contours = build_nci_contours(
+            nci_grad_cube,
+            cube,
+            isovalue=nci_isovalue,
+            color=nci_color,
+            color_mode=nci_coloring,
+            rot=rot,
+            atom_centroid=atom_centroid,
+            target_centroid=curr_centroid,
+        )
+
     # Render static output
     svg = render_svg(graph, cfg)
     _write_output(svg, args.output, cfg, p)
@@ -523,7 +612,7 @@ def main() -> None:
                 axis=args.gif_rot,
                 n_frames=args.rot_frames,
                 reference_graph=graph,
-                detect_nci=args.nci,
+                detect_nci=args.nci_detect,
             )
         elif args.gif_ts:
             if not args.input:
@@ -537,7 +626,7 @@ def main() -> None:
                 ts_frame=args.ts_frame,
                 fps=args.gif_fps,
                 reference_graph=graph,
-                detect_nci=args.nci,
+                detect_nci=args.nci_detect,
             )
         elif args.gif_trj:
             if not args.input:
@@ -553,7 +642,7 @@ def main() -> None:
                 multiplicity=args.multiplicity,
                 fps=args.gif_fps,
                 reference_graph=graph,
-                detect_nci=args.nci,
+                detect_nci=args.nci_detect,
                 axis=args.gif_rot or None,
                 kekule=args.kekule,
             )
