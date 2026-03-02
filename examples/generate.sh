@@ -37,8 +37,16 @@ xyzrender "$DIR/Hbond.xyz" --hy --nci-bond "8-9" -o "$OUT/nci_man.svg"  # specif
 xyzrender "$DIR/Hbond.xyz" --hy --nci -o "$OUT/nci.svg"  # specific NCI bond only
 xyzrender "$DIR/bimp.out" --nci -o "$OUT/bimp_nci.svg"  # all NCI bonds
 
+echo "=== Annotations & measurements ==="
+xyzrender "$DIR/caffeine.xyz" --idx -o "$OUT/caffeine_idx.svg" 
+xyzrender "$DIR/caffeine.xyz" --idx n --hy --label-size 25 -o "$OUT/caffeine_idx_n.svg" 
+xyzrender "$DIR/caffeine.xyz" --hy --cmap "$DIR/caffeine_charges.txt" -o "$OUT/caffeine_cmap.svg" --gif-rot -go "$OUT/caffeine_cmap.gif"
+xyzrender "$DIR/caffeine.xyz" --hy --cmap "$DIR/caffeine_charges.txt" -o "$OUT/caffeine_cmap.svg" --cmap-range -0.5 0.5
+xyzrender "$DIR/caffeine.xyz" -l 13 6 9 4 t -l 1 a -l 14 d -l 7 12 8 a -l 11 d -o "$OUT/caffeine_dihedral.svg"
+xyzrender "$DIR/sn2.out" --ts --label "$OUT/sn2_label.txt" -o "$OUT/sn2_ts_label.svg" --label-size 40
+
 echo "=== Molecular orbitals ==="
-xyzrender "$DIR/caffeine_lumo.cube" --mo --mo-color maroon teal -o "$OUT/caffeine_lumo.svg"
+xyzrender "$DIR/caffeine_lumo.cube" --mo --mo-colors maroon teal -o "$OUT/caffeine_lumo.svg"
 xyzrender "$DIR/caffeine_homo.cube" --mo --hy --iso 0.03 -o "$OUT/caffeine_homo_iso_hy.svg"
 xyzrender "$DIR/caffeine_homo.cube" --mo -o "$OUT/caffeine_homo_rot.svg" --gif-rot -go "$OUT/caffeine_homo.gif"
 

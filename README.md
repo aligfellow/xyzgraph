@@ -191,6 +191,123 @@ xyzrender bimp.out -o bimp_qm.svg             # ORCA output
 xyzrender mn-h2.log -o mn-h2_qm.svg --ts      # Gaussian log with TS detection
 ```
 
+### Measurements & annotations
+
+#### Bond measurements (`--measure`)
+
+Print bonded distances, angles, and dihedral angles to stdout as a formatted table. This is terminal-only — the SVG is still rendered as normal.
+
+```bash
+xyzrender ethanol.xyz --measure 
+xyzrender ethanol.xyz --measure d # bonded distances only (a for angles, t for torsion/dihedral)
+```
+
+```text
+Bond Distances:
+     C1 - C2     1.498Å
+     C1 - H4     1.104Å
+     ...
+Bond Angles:
+     C2 - C1 - H5     109.62°
+     C2 - C1 - H6     111.98°
+     ...
+Dihedral Angles:
+     H5 - C1 - C2 - O3      -55.99°
+     H5 - C1 - C2 - H7     -177.53°
+     ...
+```
+
+- `d`, `a` and `t` can be combined
+- *e.g.* `--measure d a` prints bonds and angles only
+
+#### Atom index labels (`--idx`)
+
+Add atom index labels centred on every atom in the SVG. Three format options:
+
+| Index + symbol | Index only |
+|----------------|------------|
+| ![idx](examples/caffeine_idx.svg) | ![idx](examples/caffeine_idx_n.svg) |
+
+```bash
+xyzrender caffeine.xyz --idx                          # symbol + index
+xyzrender caffeine.xyz --hy --idx n --label-size 25   # index only
+xyzrender caffeine.xyz --hy --idx s                   # symbols only
+```
+
+#### SVG annotations (`-l` / `--label`) 
+
+Annotate specific bonds, angles, atoms, or dihedrals with computed or custom text. The **last token** of each spec determines its type. All atom indices are **1-based**.
+
+| Spec | SVG output |
+|------|------------|
+| `-l 1 2 d` | Distance text at the 1–2 bond midpoint |
+| `-l 1 d` | Distance text on every bond incident to atom 1 |
+| `-l 1 2 3 a` | Arc at atom 2 (the vertex) + angle value text |
+| `-l 2 a` | Arc + value for all angles where atom 2 is the vertex |
+| `-l 1 2 3 4 t` | Colored line 1-2-3-4 + dihedral value near bond 2–3 |
+| `-l 1 +0.512` | Custom text near atom 1 |
+| `-l 1 2 NBO` | Custom text at the 1–2 bond midpoint |
+
+| distances + angles + dihedrals | custom annotation | 
+|-------------------|-------------------|
+| ![dihedral](examples/caffeine_dihedral.svg) | ![labels](examples/caffeine_labels.svg) | 
+
+
+```bash
+xyzrender caffeine.xyz -l 13 6 9 4 t -l 1 a -l 14 d -l 7 12 8 a -l 11 d
+xyzrender caffeine.xyz -l 1 best -l 2 "NBO: 0.4"
+```
+
+- `-l` is repeatable  
+- For explicit bond pairs (`i j d`) with no actual bond edge in the graph, a warning is printed and the label is placed at the midpoint anyway  
+  - useful for hydrogen-bond or contact distances.
+
+**Bulk annotation file** (`--label FILE`):
+
+Same syntax, per line. Lines whose first token is not an integer (e.g. CSV headers) are silently skipped, so df can be written directly to file. Comment lines (#) are okay, quoted labels are okay (*e.g.* "pKa: 5")
+
+| Label file |
+|---------------------|
+| ![sn2](examples/sn2_ts_label.svg) |
+
+```
+# sn2_charges.txt — comma or whitespace separated,
+2 1 d 
+1 22 d
+2 1 22 a
+```
+
+```bash
+xyzrender sn2.out --ts --label sn2_label.txt --label-size 40
+```
+
+#### Atom property colormap (`--cmap`)
+
+Color atoms by a per-atom scalar value using a Viridis-like colormap. Useful for partial charges, and any other atomic property.
+
+| Mulliken charges | Symmetric range |
+|------------------|------------------| 
+| ![cmap](examples/caffeine_cmap.gif) | ![cmap](examples/caffeine_cmap.svg) | 
+
+
+The colormap file has two columns - **1-indexed atom number** and value. Any extension works (*e.g.* `.txt`, `.csv`) as long as this file is comma or whitespace separated. Header lines (any line whose first token is not an integer) are silently skipped. Comment and blank lines (`#`) are also skipped.
+
+```
+# charges.txt — whitespace or comma separated
+1  +0.512
+2  -0.234
+3   0.041
+```
+
+```bash
+xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --gif-rot
+xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-range -0.5 0.5
+```
+
+- Atoms **in the file**: colored by Viridis-like colormap (dark purple → blue → green → yellow-green → bright yellow). This colormap never passes through white.
+- Atoms **not in the file**: white (`#ffffff`). White is never a Viridis output, so is unambiguously *not mapped*. The unlabeled color can be overridden via `"cmap_unlabeled"` in a custom preset JSON.
+- Range defaults to the min/max of provided values; override with `--cmap-range vmin vmax`. Use this for a symmetric colour scale.
+
 ### GIF animations
 
 | Rotation (y) | Rotation (xy) |
@@ -240,7 +357,7 @@ Render molecular orbitals from cube files (`.cube`). Requires the `--mo` flag. T
 
 ```bash
 xyzrender caffeine_homo.cube --mo -o caffeine_homo.svg              # HOMO
-xyzrender caffeine_lumo.cube --mo --mo-colour maroon teal -o caffeine_lumo.svg  # LUMO
+xyzrender caffeine_lumo.cube --mo --mo-colors maroon teal -o caffeine_lumo.svg  # LUMO
 xyzrender caffeine_homo.cube --mo --hy --iso 0.03 -o homo_iso_hy.svg  # MO + H atoms + custom isovalue
 xyzrender caffeine_homo.cube --mo --gif-rot -go caffeine_homo.gif   # rotation GIF with MO
 ```
@@ -342,8 +459,7 @@ for interactive rotation. Rotate the molecule to the desired orientation, press
 `z` to output coordinates, then close the window with `q`. `xyzrender` captures the rotated
 coordinates and renders from those.
 
-We can also pipe from v directly: 
-- *though this won't work for computational output files*
+We can also pipe from `v` directly when working with `.xyz` files: 
 
 ```bash
 v molecule.xyz | xyzrender
@@ -364,7 +480,7 @@ Use `--config` to load a styling preset. Built-in presets: `default`, `flat`, `p
 CLI flags override preset values:
 
 ```bash
-xyzrender caffeine.xyz --config paton --bo      # paton preset but with bond orders on
+xyzrender caffeine.xyz --config paton --bo # paton preset but with bond orders on
 xyzrender caffeine.xyz --config default --no-fog
 ```
 
@@ -389,20 +505,33 @@ xyzrender caffeine.xyz --config default --no-fog
 
 ### Custom presets
 
-Create a JSON file with any combination of settings:
+Create a JSON file with any combination of settings. Include keys you wish to override - everything else falls back to defaults.
 
 ```json
 {
   "canvas_size": 800,
   "atom_scale": 2.5,
   "bond_width": 20,
+  "bond_color": "#000000",
   "atom_stroke_width": 3,
   "gradient": true,
   "gradient_strength": 1.5,
   "fog": true,
   "fog_strength": 1.2,
+  "bond_orders": true,
   "background": "#ffffff",
-  "bond_orders": false,
+  "vdw_opacity": 0.25,
+  "vdw_scale": 1.0,
+  "vdw_gradient_strength": 1.0,
+  "surface_opacity": 1.0,
+  "mo_pos_color": "steelblue",
+  "mo_neg_color": "maroon",
+  "dens_iso": 0.001,
+  "dens_color": "steelblue",
+  "label_font_size": 30,
+  "label_color": "#222222",
+  "label_offset": 1.5,
+  "cmap_unlabeled": "#ffffff",
   "colors": {
     "C": "silver",
     "H": "whitesmoke",
@@ -416,7 +545,7 @@ Create a JSON file with any combination of settings:
 xyzrender caffeine.xyz --config my_style.json
 ```
 
-The `colors` key maps element symbols to hex values (`#D9D9D9`) or [CSS4 named colors](https://matplotlib.org/stable/gallery/color/named_colors.html) (`steelblue`), overriding the default CPK palette.
+The `colors` key maps element symbols to hex values (`#D9D9D9`) or [CSS4 named colors](https://matplotlib.org/stable/gallery/color/named_colors.html) (`steelblue`), overriding the default CPK palette. The `mo_pos_color`, `mo_neg_color`, `dens_iso`, and `dens_color` keys are only used when `--mo`, `--dens`, or `--esp` is active.
 
 ## GIF animation
 
@@ -442,24 +571,51 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `-m`, `--multiplicity` | Spin multiplicity |
 | `--config` | Config preset or JSON path |
 | `-d`, `--debug` | Debug logging |
+| **Styling** | |
+| `-S`, `--canvas-size` | Canvas size in px (default: 800) |
+| `-a`, `--atom-scale` | Atom radius scale factor |
+| `-b`, `--bond-width` | Bond stroke width |
+| `-s`, `--atom-stroke-width` | Atom outline stroke width |
+| `--bond-color` | Bond color (hex or named) |
+| `-B`, `--background` | Background color |
+| `-G`, `--gradient-strength` | Gradient contrast multiplier |
+| `--grad` / `--no-grad` | Radial gradient toggle |
+| `-F`, `--fog-strength` | Depth fog strength |
+| `--fog` / `--no-fog` | Depth fog toggle |
+| `--bo` / `--no-bo` | Bond order rendering toggle |
+| **Display** | |
+| `--hy` | Show H atoms (no args=all, or 1-indexed) |
+| `--no-hy` | Hide all H atoms |
+| `-k`, `--kekule` | Use Kekule bond orders (no aromatic 1.5) |
+| `--vdw` | vdW spheres (no args=all, or index ranges) |
+| `--vdw-opacity` | vdW sphere opacity (default: 0.25) |
+| `--vdw-scale` | vdW sphere radius scale |
+| `--vdw-gradient` | vdW sphere gradient strength |
+| **Orientation** | |
 | `-I`, `--interactive` | Interactive rotation via `v` viewer |
 | `--orient` / `--no-orient` | Auto-orientation toggle |
+| **TS / NCI** | |
 | `--ts` | Auto-detect TS bonds via graphRC |
 | `--ts-frame` | TS reference frame (0-indexed) |
 | `--ts-bond` | Manual TS bond pair(s) (1-indexed) |
 | `--nci` | Auto-detect NCI interactions |
 | `--nci-bond` | Manual NCI bond pair(s) (1-indexed) |
-| `--hy` | Show H atoms (no args=all, or 1-indexed) |
-| `--no-hy` | Hide all H atoms |
-| `-k`, `--kekule` | Use Kekule bond orders (no aromatic 1.5) |
-| `--vdw` | vdW spheres (no args=all, or index ranges) |
+| **Surfaces** | |
 | `--mo` | Render MO lobes from `.cube` input |
-| `--iso` | Isosurface threshold (MO default: 0.05, density default: 0.001) |
-| `--opacity` | Surface opacity multiplier (default: 1.0) |
 | `--mo-colors` | MO lobe colors (hex or named: POS NEG) |
 | `--dens` | Render density isosurface from `.cube` input |
 | `--dens-color` | Density surface color (default: `steelblue`) |
 | `--esp CUBE` | ESP cube file for potential coloring (implies `--dens`) |
+| `--iso` | Isosurface threshold (MO default: 0.05, density/ESP default: 0.001) |
+| `--opacity` | Surface opacity multiplier (default: 1.0) |
+| **Annotations** | |
+| `--measure [TYPE...]` | Print bond measurements to stdout (`d`, `a`, `t`; combine or omit for all) |
+| `--idx [FMT]` | Atom index labels in SVG (`sn` = C1, `s` = C, `n` = 1) |
+| `-l TOKEN...` | Inline SVG annotation (repeatable); 1-based indices |
+| `--label FILE` | Bulk annotation file (same syntax as `-l`, CSV-friendly) |
+| `--label-size PT` | Label font size (overrides preset) |
+| `--cmap FILE` | Per-atom property colormap (Viridis, 1-indexed) |
+| `--cmap-range VMIN VMAX` | Explicit colormap range (default: auto from file) |
 
 ## Development
 
