@@ -103,9 +103,10 @@ def main() -> None:
     style_g.add_argument("-s", "--atom-stroke-width", type=float, default=None)
     style_g.add_argument("--bond-color", default=None, help="Bond color (hex or named)")
     style_g.add_argument("-B", "--background", default=None)
+    style_g.add_argument("-t", "--transparent", action="store_true", help="Transparent background")
     style_g.add_argument("-G", "--gradient-strength", type=float, default=None, help="Gradient contrast")
     style_g.add_argument("--grad", action=argparse.BooleanOptionalAction, default=None, help="Radial gradients")
-    style_g.add_argument("-F", "--fog-strength", type=float, default=None)
+    style_g.add_argument("-F", "--fog-strength", type=float, default=None, help="Fog strength")
     style_g.add_argument("--vdw-opacity", type=float, default=None, help="VdW sphere opacity")
     style_g.add_argument("--vdw-scale", type=float, default=None, help="VdW sphere radius scale")
     style_g.add_argument("--vdw-gradient", type=float, default=None, help="VdW sphere gradient strength")
@@ -228,7 +229,6 @@ def main() -> None:
     )
 
     args = p.parse_args()
-
     from xyzrender import configure_logging
 
     configure_logging(verbose=True, debug=args.debug)
@@ -244,6 +244,7 @@ def main() -> None:
         ("atom_stroke_width", "atom_stroke_width"),
         ("bond_color", "bond_color"),
         ("gradient_strength", "gradient_strength"),
+        ("transparent", "transparent"),
         ("fog_strength", "fog_strength"),
         ("background", "background"),
         ("vdw_opacity", "vdw_opacity"),
@@ -300,7 +301,7 @@ def main() -> None:
 
     wants_gif = args.gif_ts or args.gif_rot or args.gif_trj
 
-    # Warn when annotation/cmap flags (static-SVG only) are combined with GIF output
+    # Warn when annotation flags (static-SVG only) are combined with GIF output
     annotation_flags_used = args.idx is not None or args.label_specs or args.label
     if annotation_flags_used and wants_gif:
         print(
@@ -315,6 +316,10 @@ def main() -> None:
             "--gif-ts and --gif-trj are mutually exclusive. "
             "Use --gif-trj with --ts if you want TS bonds shown in the trj gif"
         )
+
+    if args.transparent and args.background is not None:
+        logger.warning("--transparent and --background are mutually exclusive; using transparent")
+        args.background = None
 
     is_cube = args.input and args.input.endswith(".cube")
 

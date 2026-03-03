@@ -494,10 +494,11 @@ xyzrender caffeine.xyz --config default --no-fog
 | `--bond-color` | Bond color (hex or named) |
 | `-S`, `--canvas-size` | Canvas size in pixels (default: 800) |
 | `-B`, `--background` | Background color (hex or named, default: `#ffffff`) |
-| `-G`, `--gradient-strength` | Gradient contrast |
-| `-F`, `--fog-strength` | Depth fog strength |
+| `-t`, `--transparent` | Transparent background |
 | `--grad` / `--no-grad` | Toggle radial gradients |
+| `-G`, `--gradient-strength` | Gradient contrast |
 | `--fog` / `--no-fog` | Toggle depth fog |
+| `-F`, `--fog-strength` | Depth fog strength |
 | `--bo` / `--no-bo` | Toggle bond order rendering |
 | `--vdw-opacity` | vdW sphere opacity |
 | `--vdw-scale` | vdW sphere radius scale |
@@ -578,6 +579,7 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `-s`, `--atom-stroke-width` | Atom outline stroke width |
 | `--bond-color` | Bond color (hex or named) |
 | `-B`, `--background` | Background color |
+| `-t`, `--transparent` | Transparent background |
 | `-G`, `--gradient-strength` | Gradient contrast multiplier |
 | `--grad` / `--no-grad` | Radial gradient toggle |
 | `-F`, `--fog-strength` | Depth fog strength |

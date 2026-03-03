@@ -574,4 +574,4 @@ def _stitch_gif(pngs: list[bytes], output: str, fps: int) -> None:
 
     duration = int(1000 / fps)
     logger.debug("Stitching %d frames at %d fps (%d ms/frame)", len(images), fps, duration)
-    images[0].save(output, save_all=True, append_images=images[1:], duration=duration, loop=0)
+    images[0].save(output, save_all=True, append_images=images[1:], duration=duration, loop=0, disposal=2)
