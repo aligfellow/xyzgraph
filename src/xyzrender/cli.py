@@ -103,6 +103,7 @@ def main() -> None:
     style_g.add_argument("-s", "--atom-stroke-width", type=float, default=None)
     style_g.add_argument("--bond-color", default=None, help="Bond color (hex or named)")
     style_g.add_argument("-B", "--background", default=None)
+    style_g.add_argument("--transparent", action=argparse.BooleanOptionalAction, default=False, help="Transparent background")
     style_g.add_argument("-G", "--gradient-strength", type=float, default=None, help="Gradient contrast")
     style_g.add_argument("--grad", action=argparse.BooleanOptionalAction, default=None, help="Radial gradients")
     style_g.add_argument("-F", "--fog-strength", type=float, default=None)
@@ -228,7 +229,6 @@ def main() -> None:
     )
 
     args = p.parse_args()
-
     from xyzrender import configure_logging
 
     configure_logging(verbose=True, debug=args.debug)
@@ -244,6 +244,7 @@ def main() -> None:
         ("atom_stroke_width", "atom_stroke_width"),
         ("bond_color", "bond_color"),
         ("gradient_strength", "gradient_strength"),
+        ("transparent", "transparent"),
         ("fog_strength", "fog_strength"),
         ("background", "background"),
         ("vdw_opacity", "vdw_opacity"),

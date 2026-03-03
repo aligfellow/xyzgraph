@@ -162,6 +162,7 @@ class RenderConfig:
     vdw_gradient_strength: float = 1.0  # scales lighten/darken of VdW sphere gradient
     auto_orient: bool = False
     background: str = "#ffffff"
+    transparent: bool = False
     dpi: int = 300
     fixed_span: float | None = None  # fixed viewport span (disables auto-fit)
     fixed_center: tuple[float, float] | None = None  # fixed XY center (disables auto-center)
