@@ -1,0 +1,4 @@
+# labelling for sn2 TS
+2 1 d 
+1 22 d
+2 1 22 a

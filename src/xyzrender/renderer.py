@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 
 import numpy as np
 from xyzgraph import DATA
 
-from xyzrender.colors import _FOG_NEAR, WHITE, blend_fog, get_color, get_gradient_colors
+from xyzrender.colors import _FOG_NEAR, WHITE, blend_fog, cmap_viridis, get_color, get_gradient_colors
 from xyzrender.dens import dens_layers_svg
 from xyzrender.mo import (
     classify_mo_lobes,
@@ -15,12 +16,13 @@ from xyzrender.mo import (
     mo_front_lobes_svg,
     mo_gradient_defs_svg,
 )
-from xyzrender.types import BondStyle, RenderConfig
+from xyzrender.types import BondStyle, Color, RenderConfig
 
 logger = logging.getLogger(__name__)
 
 _RADIUS_SCALE = 0.075  # VdW → display radius
 _REF_SPAN = 6.0  # reference molecular span (Å) for proportional bond/stroke scaling
+_REF_CANVAS = 800  # reference canvas size (px) — bond/label widths are defined at this size
 _CENTROID_VDW = 0.5  # VdW radius (Å) for NCI pi-system centroid dummy nodes
 _H_ATOM_SCALE = 0.6  # display-radius shrink factor for H atoms (ball-and-stick)
 _H_VDW_SCALE = 0.8  # VdW-sphere shrink factor for H atoms
@@ -80,18 +82,33 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         extra_hi = np.array([cfg.esp_surface.x_max, cfg.esp_surface.y_max])
     scale, cx, cy, canvas_w, canvas_h = _fit_canvas(pos, fit_radii, cfg, extra_lo=extra_lo, extra_hi=extra_hi)
 
-    # Scale bond width and stroke proportionally with zoom so ratios stay constant
-    ref_scale = (cfg.canvas_size - 2 * cfg.padding) / _REF_SPAN
+    # scale_ratio: encodes both molecule complexity AND canvas size so that
+    # bond/label widths defined at _REF_CANVAS grow proportionally on larger canvases.
+    ref_scale = (_REF_CANVAS - 2 * cfg.padding) / _REF_SPAN
     scale_ratio = scale / ref_scale
     bw = cfg.bond_width * scale_ratio
     sw = cfg.atom_stroke_width * scale_ratio
+    fs_label = cfg.label_font_size * scale_ratio
 
     if _log:
         logger.debug(
             "Render: %d atoms, %d bonds, scale=%.2f, center=(%.2f, %.2f)", n, graph.number_of_edges(), scale, cx, cy
         )
     z_order = np.argsort(pos[:, 2])
-    colors = [get_color(a, cfg.color_overrides) for a in a_nums]
+
+    # Atom base colors — CPK by default, Viridis cmap when --cmap is active
+    if cfg.atom_cmap is not None:
+        cmap_vals = cfg.atom_cmap
+        if cfg.cmap_range is not None:
+            vmin, vmax = cfg.cmap_range
+        else:
+            vmin = min(cmap_vals.values())
+            vmax = max(cmap_vals.values())
+        vrange = max(vmax - vmin, 1e-10)
+        unlabeled = Color.from_hex(cfg.cmap_unlabeled)
+        colors = [cmap_viridis((cmap_vals[ai] - vmin) / vrange) if ai in cmap_vals else unlabeled for ai in range(n)]
+    else:
+        colors = [get_color(a, cfg.color_overrides) for a in a_nums]
 
     # Bond lookup: (bond_order, style)
     bonds: dict[tuple[int, int], tuple[float, BondStyle]] = {}
@@ -161,17 +178,22 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     svg.append(f'  <rect width="100%" height="100%" fill="{cfg.background}"/>')
 
     use_grad = cfg.gradient
+    # Cmap gives each atom a unique color — must use per-atom gradient defs (like fog mode)
+    use_per_atom_grad = cfg.fog or cfg.atom_cmap is not None
     if use_grad:
         svg.append("  <defs>")
-        if cfg.fog:
-            # Per-atom gradients: fog at half strength preserves gradient pop
+        if use_per_atom_grad:
+            # Per-atom gradient defs
             for ai in range(n):
                 if ai in hidden:
                     continue
-                t = min(fog_f[ai] ** 2 * 0.7, 0.70)
                 hi, lo = get_gradient_colors(colors[ai], cfg.gradient_strength)
-                hi, lo = hi.blend(WHITE, t), lo.blend(WHITE, t)
-                fs = blend_fog(cfg.atom_stroke_color, fog_rgb, fog_f[ai])
+                if cfg.fog:
+                    t = min(fog_f[ai] ** 2 * 0.7, 0.70)
+                    hi, lo = hi.blend(WHITE, t), lo.blend(WHITE, t)
+                    fs = blend_fog(cfg.atom_stroke_color, fog_rgb, fog_f[ai])
+                else:
+                    fs = cfg.atom_stroke_color
                 r = radii[ai] * scale
                 sa = f' stroke="{fs}" stroke-width="{sw:.1f}"'
                 svg.append(
@@ -180,6 +202,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                     f'</radialGradient><circle cx="0" cy="0" r="{r:.1f}" fill="url(#g{ai})"{sa}/></g>'
                 )
         else:
+            # Shared gradient defs keyed by atomic number (no fog, no cmap)
             seen = set()
             for ai in range(n):
                 an = a_nums[ai]
@@ -309,7 +332,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
         # Atom
         if use_grad:
-            ref = f"#a{ai}" if cfg.fog else f"#a{a_nums[ai]}"
+            ref = f"#a{ai}" if use_per_atom_grad else f"#a{a_nums[ai]}"
             svg.append(f'  <use x="{xi:.1f}" y="{yi:.1f}" xlink:href="{ref}"/>')
         else:
             fill, stroke = colors[ai].hex, cfg.atom_stroke_color
@@ -320,6 +343,18 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 f'  <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{radii[ai] * scale:.1f}" '
                 f'fill="{fill}" stroke="{stroke}" stroke-width="{sw:.1f}"/>'
             )
+
+        # Atom index label — depth-sorted with atom so nearer atoms occlude it
+        if cfg.show_indices:
+            fmt = cfg.idx_format
+            sym = symbols[ai]
+            if fmt == "sn":
+                idx_text = f"{sym}{ai + 1}"
+            elif fmt == "s":
+                idx_text = sym
+            else:  # "n"
+                idx_text = str(ai + 1)
+            svg.append(_text_svg(xi, yi, idx_text, fs_label, cfg.label_color, halo=False))
 
         # Bonds to deeper atoms
         for aj in z_order[idx + 1 :]:
@@ -354,6 +389,15 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 xi, yi = _proj(pos[ai], scale, cx, cy, canvas_w, canvas_h)
                 svg.append(f'    <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{vr:.1f}" fill="url(#vg{a_nums[ai]})"/>')
         svg.append("  </g>")
+
+    # --- Annotations (bond/angle/dihedral/custom labels, always on top) ---
+    has_annotations = bool(cfg.annotations)
+    if has_annotations:
+        svg.extend(
+            _annotations_svg(
+                graph, cfg, pos, hidden, scale, cx, cy, canvas_w, canvas_h, fog_f, fog_rgb, bw, fs_label, radii
+            )
+        )
 
     svg.append("</svg>")
     return "\n".join(svg)
@@ -395,6 +439,147 @@ def _fit_canvas(pos, radii, cfg, extra_lo=None, extra_hi=None):
 def _proj(p, scale, cx, cy, cw, ch):
     """3D position → 2D pixel coordinates (y-flipped for SVG)."""
     return cw / 2 + scale * (p[0] - cx), ch / 2 - scale * (p[1] - cy)
+
+
+def _text_svg(x: float, y: float, text: str, font_size: float, color: str, *, halo: bool = True) -> str:
+    """SVG <text> element, bold, with optional white halo for legibility over bond lines."""
+    base = (
+        f'  <text x="{x:.1f}" y="{y:.1f}" font-family="monospace" font-size="{font_size}px" '
+        f'font-weight="bold" fill="{color}" text-anchor="middle" dominant-baseline="central"'
+    )
+    if halo:
+        sw = font_size * 0.35
+        style = f"paint-order:stroke;stroke:#ffffff;stroke-width:{sw:.1f}px;stroke-linejoin:round"
+        return base + f' style="{style}">{text}</text>'
+    return base + f">{text}</text>"
+
+
+# Palette for dihedral path segments — distinct, never white
+_DIHEDRAL_PALETTE = ["#984ea3", "#458f41", "#3177b0", "#a72d2f", "#A46424"]
+
+
+def _annotations_svg(
+    graph,
+    cfg: RenderConfig,
+    pos: np.ndarray,
+    hidden: set,
+    scale: float,
+    cx: float,
+    cy: float,
+    canvas_w: int,
+    canvas_h: int,
+    fog_f: np.ndarray,
+    fog_rgb: np.ndarray,
+    bw: float,
+    fs: float,
+    radii: np.ndarray,
+) -> list[str]:
+    """Render all annotation elements as a flat list of SVG strings."""
+    from xyzrender.annotations import AngleLabel, AtomValueLabel, BondLabel, DihedralLabel
+
+    svg: list[str] = []
+    col = cfg.label_color
+
+    # Separate passes for each annotation type
+    dihedral_idx = 0
+    for ann in cfg.annotations:
+        if isinstance(ann, AtomValueLabel):
+            xi, yi = _proj(pos[ann.index], scale, cx, cy, canvas_w, canvas_h)
+            svg.append(_text_svg(xi, yi + fs * cfg.label_offset, ann.text, fs, col))
+
+        elif isinstance(ann, BondLabel):
+            mi = (pos[ann.i] + pos[ann.j]) / 2
+            mx, my = _proj(mi, scale, cx, cy, canvas_w, canvas_h)
+            # Perpendicular offset so label doesn't overlap bond line
+            xi, yi = _proj(pos[ann.i], scale, cx, cy, canvas_w, canvas_h)
+            xj, yj = _proj(pos[ann.j], scale, cx, cy, canvas_w, canvas_h)
+            dx, dy = xj - xi, yj - yi
+            ln = (dx * dx + dy * dy) ** 0.5
+            bl_off = fs * cfg.label_offset
+            if ln > 1e-3:
+                px_off, py_off = dy / ln * bl_off, -dx / ln * bl_off
+            else:
+                px_off, py_off = 0.0, bl_off
+            svg.append(_text_svg(mx + px_off, my + py_off, ann.text, fs, col))
+
+        elif isinstance(ann, AngleLabel):
+            xi, yi = _proj(pos[ann.i], scale, cx, cy, canvas_w, canvas_h)
+            xj, yj = _proj(pos[ann.j], scale, cx, cy, canvas_w, canvas_h)
+            xk, yk = _proj(pos[ann.k], scale, cx, cy, canvas_w, canvas_h)
+
+            # 2D vectors from center j toward i and k
+            vi = np.array([xi - xj, yi - yj])
+            vk = np.array([xk - xj, yk - yj])
+            li, lk = np.linalg.norm(vi), np.linalg.norm(vk)
+            if li < 1e-3 or lk < 1e-3:
+                continue
+            vi_hat = vi / li
+            vk_hat = vk / lk
+
+            arc_r = radii[ann.j] * scale * 1.5  # scaled with the vertex atom radius
+
+            # Arc endpoints on the unit circle around j
+            sx = xj + arc_r * vi_hat[0]
+            sy = yj + arc_r * vi_hat[1]
+            ex = xj + arc_r * vk_hat[0]
+            ey = yj + arc_r * vk_hat[1]
+
+            # Sweep direction: go from vi to vk the short way (inside of angle)
+            cross = vi_hat[0] * vk_hat[1] - vi_hat[1] * vk_hat[0]
+            sweep = 1 if cross > 0 else 0
+
+            arc = f"M {sx:.1f},{sy:.1f} A {arc_r:.1f},{arc_r:.1f} 0 0,{sweep} {ex:.1f},{ey:.1f}"
+            svg.append(
+                f'  <path d="{arc}" fill="none" stroke="{col}"'
+                f' stroke-width="{bw * 0.5:.1f}"'
+                f' stroke-dasharray="{bw * 0.8:.1f},{bw * 1.0:.1f}" stroke-linecap="round"/>'
+            )
+
+            # Text at bisector, beyond the arc; distance scales with label_offset
+            mid = vi_hat + vk_hat
+            mid_len = np.linalg.norm(mid)
+            if mid_len > 1e-6:
+                mid_hat = mid / mid_len
+            else:
+                mid_hat = np.array([-vi_hat[1], vi_hat[0]])
+            tx = xj + (arc_r + fs * cfg.label_offset * 0.5) * mid_hat[0]
+            ty = yj + (arc_r + fs * cfg.label_offset * 0.75) * mid_hat[1]
+            svg.append(_text_svg(tx, ty, ann.text, fs, col))
+
+        elif isinstance(ann, DihedralLabel):
+            seg_color = _DIHEDRAL_PALETTE[dihedral_idx % len(_DIHEDRAL_PALETTE)]
+            dihedral_idx += 1
+
+            # Draw 3 segments: i-j, j-k, k-m, each fog-blended by segment midpoint depth
+            atoms_seq = [ann.i, ann.j, ann.k, ann.m]
+            for seg_a, seg_b in itertools.pairwise(atoms_seq):
+                xa, ya = _proj(pos[seg_a], scale, cx, cy, canvas_w, canvas_h)
+                xb, yb = _proj(pos[seg_b], scale, cx, cy, canvas_w, canvas_h)
+                seg_col = seg_color
+                if cfg.fog:
+                    avg_fog = (fog_f[seg_a] + fog_f[seg_b]) / 2 * 0.75
+                    seg_col = blend_fog(seg_color, fog_rgb, avg_fog)
+                svg.append(
+                    f'  <line x1="{xa:.1f}" y1="{ya:.1f}" x2="{xb:.1f}" y2="{yb:.1f}" '
+                    f'stroke="{seg_col}" stroke-width="{bw * 0.5:.1f}" stroke-linecap="round" '
+                    f'stroke-dasharray="{bw * 1.0:.1f},{bw * 1.25:.1f}"/>'
+                )
+
+            # Text near j-k midpoint, perpendicular offset opposite to BondLabel
+            mid_jk = (pos[ann.j] + pos[ann.k]) / 2
+            mx, my = _proj(mid_jk, scale, cx, cy, canvas_w, canvas_h)
+            xj2, yj2 = _proj(pos[ann.j], scale, cx, cy, canvas_w, canvas_h)
+            xk2, yk2 = _proj(pos[ann.k], scale, cx, cy, canvas_w, canvas_h)
+            ddx, ddy = xk2 - xj2, yk2 - yj2
+            dln = (ddx * ddx + ddy * ddy) ** 0.5
+            doff = fs * cfg.label_offset * 0.5
+            if dln > 1e-3:
+                dpx, dpy = -ddy / dln * doff, ddx / dln * doff
+            else:
+                dpx, dpy = 0.0, -doff
+            svg.append(_text_svg(mx + dpx, my + dpy, ann.text, fs, col))
+
+    return svg
 
 
 def _ring_side(pos, ai, aj, aromatic_rings, x1, y1, x2, y2, px, py, scale, cx, cy, canvas_w, canvas_h):

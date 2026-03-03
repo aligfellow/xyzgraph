@@ -7,6 +7,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from xyzrender.annotations import Annotation
     from xyzrender.esp import ESPSurface
     from xyzrender.mo import MOContours
 
@@ -170,3 +171,14 @@ class RenderConfig:
     dens_contours: MOContours | None = None
     esp_surface: ESPSurface | None = None
     surface_opacity: float = 1.0
+    # Annotations and measurements
+    annotations: list[Annotation] = field(default_factory=list)
+    show_indices: bool = False
+    idx_format: str = "sn"  # "sn" (C1) | "s" (C) | "n" (1) — 1-indexed numbers
+    label_font_size: float = 11.0
+    label_color: str = "#222222"
+    label_offset: float = 0.5  # perpendicular label offset as a fraction of font size (bond: -, dihedral: +)
+    # Atom property colormap (--cmap)
+    atom_cmap: dict[int, float] | None = None
+    cmap_range: tuple[float, float] | None = None
+    cmap_unlabeled: str = "#ffffff"  # fill for atoms absent from cmap file

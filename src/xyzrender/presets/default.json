@@ -20,5 +20,9 @@
   "dens_color": "steelblue",
   "colors": {
     "C": "#AAAAAA"
-  }
+  },
+  "label_font_size": 30,
+  "label_color": "#222222",
+  "label_offset": 1.5,
+  "cmap_unlabeled": "#ffffff"
 }
