@@ -443,16 +443,23 @@ def _proj(p, scale, cx, cy, cw, ch):
 
 
 def _text_svg(x: float, y: float, text: str, font_size: float, color: str, *, halo: bool = True) -> str:
-    """SVG <text> element, bold, with optional white halo for legibility over bond lines."""
-    base = (
-        f'  <text x="{x:.1f}" y="{y:.1f}" font-family="monospace" font-size="{font_size}px" '
-        f'font-weight="bold" fill="{color}" text-anchor="middle" dominant-baseline="central"'
+    """SVG <text> element, bold, with optional white halo for legibility over bond lines.
+
+    Halo is rendered as a separate stroke-only element underneath rather than via
+    ``paint-order:stroke`` which is unsupported by CairoSVG (breaks PNG/PDF export).
+    """
+    attrs = (
+        f'x="{x:.1f}" y="{y:.1f}" font-family="monospace" font-size="{font_size:.1f}px" '
+        f'font-weight="bold" text-anchor="middle" dominant-baseline="central"'
     )
     if halo:
         sw = font_size * 0.35
-        style = f"paint-order:stroke;stroke:#ffffff;stroke-width:{sw:.1f}px;stroke-linejoin:round"
-        return base + f' style="{style}">{text}</text>'
-    return base + f">{text}</text>"
+        return (
+            f'  <text {attrs} fill="#ffffff" stroke="#ffffff" '
+            f'stroke-width="{sw:.1f}" stroke-linejoin="round">{text}</text>\n'
+            f'  <text {attrs} fill="{color}">{text}</text>'
+        )
+    return f'  <text {attrs} fill="{color}">{text}</text>'
 
 
 # Palette for dihedral path segments — distinct, never white

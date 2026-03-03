@@ -95,8 +95,8 @@ def _parse_spec(tokens: list[str], graph) -> list[Annotation]:
     # First token must be an integer (1-indexed)
     try:
         raw_i0 = int(tokens[0])
-    except ValueError:
-        return []  # silently skip non-integer-first lines (CSV headers, etc.)
+    except ValueError as err:
+        raise ValueError(f"Expected integer atom index, got {tokens[0]!r}") from err
 
     n = len(tokens)
     t_last = tokens[-1].lower()
