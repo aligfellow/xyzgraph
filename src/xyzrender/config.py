@@ -57,6 +57,9 @@ def build_render_config(config_data: dict, cli_overrides: dict) -> RenderConfig:
     # avoid TypeError from unexpected kwargs.
     merged.pop("mo_pos_color", None)
     merged.pop("mo_neg_color", None)
+    merged.pop("mo_iso", None)
+    merged.pop("mo_blur", None)
+    merged.pop("mo_upsample", None)
     merged.pop("dens_iso", None)
     merged.pop("dens_color", None)
 
