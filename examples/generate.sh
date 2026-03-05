@@ -69,4 +69,12 @@ xyzrender "$DIR/mn-h2.log" -o "$OUT/mn-h2_gif.svg" --gif-ts -go "$OUT/mn-h2.gif"
 xyzrender "$DIR/bimp.out" -o "$OUT/bimp_nci.svg" --ts --gif-trj --vdw 84-169 --nci -go "$OUT/bimp_nci_trj.gif"
 xyzrender "$DIR/bimp.out" -o "$OUT/bimp_nci.svg" --gif-ts --gif-rot --vdw 84-169 --nci -go "$OUT/bimp_nci_ts.gif"
 
+echo "=== Crystal / periodic structures ==="
+xyzrender "$DIR/NV63.vasp" -o "$OUT/NV63_vasp.svg"                          # auto-detected as VASP
+xyzrender "$DIR/NV63.in" --interface-mode qe -o "$OUT/NV63_qe.svg"          # explicit QE mode
+xyzrender "$DIR/NV63.vasp" --no-images -o "$OUT/NV63_vasp_no_img.svg"       # hide image atoms
+xyzrender "$DIR/NV63.vasp" --no-cell -o "$OUT/NV63_vasp_no_cell.svg"        # hide unit cell box
+xyzrender "$DIR/NV63.vasp" --view-axis 111 -o "$OUT/NV63_vasp_111.svg"      # look down [111]
+xyzrender "$DIR/NV63.vasp" --view-axis 111 --gif-rot 111 -o "$OUT/NV63_vasp_111_rot.svg" -go "$OUT/NV63_vasp_111.gif"  # look down [111], rotate around [111]
+
 echo "Done! Outputs written to $OUT/"
