@@ -47,7 +47,7 @@ ROTATION_AXES = [
 ]
 
 
-def _rotation_axis(axis_str: str) -> tuple[np.ndarray, float]:
+def _rotation_axis(axis_str: str, lattice: np.ndarray | None = None) -> tuple[np.ndarray, float]:
     """Convert axis string to (unit_axis_vector, sign).
 
     Returns a unit vector defining the rotation axis and a sign (+1/-1)
@@ -57,9 +57,27 @@ def _rotation_axis(axis_str: str) -> tuple[np.ndarray, float]:
     Diagonal axes: ``xy`` → (1,1,0)/sqrt(2), a 45-degree axis between x and y.
     Reversed diagonals: ``yx`` → (1,-1,0)/sqrt(2), the other 45-degree diagonal.
     The ``-`` prefix reverses the rotation direction.
+
+    Crystallographic hkl: a 3-digit string such as ``111``, ``110``, ``001``
+    converts Miller indices to a Cartesian axis using the lattice vectors
+    (requires *lattice* to be provided).  Only single-digit Miller indices
+    (0-9) per component are supported.
     """
     sign = -1.0 if axis_str.startswith("-") else 1.0
     ax = axis_str.lstrip("-")
+
+    # Crystallographic hkl format: all-digit string of length 3
+    if ax.isdigit() and len(ax) == 3:
+        if lattice is None:
+            msg = f"Crystallographic axis {axis_str!r} requires crystal lattice data (--interface-mode or crystal input)"
+            raise ValueError(msg)
+        h, k, l = int(ax[0]), int(ax[1]), int(ax[2])
+        v = h * lattice[0] + k * lattice[1] + l * lattice[2]
+        norm = float(np.linalg.norm(v))
+        if norm < 1e-10:
+            msg = f"Crystallographic axis [{ax}] has zero length (h={h}, k={k}, l={l})"
+            raise ValueError(msg)
+        return v / norm, sign
 
     _unit = {"x": np.array([1.0, 0.0, 0.0]), "y": np.array([0.0, 1.0, 0.0]), "z": np.array([0.0, 0.0, 1.0])}
 
@@ -295,9 +313,20 @@ def render_rotation_gif(
 
     original_positions = {n: graph.nodes[n]["position"] for n in nodes}
 
-    axis_vec, axis_sign = _rotation_axis(axis)
+    # Pass lattice to _rotation_axis for crystallographic hkl axis strings
+    _lattice = config.crystal_data.lattice if config.crystal_data is not None else None
+    axis_vec, axis_sign = _rotation_axis(axis, lattice=_lattice)
     frame = {"positions": list(original_positions.values()), "symbols": [graph.nodes[n]["symbol"] for n in nodes]}
     rot_cfg = _fixed_viewport([frame], config, rotation_axis=axis_vec)
+
+    # Save original crystal state so we can recompute the rotated box each frame.
+    _orig_lattice: np.ndarray | None = None
+    _orig_cell_origin: np.ndarray | None = None
+    _atom_centroid: np.ndarray | None = None
+    if rot_cfg.crystal_data is not None:
+        _orig_lattice = rot_cfg.crystal_data.lattice.copy()
+        _orig_cell_origin = rot_cfg.crystal_data.cell_origin.copy()
+        _atom_centroid = np.array(list(original_positions.values())).mean(axis=0)
 
     # Expand viewport if density surface extends beyond atoms
     if dens_data is not None:
@@ -326,7 +355,6 @@ def render_rotation_gif(
             rot_cfg.fixed_span = 2 * needed
             logger.debug("Expanded GIF viewport for density: r=%.2f -> span=%.2f", dens_r, rot_cfg.fixed_span)
 
-    axis_vec, axis_sign = _rotation_axis(axis)
     step = 360.0 / n_frames
     logger.info("Rendering rotation GIF (%d frames, axis=%s)", n_frames, axis)
     pngs = []
@@ -334,7 +362,19 @@ def render_rotation_gif(
         for n in nodes:
             graph.nodes[n]["position"] = original_positions[n]
 
-        apply_axis_angle_rotation(graph, axis_vec, axis_sign * step * frame_idx)
+        total_angle = axis_sign * step * frame_idx
+        apply_axis_angle_rotation(graph, axis_vec, total_angle)
+
+        # Keep the unit cell box co-rotating with the atoms.
+        if rot_cfg.crystal_data is not None and _orig_lattice is not None:
+            assert _orig_cell_origin is not None and _atom_centroid is not None
+            theta = np.radians(total_angle)
+            k = axis_vec / np.linalg.norm(axis_vec)
+            c_r, s_r = np.cos(theta), np.sin(theta)
+            k_cross = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+            rot_mat = c_r * np.eye(3) + s_r * k_cross + (1 - c_r) * np.outer(k, k)
+            rot_cfg.crystal_data.lattice = (_orig_lattice @ rot_mat.T)
+            rot_cfg.crystal_data.cell_origin = rot_mat @ (_orig_cell_origin - _atom_centroid) + _atom_centroid
 
         if mo_data is not None:
             from xyzrender.mo import recompute_mo
@@ -476,6 +516,10 @@ def _fixed_viewport(frames: list[dict], config: RenderConfig, rotation_axis: np.
     cfg.fixed_span = fixed_span
     cfg.fixed_center = center_xy
     cfg.auto_orient = False
+    # Deep-copy crystal_data so GIF frame updates to lattice/cell_origin don't
+    # mutate the caller's config object.
+    if cfg.crystal_data is not None:
+        cfg.crystal_data = copy.deepcopy(cfg.crystal_data)
     logger.debug("Fixed viewport: span=%.2f, center=(%.2f, %.2f)", fixed_span, *center_xy)
     return cfg
 

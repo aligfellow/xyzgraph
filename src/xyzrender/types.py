@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
     from xyzrender.annotations import Annotation
     from xyzrender.esp import ESPSurface
@@ -136,6 +138,24 @@ def resolve_color(color: str) -> str:
 
 
 @dataclass
+class CrystalData:
+    """Periodic lattice data for crystal structure rendering.
+
+    Parameters
+    ----------
+    lattice:
+        3×3 array where each row is a lattice vector (a, b, c) in Ångströms.
+    cell_origin:
+        3-vector (Å) of the (0,0,0) cell corner in the current coordinate frame.
+        Defaults to the origin; updated during GIF rotation so the box keeps
+        pace with the atoms.
+    """
+
+    lattice: np.ndarray  # shape (3, 3), rows = a, b, c in Å
+    cell_origin: np.ndarray = field(default_factory=lambda: np.zeros(3))  # (3,) in Å
+
+
+@dataclass
 class RenderConfig:
     """Rendering settings."""
 
@@ -183,3 +203,10 @@ class RenderConfig:
     atom_cmap: dict[int, float] | None = None
     cmap_range: tuple[float, float] | None = None
     cmap_unlabeled: str = "#ffffff"  # fill for atoms absent from cmap file
+    # Crystal / periodic structure
+    crystal_data: CrystalData | None = None
+    show_cell: bool = True
+    show_crystal_axes: bool = True
+    cell_color: str = "#333333"
+    cell_line_width: float = 1.5
+    periodic_image_opacity: float = 0.5

@@ -29,6 +29,9 @@ homepage = "https://github.com/aligfellow/xyzrender"
 [project.scripts]
 xyzrender = "xyzrender.cli:main"
 
+[project.optional-dependencies]
+crystal = ["phonopy"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
