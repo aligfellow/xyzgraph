@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Generate all example outputs from sample structures.
-# Run from the repo root: bash examples/generate.sh
 
 set -euo pipefail
 
-DIR=examples/structures
-OUT=examples
+OUT=$(dirname $(realpath ${BASH_SOURCE[0]%/*}))
+DIR=$OUT/structures
 mkdir -p "$OUT"
 
 echo "=== Presets ==="
