@@ -27,6 +27,7 @@ Most molecular visualisation tools require manual setup: loading files into a GU
 - **Electrostatic potential (ESP)** — ESP colormapped onto the density surface from paired cube files
 - **vdW surface overlays** — van der Waals spheres on all or selected atoms
 - **Depth fog and gradients** — 3D depth cues without needing a 3D viewer
+- **Crystal / periodic structures** — render VASP/Quantum ESPRESSO unit cell structures with unit cell box, adjacent periodic image atoms, and crystallographic axis arrows (a/b/c), loaded via [`phonopy`](https://github.com/phonopy/phonopy)
 - **Multiple output formats** — SVG (default), PNG, PDF, and GIF from the same command
 
 **Preconfigured but extensible.** Built-in presets (`default`, `flat`, `paton`) cover common use cases. Every setting — colors, radii, bond widths, gradients, fog — can be overridden via CLI flags or a custom JSON config file.
@@ -342,6 +343,61 @@ xyzrender bimp.out --gif-ts --gif-rot --nci --vdw 84-169 -go bimp_nci_ts.gif  # 
 xyzrender bimp.out --gif-trj --nci --ts --vdw 84-169 -go bimp_nci_trj.gif  # TS bonds + nci + vdW + trj
 ```
 
+### Crystal / periodic structures
+
+Render VASP (`POSCAR`/`CONTCAR`, `.vasp`) and Quantum ESPRESSO (`.in`) unit cell structures. Requires `phonopy`.
+
+The unit cell box is drawn in the background and crystallographic axis arrows (**a** = red, **b** = green, **c** = blue) are overlaid on top. Periodic image atoms — those from neighbouring cells that bond across the cell boundary — are drawn at half opacity so the cell contents are easily distinguished.
+
+File format is auto-detected from extension (`.vasp`, `POSCAR`, `CONTCAR` → VASP; `.in` → QE). Use `--interface-mode` to force a specific format.
+
+| Default | No image atoms | No cell box |
+|---------|----------------|-------------|
+| ![NV63 vasp](examples/NV63_vasp.svg) | ![NV63 no images](examples/NV63_vasp_no_img.svg) | ![NV63 no cell](examples/NV63_vasp_no_cell.svg) |
+
+```bash
+xyzrender NV63.vasp -o NV63_vasp.svg                        # auto-detected as VASP
+xyzrender NV63.in --interface-mode qe -o NV63_qe.svg        # explicit QE mode
+xyzrender NV63.vasp --no-images -o NV63_vasp_no_img.svg     # hide image atoms
+xyzrender NV63.vasp --no-cell -o NV63_vasp_no_cell.svg      # hide unit cell box
+```
+
+#### Crystallographic viewing direction (`--view-axis`)
+
+Orient the crystal looking down a given crystallographic direction. The `--view-axis` argument takes a 3-digit Miller index string (each digit is one index, 0–9):
+
+| View along [001] (default) | View along [111] |
+|----------------------------|------------------|
+| ![NV63 vasp](examples/NV63_vasp.svg) | ![NV63 111](examples/NV63_vasp_111.svg) |
+
+```bash
+xyzrender NV63.vasp --view-axis 001 -o NV63_001.svg   # looking down [001]
+xyzrender NV63.vasp --view-axis 111 -o NV63_111.svg   # looking down [111]
+```
+
+For GIF rotation around a crystallographic axis, pass the same Miller index string to `--gif-rot`:
+
+| Rotate around [111] |
+|---------------------|
+| ![NV63 111 gif](examples/NV63_vasp_111.gif) |
+
+```bash
+xyzrender NV63.vasp --view-axis 111 --gif-rot 111 -o NV63_111_rot.svg -go NV63_vasp_111.gif
+```
+
+Crystal-specific flags:
+
+| Flag | Description |
+|------|-------------|
+| `--interface-mode {vasp,qe}` | Force phonopy interface mode (auto-detected otherwise) |
+| `--no-cell` | Hide the unit cell box |
+| `--no-images` | Hide image atoms outside the cell |
+| `--no-axes` | Hide the a/b/c axis arrows |
+| `--cell-color` | Unit cell box color (hex or named, default: `#333333`) |
+| `--cell-width` | Unit cell box line width (default: 1.5) |
+| `--image-opacity` | Opacity of image atoms/bonds (default: 0.5) |
+| `--view-axis HKL` | Orient looking down a crystallographic direction (e.g. `111`, `001`) |
+
 ### Molecular orbitals
 
 Render molecular orbitals from cube files (`.cube`). Requires the `--mo` flag. The cube file contains both the molecular geometry and a 3D volumetric grid of orbital values so no separate XYZ file needed.
@@ -561,7 +617,7 @@ Requires `cairosvg` and `Pillow` (`pip install 'xyzrender[gif]'`).
 | `--gif-fps` | Frames per second (default: 10) |
 | `--rot-frames` | Rotation frame count (default: 120) |
 
-Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Prefix `-` to reverse (e.g. `-xy`).
+Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Prefix `-` to reverse (e.g. `-xy`). For crystal inputs, a 3-digit Miller index string is also accepted (e.g. `111`, `001`) and the rotation is performed around the corresponding lattice direction.
 
 ## All CLI flags
 
@@ -618,6 +674,15 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--label-size PT` | Label font size (overrides preset) |
 | `--cmap FILE` | Per-atom property colormap (Viridis, 1-indexed) |
 | `--cmap-range VMIN VMAX` | Explicit colormap range (default: auto from file) |
+| **Crystal** | |
+| `--interface-mode {vasp,qe}` | Force phonopy interface mode (auto-detected otherwise) |
+| `--no-cell` | Hide the unit cell box |
+| `--no-images` | Hide image atoms outside the cell |
+| `--no-axes` | Hide the a/b/c axis arrows |
+| `--cell-color` | Unit cell box color (hex or named, default: `#333333`) |
+| `--cell-width` | Unit cell box line width (default: 1.5) |
+| `--image-opacity` | Opacity of image atoms/bonds (default: 0.5) |
+| `--view-axis HKL` | Orient looking down a crystallographic direction (e.g. `111`, `001`) |
 
 ## Development
 
@@ -660,8 +725,9 @@ Key dependencies:
 - [**CairoSVG**](https://github.com/Kozea/CairoSVG) — SVG to PNG/PDF conversion
 - [**Pillow**](https://github.com/python-pillow/Pillow) — GIF frame assembly
 
-Optional dependency:
+Optional dependencies:
 
+- [**phonopy**](https://github.com/phonopy/phonopy) — crystal structure loading
 - [**v**](https://github.com/briling/v) - interactive molecule orientation
 
 Generated from [aligfellow/python-template](https://github.com/aligfellow/python-template).
