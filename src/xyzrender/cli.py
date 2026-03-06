@@ -231,27 +231,53 @@ def main() -> None:
     # --- Crystal / periodic structures ---
     crystal_g = p.add_argument_group("crystal / periodic structures")
     crystal_g.add_argument(
-        "--interface-mode",
-        choices=["vasp", "qe"],
+        "--crystal",
+        nargs="?",
+        const="auto",
         default=None,
         metavar="{vasp,qe}",
-        help="Phonopy interface mode: forces crystal loading (auto-detected from extension otherwise)",
+        help=(
+            "Load as a periodic crystal structure via phonopy (requires xyzrender[crystal]). "
+            "Enables unit cell box, crystallographic axes (a/b/c), and image atoms. "
+            "Optionally specify the phonopy interface: vasp, qe (auto-detected from filename "
+            "if omitted). Examples: --crystal, --crystal vasp, --crystal qe"
+        ),
     )
-    crystal_g.add_argument("--no-cell", action="store_true", default=False, help="Hide the unit cell box")
-    crystal_g.add_argument("--no-images", action="store_true", default=False, help="Hide image atoms outside the cell")
-    crystal_g.add_argument("--no-axes", action="store_true", default=False, help="Hide crystallographic axis arrows (a/b/c)")
+    crystal_g.add_argument(
+        "--cell",
+        action="store_true",
+        default=False,
+        help=(
+            "Draw the unit cell box from an extXYZ Lattice= header. "
+            "No crystallographic axes or image atoms — just the box. "
+            "Does not require phonopy."
+        ),
+    )
+    crystal_g.add_argument("--no-cell", action="store_true", default=False, help="Hide the unit cell box (--crystal)")
+    crystal_g.add_argument(
+        "--no-ghosts", action="store_true", default=False, help="Hide image atoms outside the cell (--crystal)"
+    )
+    crystal_g.add_argument(
+        "--axes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show/hide crystallographic axis arrows a/b/c (--crystal)",
+    )
     crystal_g.add_argument("--cell-color", default=None, help="Unit cell box color (hex or named, default: #333333)")
     crystal_g.add_argument("--cell-width", type=float, default=None, help="Unit cell box line width (default: 1.5)")
     crystal_g.add_argument(
-        "--image-opacity", type=float, default=None, help="Opacity for image atoms/bonds (default: 0.5)"
+        "--ghost-opacity",
+        type=float,
+        default=None,
+        help="Opacity for ghost (periodic image) atoms/bonds (default: 0.5)",
     )
     crystal_g.add_argument(
-        "--view-axis",
+        "--axis",
         default=None,
         metavar="HKL",
         help=(
-            "Orient crystal looking down a crystallographic direction, e.g. --view-axis 111. "
-            "Each digit is one Miller index (0-9). Requires crystal input."
+            "Orient crystal looking down a crystallographic direction, e.g. --axis 111. "
+            "Each digit is one Miller index (0-9). Requires --crystal."
         ),
     )
 
@@ -351,21 +377,28 @@ def main() -> None:
     is_cube = args.input and args.input.endswith(".cube")
 
     # --- Crystal / periodic structure detection ---
-    is_crystal = False
+    # interface_mode is non-None iff phonopy crystal loading is requested (--crystal flag).
+    # --cell is a separate, lighter path: extXYZ box only, no phonopy, no image atoms.
     interface_mode: str | None = None
-    if args.interface_mode is not None:
-        is_crystal = True
-        interface_mode = args.interface_mode
-    else:
-        p_in = Path(args.input)
-        stem = p_in.stem.upper()
-        ext = p_in.suffix.lower()
-        if ext == ".vasp" or stem in {"POSCAR", "CONTCAR"}:
-            is_crystal = True
-            interface_mode = "vasp"
-        elif ext == ".in":
-            is_crystal = True
-            interface_mode = "qe"
+    if args.crystal is not None:
+        if args.input is None:
+            p.error("--crystal requires an input file")
+        if args.crystal in {"vasp", "qe"}:
+            interface_mode = args.crystal
+        else:
+            # "auto" (bare --crystal) or unrecognised value: detect from filename
+            p_in = Path(args.input)
+            stem = p_in.stem.upper()
+            ext = p_in.suffix.lower()
+            if ext == ".vasp" or stem in {"POSCAR", "CONTCAR"}:
+                interface_mode = "vasp"
+            elif ext == ".in":
+                interface_mode = "qe"
+            else:
+                p.error(
+                    f"Cannot auto-detect crystal interface from {args.input!r}. "
+                    "Specify explicitly: --crystal vasp or --crystal qe"
+                )
 
     # MO mutual exclusivity
     if args.mo and args.vdw is not None:
@@ -411,11 +444,11 @@ def main() -> None:
         from xyzrender.io import load_cube
 
         graph, cube_data = load_cube(args.input, charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
-    elif is_crystal:
-        from xyzrender.io import add_crystal_images, load_crystal
+    elif interface_mode is not None:
+        from xyzrender.crystal import add_crystal_images, load_crystal
 
         graph, crystal_data = load_crystal(args.input, interface_mode)
-        if not args.no_images:
+        if not args.no_ghosts:
             add_crystal_images(graph, crystal_data)
     elif needs_ts and args.input:
         graph, _ts_frames = load_ts_molecule(
@@ -436,61 +469,89 @@ def main() -> None:
     if args.nci:
         graph = detect_nci(graph)
 
-    # Crystal config: apply crystal_data and related settings
-    if is_crystal and crystal_data is not None:
+    # --- Crystal config: phonopy path (--crystal) ---
+    if crystal_data is not None:
         cfg.crystal_data = crystal_data
         cfg.show_cell = not args.no_cell
-        cfg.show_crystal_axes = not args.no_axes
-        # PCA auto-orient makes no sense for periodic crystals
+        cfg.show_crystal_axes = args.axes
+        # PCA auto-orient makes no sense for full periodic crystals
         if args.orient is None:
             cfg.auto_orient = False
         if args.cell_color is not None:
             from xyzrender.types import resolve_color
+
             cfg.cell_color = resolve_color(args.cell_color)
         if args.cell_width is not None:
             cfg.cell_line_width = args.cell_width
-        if args.image_opacity is not None:
-            cfg.periodic_image_opacity = args.image_opacity
+        if args.ghost_opacity is not None:
+            cfg.periodic_image_opacity = args.ghost_opacity
 
-        # --view-axis HKL: orient so that [hkl] points along the viewing (+z) axis
-        if args.view_axis is not None:
+        # --axis HKL: orient so that [hkl] points along the viewing (+z) axis
+        if args.axis is not None:
             import numpy as np
 
-            hkl = args.view_axis.lstrip("-")
+            hkl = args.axis.lstrip("-")
             if not (hkl.isdigit() and len(hkl) >= 3):
-                p.error(f"--view-axis: expected a 3-digit Miller index string (e.g. 111, 100), got {args.view_axis!r}")
-            h, k_idx, l = int(hkl[0]), int(hkl[1]), int(hkl[2])
+                p.error(f"--axis: expected a 3-digit Miller index string (e.g. 111, 100), got {args.axis!r}")
+            h, k_idx, l_idx = int(hkl[0]), int(hkl[1]), int(hkl[2])
             lat = crystal_data.lattice
-            v = h * lat[0] + k_idx * lat[1] + l * lat[2]
+            v = h * lat[0] + k_idx * lat[1] + l_idx * lat[2]
             v_norm = float(np.linalg.norm(v))
             if v_norm < 1e-10:
-                p.error(f"--view-axis [{hkl}] has zero length")
+                p.error(f"--axis [{hkl}] has zero length")
             v = v / v_norm
-            # Rotation that maps v → (0,0,1) (looking down the hkl direction)
+            # Rodrigues rotation: map v → (0,0,1) (looking down the hkl direction)
             z = np.array([0.0, 0.0, 1.0])
             cos_a = float(np.clip(np.dot(v, z), -1.0, 1.0))
             if abs(cos_a - 1.0) < 1e-9:
-                rot_view = np.eye(3)
+                rot_view: np.ndarray = np.eye(3)
             elif abs(cos_a + 1.0) < 1e-9:
-                # v ≈ -z: rotate 180° around x
                 rot_view = np.diag([1.0, -1.0, -1.0])
             else:
                 ax = np.cross(v, z)
                 ax /= np.linalg.norm(ax)
-                s_a = float(np.sqrt(max(0.0, 1.0 - cos_a ** 2)))
+                s_a = float(np.sqrt(max(0.0, 1.0 - cos_a**2)))
                 ax_cross = np.array([[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]])
                 rot_view = cos_a * np.eye(3) + s_a * ax_cross + (1 - cos_a) * np.outer(ax, ax)
-            # Apply rotation to atom positions
             node_ids_v = list(graph.nodes())
             pos_v = np.array([graph.nodes[i]["position"] for i in node_ids_v], dtype=float)
             centroid_v = pos_v.mean(axis=0)
             pos_rotated_v = (rot_view @ (pos_v - centroid_v).T).T + centroid_v
             for idx, nid in enumerate(node_ids_v):
                 graph.nodes[nid]["position"] = tuple(pos_rotated_v[idx].tolist())
-            # Rotate lattice vectors and cell origin
             crystal_data.lattice = (rot_view @ crystal_data.lattice.T).T
             crystal_data.cell_origin = rot_view @ (crystal_data.cell_origin - centroid_v) + centroid_v
             cfg.auto_orient = False
+
+    # --- Cell box: extXYZ Lattice= path (--cell, no phonopy) ---
+    elif args.cell:
+        if "lattice" not in graph.graph:
+            logger.warning("--cell: no Lattice= found in input file, cell box will not be drawn")
+        else:
+            import numpy as np
+
+            from xyzrender.types import CrystalData
+
+            cfg.crystal_data = CrystalData(
+                lattice=np.array(graph.graph["lattice"], dtype=float),
+                cell_origin=np.array(graph.graph.get("lattice_origin", np.zeros(3)), dtype=float),
+            )
+            cfg.show_cell = True
+            cfg.show_crystal_axes = False  # --cell = box only; axes are shown for --crystal only
+            if args.cell_color is not None:
+                from xyzrender.types import resolve_color
+
+                cfg.cell_color = resolve_color(args.cell_color)
+            if args.cell_width is not None:
+                cfg.cell_line_width = args.cell_width
+    elif "lattice" in graph.graph:
+        logger.info("Lattice= found in file; use --cell to draw the unit cell box")
+
+    # Default --no-bo for any periodic input (phonopy crystal or extXYZ cell box).
+    # Bond orders from xyzgraph are not PBC-aware so they are unreliable for periodic structures.
+    if cfg.crystal_data is not None and args.bo is None:
+        cfg.bond_orders = False
+        logger.warning("Periodic structure: bond orders disabled by default (use --bo to override)")
 
     # Measurements (terminal only — no SVG effect)
     if args.measure is not None:
@@ -735,7 +796,7 @@ def main() -> None:
         if args.gif_rot and args.gif_rot not in ROTATION_AXES:
             # Allow crystallographic hkl format (3+ digit string) for crystal inputs
             _test_ax = args.gif_rot.lstrip("-")
-            if not (_test_ax.isdigit() and len(_test_ax) >= 3 and is_crystal):
+            if not (_test_ax.isdigit() and len(_test_ax) >= 3 and cfg.crystal_data is not None):
                 p.error(
                     f"Invalid rotation axis: {args.gif_rot!r} "
                     f"(valid: {', '.join(ROTATION_AXES)}, or 3-digit hkl for crystal inputs)"

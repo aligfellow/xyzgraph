@@ -66,22 +66,20 @@
     <g id="a62"><radialGradient id="g62" cx=".5" cy=".5" fx=".33" fy=".33" r=".66"><stop offset="0%" stop-color="#e3e3e3"/><stop offset="100%" stop-color="#c9c9c9"/></radialGradient><circle cx="0" cy="0" r="34.7" fill="url(#g62)" stroke="#b2b2b2" stroke-width="6.1"/></g>
   </defs>
   <!-- cell box -->
-  <line class="cell-edge" x1="54.5" y1="744.9" x2="745.4" y2="744.9" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="54.5" y1="744.9" x2="745.4" y2="744.9" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="54.5" y1="54.1" x2="745.4" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="54.5" y1="54.1" x2="745.4" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="54.5" y1="744.9" x2="54.5" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="54.5" y1="744.9" x2="54.5" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="745.4" y1="744.9" x2="745.4" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="745.4" y1="744.9" x2="745.4" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="54.5" y1="744.9" x2="54.5" y2="744.9" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="54.5" y1="54.1" x2="54.5" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="745.4" y1="744.9" x2="745.4" y2="744.9" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
-  <line class="cell-edge" x1="745.4" y1="54.1" x2="745.4" y2="54.1" stroke="#333333" stroke-width="1.1" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="744.9" x2="745.4" y2="744.9" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="744.9" x2="745.4" y2="744.9" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="54.1" x2="745.4" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="54.1" x2="745.4" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="744.9" x2="54.5" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="744.9" x2="54.5" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="745.4" y1="744.9" x2="745.4" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="745.4" y1="744.9" x2="745.4" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="744.9" x2="54.5" y2="744.9" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="54.5" y1="54.1" x2="54.5" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="745.4" y1="744.9" x2="745.4" y2="744.9" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
+  <line class="cell-edge" x1="745.4" y1="54.1" x2="745.4" y2="54.1" stroke="#808080" stroke-width="7.6" stroke-dasharray="19.1,22.9" stroke-linecap="round"/>
   <use x="54.7" y="744.8" xlink:href="#a55"/>
-  <line x1="59.7" y1="713.9" x2="109.4" y2="664.2" stroke="#838383" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="72.7" y1="726.8" x2="122.3" y2="677.2" stroke="#838383" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="85.6" y1="739.8" x2="135.3" y2="690.1" stroke="#838383" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="72.7" y1="726.8" x2="122.3" y2="677.2" stroke="#838383" stroke-width="15.3" stroke-linecap="round"/>
   <use x="571.1" y="573.0" xlink:href="#a29"/>
   <line x1="553.2" y1="591.0" x2="504.0" y2="640.2" stroke="#838383" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="589.1" y1="554.9" x2="640.5" y2="503.4" stroke="#838383" stroke-width="15.3" stroke-linecap="round"/>
@@ -107,8 +105,7 @@
   <line x1="159.3" y1="331.5" x2="208.1" y2="380.6" stroke="#5d5d5d" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="123.2" y1="295.5" x2="73.1" y2="246.3" stroke="#5d5d5d" stroke-width="15.3" stroke-linecap="round"/>
   <use x="658.5" y="485.4" xlink:href="#a30"/>
-  <line x1="683.0" y1="497.1" x2="733.0" y2="547.6" stroke="#5d5d5d" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="670.0" y1="510.0" x2="720.0" y2="560.5" stroke="#5d5d5d" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="676.5" y1="503.5" x2="726.5" y2="554.1" stroke="#5d5d5d" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="640.5" y1="467.3" x2="589.6" y2="416.4" stroke="#5c5c5c" stroke-width="15.3" stroke-linecap="round"/>
   <use x="314.1" y="141.0" xlink:href="#a46"/>
   <line x1="296.0" y1="123.0" x2="245.4" y2="73.0" stroke="#5d5d5d" stroke-width="15.3" stroke-linecap="round"/>
@@ -124,8 +121,7 @@
   <use x="571.1" y="744.6" xlink:href="#a27"/>
   <line x1="589.1" y1="726.7" x2="640.5" y2="675.7" stroke="#3d3d3d" stroke-width="15.3" stroke-linecap="round"/>
   <use x="227.3" y="55.0" xlink:href="#a59"/>
-  <line x1="215.9" y1="79.4" x2="166.1" y2="129.4" stroke="#3d3d3d" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="202.9" y1="66.5" x2="153.1" y2="116.5" stroke="#3d3d3d" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="209.4" y1="73.0" x2="159.6" y2="123.0" stroke="#3d3d3d" stroke-width="15.3" stroke-linecap="round"/>
   <use x="744.5" y="572.2" xlink:href="#a57"/>
   <line x1="726.5" y1="590.1" x2="676.5" y2="639.9" stroke="#3d3d3d" stroke-width="15.3" stroke-linecap="round"/>
   <use x="401.1" y="227.9" xlink:href="#a9"/>
@@ -149,8 +145,7 @@
   <use x="139.1" y="484.8" xlink:href="#a58"/>
   <line x1="157.0" y1="503.1" x2="208.1" y2="555.2" stroke="#242424" stroke-width="15.3" stroke-linecap="round"/>
   <use x="489.9" y="142.0" xlink:href="#a10"/>
-  <line x1="515.6" y1="152.0" x2="566.2" y2="195.6" stroke="#252525" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="503.6" y1="165.9" x2="554.2" y2="209.5" stroke="#252525" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="509.6" y1="159.0" x2="560.2" y2="202.5" stroke="#252525" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="471.3" y1="123.9" x2="418.3" y2="72.6" stroke="#242424" stroke-width="15.3" stroke-linecap="round"/>
   <use x="657.5" y="309.6" xlink:href="#a12"/>
   <line x1="640.5" y1="289.9" x2="597.0" y2="239.3" stroke="#252525" stroke-width="15.3" stroke-linecap="round"/>
@@ -160,11 +155,9 @@
   <use x="580.0" y="219.5" xlink:href="#a5"/>
   <line x1="597.0" y1="202.5" x2="641.0" y2="158.5" stroke="#131313" stroke-width="15.3" stroke-linecap="round"/>
   <use x="399.8" y="54.5" xlink:href="#a15"/>
-  <line x1="389.0" y1="78.9" x2="339.4" y2="130.3" stroke="#111111" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="375.8" y1="66.2" x2="326.2" y2="117.6" stroke="#111111" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="382.4" y1="72.6" x2="332.8" y2="123.9" stroke="#111111" stroke-width="15.3" stroke-linecap="round"/>
   <use x="745.0" y="399.7" xlink:href="#a31"/>
-  <line x1="733.3" y1="423.7" x2="681.9" y2="473.3" stroke="#111111" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="720.6" y1="410.5" x2="669.2" y2="460.1" stroke="#111111" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="726.9" y1="417.1" x2="675.6" y2="466.7" stroke="#111111" stroke-width="15.3" stroke-linecap="round"/>
   <use x="226.0" y="573.5" xlink:href="#a53"/>
   <line x1="244.6" y1="554.9" x2="296.0" y2="503.5" stroke="#121212" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="208.1" y1="591.4" x2="159.3" y2="640.2" stroke="#121212" stroke-width="15.3" stroke-linecap="round"/>
@@ -180,8 +173,7 @@
   <line x1="297.0" y1="467.2" x2="246.2" y2="416.1" stroke="#060606" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="332.3" y1="502.5" x2="383.4" y2="553.3" stroke="#060606" stroke-width="15.3" stroke-linecap="round"/>
   <use x="658.1" y="141.4" xlink:href="#a6"/>
-  <line x1="682.6" y1="152.5" x2="733.8" y2="202.8" stroke="#060606" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="669.7" y1="165.6" x2="720.9" y2="215.9" stroke="#060606" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="676.1" y1="159.1" x2="727.3" y2="209.3" stroke="#060606" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="640.4" y1="123.4" x2="590.2" y2="72.2" stroke="#060606" stroke-width="15.3" stroke-linecap="round"/>
   <use x="141.4" y="658.1" xlink:href="#a48"/>
   <line x1="123.2" y1="640.2" x2="73.1" y2="591.0" stroke="#060606" stroke-width="15.3" stroke-linecap="round"/>
@@ -215,34 +207,29 @@
   <line x1="560.2" y1="423.0" x2="509.6" y2="466.9" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <line x1="597.0" y1="386.2" x2="641.0" y2="335.5" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <use x="489.9" y="484.0" xlink:href="#a18"/>
-  <line x1="465.0" y1="473.3" x2="412.1" y2="423.8" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="477.5" y1="460.0" x2="424.6" y2="410.4" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="471.3" y1="466.7" x2="418.3" y2="417.1" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <use x="315.5" y="309.6" xlink:href="#a36"/>
-  <line x1="339.5" y1="322.0" x2="389.1" y2="374.9" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="326.1" y1="334.5" x2="375.7" y2="387.4" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="332.8" y1="328.2" x2="382.4" y2="381.2" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <use x="483.7" y="141.4" xlink:href="#a2"/>
-  <line x1="508.4" y1="152.5" x2="560.5" y2="202.8" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="495.7" y1="165.6" x2="547.8" y2="215.9" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="502.1" y1="159.1" x2="554.1" y2="209.3" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <use x="658.1" y="315.7" xlink:href="#a4"/>
-  <line x1="633.9" y1="303.8" x2="583.6" y2="251.7" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="647.0" y1="291.1" x2="596.7" y2="239.0" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="640.4" y1="297.4" x2="590.2" y2="245.4" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <use x="141.7" y="485.4" xlink:href="#a50"/>
   <line x1="159.6" y1="503.5" x2="209.4" y2="554.1" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <use x="314.1" y="657.8" xlink:href="#a52"/>
-  <line x1="289.5" y1="646.4" x2="239.0" y2="596.6" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
-  <line x1="302.4" y1="633.3" x2="251.8" y2="583.6" stroke="#000000" stroke-width="10.7" stroke-linecap="round"/>
+  <line x1="296.0" y1="639.9" x2="245.4" y2="590.1" stroke="#000000" stroke-width="15.3" stroke-linecap="round"/>
   <use x="658.6" y="658.5" xlink:href="#a20"/>
   <use x="141.0" y="140.9" xlink:href="#a34"/>
   <use x="227.3" y="572.2" xlink:href="#a61"/>
   <use x="399.8" y="399.7" xlink:href="#a7"/>
   <use x="572.5" y="227.0" xlink:href="#a13"/>
   <!-- crystal axes -->
-  <line x1="54.5" y1="744.9" x2="227.2" y2="744.9" stroke="#cc2222" stroke-width="3.4" stroke-linecap="round"/>
-  <polygon points="227.2,744.9 215.2,749.5 215.2,740.4" fill="#cc2222"/>
-  <text x="252.8" y="757.8" font-size="36.7" fill="#cc2222" font-family="Arial,sans-serif" text-anchor="middle" font-weight="bold">a</text>
-  <line x1="54.5" y1="744.9" x2="54.5" y2="572.2" stroke="#22aa22" stroke-width="3.4" stroke-linecap="round"/>
-  <polygon points="54.5,572.2 59.1,584.3 50.0,584.3" fill="#22aa22"/>
-  <text x="54.5" y="559.5" font-size="36.7" fill="#22aa22" font-family="Arial,sans-serif" text-anchor="middle" font-weight="bold">b</text>
-  <line x1="54.5" y1="744.9" x2="54.5" y2="744.9" stroke="#2266cc" stroke-width="3.4" stroke-linecap="round"/>
-  <text x="58.5" y="744.9" font-size="36.7" fill="#2266cc" font-family="Arial,sans-serif" text-anchor="middle" font-weight="bold">c</text>
+  <line x1="54.5" y1="744.9" x2="227.2" y2="744.9" stroke="#b22222" stroke-width="15.3" stroke-linecap="round"/>
+  <polygon points="227.2,744.9 173.8,765.3 173.8,724.6" fill="#b22222"/>
+  <text x="283.8" y="762.1" font-size="48.9" fill="#b22222" font-family="Arial,sans-serif" text-anchor="middle" font-weight="bold">a</text>
+  <line x1="54.5" y1="744.9" x2="54.5" y2="572.2" stroke="#228b22" stroke-width="15.3" stroke-linecap="round"/>
+  <polygon points="54.5,572.2 74.9,625.7 34.2,625.7" fill="#228b22"/>
+  <text x="54.5" y="532.8" font-size="48.9" fill="#228b22" font-family="Arial,sans-serif" text-anchor="middle" font-weight="bold">b</text>
+  <line x1="54.5" y1="744.9" x2="54.5" y2="744.9" stroke="#4169e1" stroke-width="15.3" stroke-linecap="round"/>
+  <text x="58.5" y="744.9" font-size="48.9" fill="#4169e1" font-family="Arial,sans-serif" text-anchor="middle" font-weight="bold">c</text>
 </svg>

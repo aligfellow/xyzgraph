@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import logging
 import os
 import shutil
@@ -44,6 +43,21 @@ def load_molecule(
     elif p.endswith(".xyz"):
         logger.debug("Parsing as XYZ")
         graph = build_graph(read_xyz_file(p), charge=charge, multiplicity=multiplicity, kekule=kekule)
+        # Try to parse extXYZ Lattice (and optional Origin) from the comment line
+        try:
+            with open(p) as _f:
+                _f.readline()  # atom count
+                _comment = _f.readline()
+            _lattice = _parse_extxyz_lattice(_comment)
+            if _lattice is not None:
+                graph.graph["lattice"] = _lattice
+                logger.debug(f"extXYZ Lattice parsed:\n{_lattice}")
+                _origin = _parse_extxyz_origin(_comment)
+                if _origin is not None:
+                    graph.graph["lattice_origin"] = _origin
+                    logger.debug(f"extXYZ Origin parsed:\n{_origin}")
+        except OSError:
+            pass
     else:
         logger.debug("Parsing as QM output via cclib")
         atoms, file_charge, file_mult = _parse_qm_output(p)
@@ -150,14 +164,17 @@ def rotate_with_viewer(graph: nx.Graph) -> None:
 
     Writes a temp XYZ from current positions, launches v, and reads back
     the rotated coordinates.  All edge attributes (TS labels, bond orders, etc.)
-    are preserved.
+    are preserved.  If the graph has a lattice, it is rotated by the same
+    transformation and the cell origin is updated accordingly.
     """
     viewer = _find_viewer()
     logger.info("Opening viewer: %s", viewer)
     n = graph.number_of_nodes()
     atoms: _Atoms = [(graph.nodes[i]["symbol"], graph.nodes[i]["position"]) for i in range(n)]
+    orig_pos = np.array([graph.nodes[i]["position"] for i in range(n)], dtype=float)
+    lattice = graph.graph.get("lattice")
 
-    rotated_text = _run_viewer_with_atoms(viewer, atoms)
+    rotated_text = _run_viewer_with_atoms(viewer, atoms, lattice=lattice)
 
     if not rotated_text.strip():
         sys.exit("No output from viewer — press 'z' in v to output coordinates before closing.")
@@ -168,6 +185,18 @@ def rotate_with_viewer(graph: nx.Graph) -> None:
 
     for i, (_sym, pos) in enumerate(rotated_atoms):
         graph.nodes[i]["position"] = pos
+
+    if lattice is not None:
+        from xyzrender.utils import kabsch_rotation
+
+        new_pos = np.array([graph.nodes[i]["position"] for i in range(n)], dtype=float)
+        rot = kabsch_rotation(orig_pos, new_pos)
+        c1 = orig_pos.mean(axis=0)
+        c2 = new_pos.mean(axis=0)
+        lat = np.array(lattice, dtype=float)
+        origin = np.array(graph.graph.get("lattice_origin", np.zeros(3)), dtype=float)
+        graph.graph["lattice"] = (rot @ lat.T).T
+        graph.graph["lattice_origin"] = rot @ (origin - c1) + c2
 
 
 def _find_viewer() -> str:
@@ -199,23 +228,47 @@ def _find_viewer() -> str:
     )
 
 
-def _run_viewer(viewer: str, xyz_path: str) -> str:
+def _run_viewer(viewer: str, xyz_path: str, extra_args: list[str] | None = None) -> str:
     """Launch v on an XYZ file and capture stdout."""
-    result = subprocess.run([viewer, xyz_path], capture_output=True, text=True, check=False)
+    result = subprocess.run([viewer, xyz_path, *(extra_args or [])], capture_output=True, text=True, check=False)
     return result.stdout
 
 
-def _run_viewer_with_atoms(viewer: str, atoms: _Atoms) -> str:
-    """Write atoms to temp XYZ, launch v, capture stdout."""
+def _run_viewer_with_atoms(viewer: str, atoms: _Atoms, lattice: np.ndarray | None = None) -> str:
+    """Write atoms to temp XYZ, launch v, capture stdout.
+
+    If *lattice* is a diagonal (orthogonal) box, passes `cell:b{a},{b},{c}`
+    to v so the cell frame is shown in the viewer too.
+    """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".xyz", delete=False) as f:
         f.write(f"{len(atoms)}\n\n")
         for sym, (x, y, z) in atoms:
             f.write(f"{sym}  {x: .6f}  {y: .6f}  {z: .6f}\n")
         tmp = f.name
+    extra: list[str] = []
+    if lattice is not None:
+        # v accepts the 3x3 matrix as 9 comma-separated values
+        flat = lattice.flatten()
+        extra.append("cell:" + ",".join(f"{v:.6f}" for v in flat))
     try:
-        return _run_viewer(viewer, tmp)
+        return _run_viewer(viewer, tmp, extra)
     finally:
         os.unlink(tmp)
+
+
+def _apply_rot_to_lattice(graph: nx.Graph, rot: np.ndarray, centroid: np.ndarray) -> None:
+    """Rotate the lattice vectors and cell origin stored on *graph* by *rot*.
+
+    The origin (if present) rotates around *centroid* like any atom would.
+    When absent, render_svg defaults to (0, 0, 0) which needs no rotation.
+    """
+    if "lattice" not in graph.graph:
+        return
+    lat = np.array(graph.graph["lattice"], dtype=float)
+    graph.graph["lattice"] = (rot @ lat.T).T
+    if "lattice_origin" in graph.graph:
+        origin = np.array(graph.graph["lattice_origin"], dtype=float)
+        graph.graph["lattice_origin"] = rot @ (origin - centroid) + centroid
 
 
 def apply_rotation(graph: nx.Graph, rx: float, ry: float, rz: float) -> None:
@@ -241,6 +294,7 @@ def apply_rotation(graph: nx.Graph, rx: float, ry: float, rz: float) -> None:
     rotated = (rot @ (positions - centroid).T).T + centroid
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    _apply_rot_to_lattice(graph, rot, centroid)
 
 
 def apply_axis_angle_rotation(graph: nx.Graph, axis: np.ndarray, angle: float) -> None:
@@ -261,12 +315,13 @@ def apply_axis_angle_rotation(graph: nx.Graph, axis: np.ndarray, angle: float) -
     rotated = (rot @ (positions - centroid).T).T + centroid
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    _apply_rot_to_lattice(graph, rot, centroid)
 
 
 def load_trajectory_frames(path: str | Path) -> list[dict]:
     """Load all frames from a multi-frame XYZ or QM output (cclib).
 
-    Returns list of ``{"symbols": [...], "positions": [[x,y,z], ...]}``
+    Returns list of `{"symbols": [...], "positions": [[x,y,z], ...]}`
     matching the graphRC frame format.
     """
     p = str(path)
@@ -279,150 +334,6 @@ def load_trajectory_frames(path: str | Path) -> list[dict]:
 def load_stdin(charge: int = 0, multiplicity: int | None = None, kekule: bool = False) -> nx.Graph:
     """Read atoms from stdin — auto-detects XYZ and line-by-line formats."""
     return build_graph(_parse_auto(sys.stdin.read()), charge=charge, multiplicity=multiplicity, kekule=kekule)
-
-
-# ---------------------------------------------------------------------------
-# Crystal / periodic structure support (optional — requires phonopy)
-# ---------------------------------------------------------------------------
-
-# Covalent radii in Å for common elements. Used to detect PBC image bonds.
-# VdW * 0.55 yeilds too many periodic image atoms
-# Source: Alvarez (2008), DOI:10.1039/b801115j (single-bond radii)
-_COVALENT_RADII: dict[str, float] = {
-    "H": 0.31, "He": 0.28,
-    "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76, "N": 0.71, "O": 0.66,
-    "F": 0.57, "Ne": 0.58,
-    "Na": 1.66, "Mg": 1.41, "Al": 1.21, "Si": 1.11, "P": 1.07, "S": 1.05,
-    "Cl": 1.02, "Ar": 1.06,
-    "K": 2.03, "Ca": 1.76, "Sc": 1.70, "Ti": 1.60, "V": 1.53, "Cr": 1.39,
-    "Mn": 1.50, "Fe": 1.42, "Co": 1.38, "Ni": 1.24, "Cu": 1.32, "Zn": 1.22,
-    "Ga": 1.22, "Ge": 1.20, "As": 1.19, "Se": 1.20, "Br": 1.20, "Kr": 1.16,
-    "Rb": 2.20, "Sr": 1.95, "Y": 1.90, "Zr": 1.75, "Nb": 1.64, "Mo": 1.54,
-    "Tc": 1.47, "Ru": 1.46, "Rh": 1.42, "Pd": 1.39, "Ag": 1.45, "Cd": 1.44,
-    "In": 1.42, "Sn": 1.39, "Sb": 1.39, "Te": 1.38, "I": 1.39, "Xe": 1.40,
-    "Cs": 2.44, "Ba": 2.15, "La": 2.07, "Ce": 2.04, "Pr": 2.03, "Nd": 2.01,
-    "Pm": 1.99, "Sm": 1.98, "Eu": 1.98, "Gd": 1.96, "Tb": 1.94, "Dy": 1.92,
-    "Ho": 1.92, "Er": 1.89, "Tm": 1.90, "Yb": 1.87, "Lu": 1.87,
-    "Hf": 1.75, "Ta": 1.70, "W": 1.62, "Re": 1.51, "Os": 1.44, "Ir": 1.41,
-    "Pt": 1.36, "Au": 1.36, "Hg": 1.32, "Tl": 1.45, "Pb": 1.46, "Bi": 1.48,
-    "Po": 1.40, "At": 1.50, "Rn": 1.50,
-}
-
-
-def load_crystal(
-    path: str | "Path",
-    interface_mode: str,
-) -> "tuple[nx.Graph, object]":
-    """Load a periodic crystal structure using phonopy.
-
-    Parameters
-    ----------
-    path:
-        Path to the crystal structure input file (POSCAR/CONTCAR for VASP,
-        ``*.in`` / ``pw.in`` for Quantum ESPRESSO, etc.).
-    interface_mode:
-        Phonopy interface identifier: ``"vasp"``, ``"qe"``, ``"abinit"``, etc.
-
-    Returns
-    -------
-    tuple[nx.Graph, CrystalData]
-        Molecular graph with atoms as nodes and ``CrystalData`` containing the
-        3x3 lattice matrix (rows = a, b, c in Å).
-    """
-    try:
-        from phonopy.interface.calculator import get_calculator_physical_units, read_crystal_structure
-    except ImportError:
-        msg = "Crystal structure loading requires phonopy: pip install 'xyzrender[crystal]'"
-        raise ImportError(msg) from None
-
-    from xyzrender.types import CrystalData
-
-    unitcell, _ = read_crystal_structure(str(path), interface_mode=interface_mode)
-    # Convert native units → Angstrom.
-    factor: float = get_calculator_physical_units(interface_mode).distance_to_A
-    symbols: list[str] = list(unitcell.symbols)
-    positions = unitcell.positions * factor  # ndarray, shape (N, 3), in Å
-    lattice = np.array(unitcell.cell) * factor  # shape (3, 3), rows = a, b, c in Å
-
-    atoms: list[tuple[str, tuple[float, float, float]]] = [
-        (sym, (float(pos[0]), float(pos[1]), float(pos[2])))
-        for sym, pos in zip(symbols, positions)
-    ]
-    graph = build_graph(atoms, charge=0, multiplicity=None, kekule=False)
-    logger.info(
-        "Crystal graph: %d atoms, %d bonds, lattice=%s",
-        graph.number_of_nodes(),
-        graph.number_of_edges(),
-        lattice.diagonal().round(3),
-    )
-    return graph, CrystalData(lattice=lattice)
-
-
-def add_crystal_images(graph: "nx.Graph", crystal_data: "object") -> int:
-    """Add periodic image atoms that are bonded to cell atoms.
-
-    For each of the 26 neighbouring unit cells, adds image copies of cell
-    atoms that form at least one bond with an atom inside the cell.  Image
-    nodes carry ``image=True`` and ``source=<cell_atom_id>`` attributes;
-    image bonds carry ``image_bond=True``.
-
-    Returns the number of image atoms added.
-    """
-    lattice = crystal_data.lattice  # (3, 3)
-    a, b, c = lattice[0], lattice[1], lattice[2]
-
-    cell_ids = list(graph.nodes())
-    if not cell_ids:
-        return 0
-
-    cell_syms = {i: graph.nodes[i]["symbol"] for i in cell_ids}
-    cell_pos = {i: np.array(graph.nodes[i]["position"]) for i in cell_ids}
-
-    # Covalent radius estimate: use Alvarez table, fall back to 0.55 × VdW for
-    # exotic elements not listed.
-    def _cov_r(sym: str) -> float:
-        return _COVALENT_RADII.get(sym, DATA.vdw.get(sym, 1.5) * 0.55)
-
-    next_id = max(cell_ids) + 1
-    n_added = 0
-
-    shifts = [
-        (dx, dy, dz)
-        for dx, dy, dz in itertools.product((-1, 0, 1), repeat=3)
-        if (dx, dy, dz) != (0, 0, 0)
-    ]
-
-    for dx, dy, dz in shifts:
-        offset = dx * a + dy * b + dz * c
-        for src_id in cell_ids:
-            sym_i = cell_syms[src_id]
-            img_pos = cell_pos[src_id] + offset
-            ri = _cov_r(sym_i)
-
-            bonded_to: list[int] = []
-            for j in cell_ids:
-                dist = float(np.linalg.norm(img_pos - cell_pos[j]))
-                if dist < (ri + _cov_r(cell_syms[j])) * 1.2:
-                    bonded_to.append(j)
-
-            if not bonded_to:
-                continue
-
-            img_id = next_id
-            next_id += 1
-            n_added += 1
-            graph.add_node(
-                img_id,
-                symbol=sym_i,
-                position=(float(img_pos[0]), float(img_pos[1]), float(img_pos[2])),
-                image=True,
-                source=src_id,
-            )
-            for j in bonded_to:
-                graph.add_edge(img_id, j, bond_order=1.0, image_bond=True)
-
-    logger.info("Added %d image atoms", n_added)
-    return n_added
 
 
 def _parse_auto(text: str) -> list[tuple[str, tuple[float, float, float]]]:
@@ -515,6 +426,62 @@ def _load_xyz_frames(path: str) -> list[dict]:
             }
         )
     return frames
+
+
+def _parse_extxyz_lattice(comment: str) -> np.ndarray | None:
+    """Extract Lattice matrix from an XYZ comment line.
+
+    Handles two formats:
+
+    - extXYZ: `Lattice="a11 a12 a13 a21 a22 a23 a31 a32 a33"`
+    - Bare 9-float: comment line is exactly 9 space-separated floats
+
+    Returns a (3, 3) float array (row vectors a, b, c) or None.
+    """
+    import re
+
+    m = re.search(r'Lattice\s*=\s*"([^"]+)"', comment, re.IGNORECASE)
+    if m:
+        vals_str = m.group(1)
+        try:
+            vals = [float(x) for x in vals_str.split()]
+        except ValueError:
+            logger.warning("extXYZ Lattice= found but content is not numeric: %r", vals_str)
+            return None
+        if len(vals) != 9:
+            logger.warning("extXYZ Lattice= found but expected 9 values, got %d: %r", len(vals), vals_str)
+            return None
+        return np.array(vals, dtype=float).reshape(3, 3)
+
+    # Bare 9-float fallback (no Lattice= key — comment is exactly 9 floats)
+    stripped = comment.strip()
+    try:
+        vals = [float(x) for x in stripped.split()]
+    except ValueError:
+        return None
+    if len(vals) != 9:
+        return None
+    return np.array(vals, dtype=float).reshape(3, 3)
+
+
+def _parse_extxyz_origin(comment: str) -> np.ndarray | None:
+    """Extract cell Origin from an extXYZ comment line.
+
+    Looks for Origin="ox oy oz" and returns a (3,) float array or
+    None if the key is absent.
+    """
+    import re
+
+    m = re.search(r'Origin\s*=\s*"([^"]+)"', comment, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        vals = [float(x) for x in m.group(1).split()]
+    except ValueError:
+        return None
+    if len(vals) != 3:
+        return None
+    return np.array(vals, dtype=float)
 
 
 def _load_qm_frames(path: str) -> list[dict]:

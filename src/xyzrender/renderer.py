@@ -48,7 +48,13 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         fit_mask = atom_mask if not atom_mask.all() else None
         from xyzrender.utils import pca_orient
 
-        pos = pca_orient(pos, ts_pairs or None, fit_mask=fit_mask)
+        if cfg.crystal_data is not None:
+            pre_centroid = pos.mean(axis=0)
+            pos, _rot_mat = pca_orient(pos, ts_pairs, fit_mask=fit_mask, return_matrix=True)
+            cfg.crystal_data.lattice = (_rot_mat @ cfg.crystal_data.lattice.T).T
+            cfg.crystal_data.cell_origin = _rot_mat @ (cfg.crystal_data.cell_origin - pre_centroid)
+        else:
+            pos = pca_orient(pos, ts_pairs, fit_mask=fit_mask)
 
     raw_vdw = np.array(
         [_CENTROID_VDW if s == "*" else DATA.vdw.get(s, 1.5) * (_H_ATOM_SCALE if s == "H" else 1.0) for s in symbols]
@@ -140,13 +146,14 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     for i, j in cfg.nci_bonds:
         bonds[(i, j)] = bonds[(j, i)] = (bonds.get((i, j), (1.0, BondStyle.SOLID))[0], BondStyle.DOTTED)
 
-    # Only hide C-H hydrogens (not O-H, N-H, etc.); don't apply this to image atoms
+    # Only hide C-H hydrogens (not O-H, N-H, free H, etc.)
     hidden = set()
     if cfg.hide_h:
         show = set(cfg.show_h_indices)
         for ai in range(n):
             if symbols[ai] == "H" and ai not in show and not graph.nodes[ai].get("image", False):
-                if all(symbols[nb] == "C" for nb in graph.neighbors(ai)):
+                neighbours = list(graph.neighbors(ai))
+                if neighbours and all(symbols[nb] == "C" for nb in neighbours):
                     hidden.add(ai)
 
     aromatic_rings = [set(r) for r in graph.graph.get("aromatic_rings", [])]
@@ -281,27 +288,34 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             verts[(i, j, k)] = _proj(p3d, scale, cx, cy, canvas_w, canvas_h)
         # 12 edges: 4 along each axis direction
         cell_lw = cfg.cell_line_width * scale_ratio
+        cell_dash = f"{cell_lw * 2.5:.1f},{cell_lw * 3.0:.1f}"
         svg.append("  <!-- cell box -->")
         # Edges along a (vary i, fix j,k)
         for j, k in itertools.product((0, 1), repeat=2):
-            x1, y1 = verts[(0, j, k)]; x2, y2 = verts[(1, j, k)]
+            x1, y1 = verts[(0, j, k)]
+            x2, y2 = verts[(1, j, k)]
             svg.append(
                 f'  <line class="cell-edge" x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                f'stroke="{cfg.cell_color}" stroke-width="{cell_lw:.1f}" stroke-linecap="round"/>'
+                f'stroke="{cfg.cell_color}" stroke-width="{cell_lw:.1f}" '
+                f'stroke-dasharray="{cell_dash}" stroke-linecap="round"/>'
             )
         # Edges along b (vary j, fix i,k)
         for i, k in itertools.product((0, 1), repeat=2):
-            x1, y1 = verts[(i, 0, k)]; x2, y2 = verts[(i, 1, k)]
+            x1, y1 = verts[(i, 0, k)]
+            x2, y2 = verts[(i, 1, k)]
             svg.append(
                 f'  <line class="cell-edge" x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                f'stroke="{cfg.cell_color}" stroke-width="{cell_lw:.1f}" stroke-linecap="round"/>'
+                f'stroke="{cfg.cell_color}" stroke-width="{cell_lw:.1f}" '
+                f'stroke-dasharray="{cell_dash}" stroke-linecap="round"/>'
             )
         # Edges along c (vary k, fix i,j)
         for i, j in itertools.product((0, 1), repeat=2):
-            x1, y1 = verts[(i, j, 0)]; x2, y2 = verts[(i, j, 1)]
+            x1, y1 = verts[(i, j, 0)]
+            x2, y2 = verts[(i, j, 1)]
             svg.append(
                 f'  <line class="cell-edge" x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                f'stroke="{cfg.cell_color}" stroke-width="{cell_lw:.1f}" stroke-linecap="round"/>'
+                f'stroke="{cfg.cell_color}" stroke-width="{cell_lw:.1f}" '
+                f'stroke-dasharray="{cell_dash}" stroke-linecap="round"/>'
             )
 
     # Interleaved z-order: for each atom, render it then its bonds to deeper atoms
@@ -349,7 +363,8 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             d, g = bw * 0.08, bw * 2
             svg.append(
                 f'  <line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                f'stroke="{color}" stroke-width="{bw:.1f}" stroke-linecap="round" stroke-dasharray="{d:.1f},{g:.1f}"{op_attr}/>'
+                f'stroke="{color}" stroke-width="{bw:.1f}" stroke-linecap="round" '
+                f'stroke-dasharray="{d:.1f},{g:.1f}"{op_attr}/>'
             )
             return
 
@@ -460,12 +475,11 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     if cfg.crystal_data is not None and cfg.show_crystal_axes:
         lat = cfg.crystal_data.lattice
         orig3d = cfg.crystal_data.cell_origin
-        axis_lw = cfg.cell_line_width * scale_ratio * 3.0   # 3× thicker than cell box
-        fs_axis = fs_label * 1.6                             # larger than atom index labels
-        _axis_colors = ("#cc2222", "#22aa22", "#2266cc")
+        axis_lw = cfg.cell_line_width * scale_ratio * cfg.axis_width_scale
+        fs_axis = fs_label * 1.6  # larger than atom index labels
         _axis_labels = ("a", "b", "c")
         svg.append("  <!-- crystal axes -->")
-        for vec, color, label in zip(lat, _axis_colors, _axis_labels):
+        for vec, color, label in zip(lat, cfg.axis_colors, _axis_labels, strict=True):
             length = float(np.linalg.norm(vec))
             if length < 1e-6:
                 continue
@@ -482,16 +496,15 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             dx, dy = tx - ox, ty - oy
             px_len = (dx * dx + dy * dy) ** 0.5
             if px_len > 4:
-                nvx, nvy = dx / px_len, dy / px_len   # shaft direction (unit)
-                pvx, pvy = -nvy, nvx                   # perpendicular
-                arr = max(axis_lw * 3.5, 8.0)          # arrowhead size (px)
+                nvx, nvy = dx / px_len, dy / px_len  # shaft direction (unit)
+                pvx, pvy = -nvy, nvx  # perpendicular
+                arr = max(axis_lw * 3.5, 8.0)  # arrowhead size (px)
                 p1x = tx - nvx * arr + pvx * arr * 0.38
                 p1y = ty - nvy * arr + pvy * arr * 0.38
                 p2x = tx - nvx * arr - pvx * arr * 0.38
                 p2y = ty - nvy * arr - pvy * arr * 0.38
                 svg.append(
-                    f'  <polygon points="{tx:.1f},{ty:.1f} {p1x:.1f},{p1y:.1f} {p2x:.1f},{p2y:.1f}" '
-                    f'fill="{color}"/>'
+                    f'  <polygon points="{tx:.1f},{ty:.1f} {p1x:.1f},{p1y:.1f} {p2x:.1f},{p2y:.1f}" fill="{color}"/>'
                 )
                 lx = tx + nvx * (arr * 0.6 + fs_axis * 0.5)
                 ly = ty + nvy * (arr * 0.6 + fs_axis * 0.5) + fs_axis * 0.35

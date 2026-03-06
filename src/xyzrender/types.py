@@ -144,7 +144,7 @@ class CrystalData:
     Parameters
     ----------
     lattice:
-        3×3 array where each row is a lattice vector (a, b, c) in Ångströms.
+        3x3 array where each row is a lattice vector (a, b, c) in Ångströms.
     cell_origin:
         3-vector (Å) of the (0,0,0) cell corner in the current coordinate frame.
         Defaults to the origin; updated during GIF rotation so the box keeps
@@ -208,5 +208,7 @@ class RenderConfig:
     show_cell: bool = True
     show_crystal_axes: bool = True
     cell_color: str = "#333333"
-    cell_line_width: float = 1.5
+    cell_line_width: float = 2.0
     periodic_image_opacity: float = 0.5
+    axis_colors: tuple[str, str, str] = ("#b22222", "#228b22", "#4169e1")  # firebrick, forestgreen, royalblue
+    axis_width_scale: float = 3.0  # multiplier on cell_line_width for axis stroke width

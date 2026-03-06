@@ -69,13 +69,15 @@ def _rotation_axis(axis_str: str, lattice: np.ndarray | None = None) -> tuple[np
     # Crystallographic hkl format: all-digit string of length 3
     if ax.isdigit() and len(ax) == 3:
         if lattice is None:
-            msg = f"Crystallographic axis {axis_str!r} requires crystal lattice data (--interface-mode or crystal input)"
+            msg = (
+                f"Crystallographic axis {axis_str!r} requires crystal lattice data (--interface-mode or crystal input)"
+            )
             raise ValueError(msg)
-        h, k, l = int(ax[0]), int(ax[1]), int(ax[2])
-        v = h * lattice[0] + k * lattice[1] + l * lattice[2]
+        h, k, l_idx = int(ax[0]), int(ax[1]), int(ax[2])
+        v = h * lattice[0] + k * lattice[1] + l_idx * lattice[2]
         norm = float(np.linalg.norm(v))
         if norm < 1e-10:
-            msg = f"Crystallographic axis [{ax}] has zero length (h={h}, k={k}, l={l})"
+            msg = f"Crystallographic axis [{ax}] has zero length (h={h}, k={k}, l={l_idx})"
             raise ValueError(msg)
         return v / norm, sign
 
@@ -108,10 +110,17 @@ def _orient_graph(graph, vt: np.ndarray) -> None:
     """Apply PCA rotation to graph node positions in-place."""
     nodes = list(graph.nodes())
     pos = np.array([graph.nodes[n]["position"] for n in nodes])
-    centered = pos - pos.mean(axis=0)
-    rotated = centered @ vt.T
+    centroid = pos.mean(axis=0)
+    rotated = (pos - centroid) @ vt.T
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    if "lattice" in graph.graph:
+        lat = np.array(graph.graph["lattice"], dtype=float)
+        graph.graph["lattice"] = (vt @ lat.T).T
+        # Always set up the origin (even if implicit) so the GIF matches
+        # the static SVG: cell_origin = PCA(file_origin - pre_centroid).
+        origin = np.array(graph.graph.get("lattice_origin", np.zeros(3)), dtype=float)
+        graph.graph["lattice_origin"] = vt @ (origin - centroid)  # new centroid = 0
 
 
 if TYPE_CHECKING:
@@ -311,7 +320,17 @@ def render_rotation_gif(
     if config.auto_orient:
         _orient_graph(graph, pca_matrix(np.array([graph.nodes[n]["position"] for n in nodes])))
 
+    # Set up the cell origin (0,0,0) so _apply_rot_to_lattice rotates it around
+    # the molecular centre of mass, not around the origin.
+    # _orient_graph already does this for the PCA path; this covers --no-orient.
+    if "lattice" in graph.graph and "lattice_origin" not in graph.graph:
+        graph.graph["lattice_origin"] = np.zeros(3)
+
     original_positions = {n: graph.nodes[n]["position"] for n in nodes}
+    original_lattice = np.array(graph.graph["lattice"], dtype=float) if "lattice" in graph.graph else None
+    original_lattice_origin = (
+        np.array(graph.graph["lattice_origin"], dtype=float) if "lattice_origin" in graph.graph else None
+    )
 
     # Pass lattice to _rotation_axis for crystallographic hkl axis strings
     _lattice = config.crystal_data.lattice if config.crystal_data is not None else None
@@ -361,19 +380,24 @@ def render_rotation_gif(
     for frame_idx in range(n_frames):
         for n in nodes:
             graph.nodes[n]["position"] = original_positions[n]
+        if original_lattice is not None:
+            graph.graph["lattice"] = original_lattice.copy()
+        if original_lattice_origin is not None:
+            graph.graph["lattice_origin"] = original_lattice_origin.copy()
 
         total_angle = axis_sign * step * frame_idx
         apply_axis_angle_rotation(graph, axis_vec, total_angle)
 
         # Keep the unit cell box co-rotating with the atoms.
         if rot_cfg.crystal_data is not None and _orig_lattice is not None:
-            assert _orig_cell_origin is not None and _atom_centroid is not None
+            assert _orig_cell_origin is not None
+            assert _atom_centroid is not None
             theta = np.radians(total_angle)
             k = axis_vec / np.linalg.norm(axis_vec)
             c_r, s_r = np.cos(theta), np.sin(theta)
             k_cross = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
             rot_mat = c_r * np.eye(3) + s_r * k_cross + (1 - c_r) * np.outer(k, k)
-            rot_cfg.crystal_data.lattice = (_orig_lattice @ rot_mat.T)
+            rot_cfg.crystal_data.lattice = _orig_lattice @ rot_mat.T
             rot_cfg.crystal_data.cell_origin = rot_mat @ (_orig_cell_origin - _atom_centroid) + _atom_centroid
 
         if mo_data is not None:

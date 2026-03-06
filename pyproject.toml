@@ -45,6 +45,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.14.14",
     "ty>=0.0.14",
+    "phonopy",  # optional dep
 ]
 
 # ===== Ruff =====
