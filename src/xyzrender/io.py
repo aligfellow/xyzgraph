@@ -43,6 +43,21 @@ def load_molecule(
     elif p.endswith(".xyz"):
         logger.debug("Parsing as XYZ")
         graph = build_graph(read_xyz_file(p), charge=charge, multiplicity=multiplicity, kekule=kekule)
+        # Try to parse extXYZ Lattice (and optional Origin) from the comment line
+        try:
+            with open(p) as _f:
+                _f.readline()  # atom count
+                _comment = _f.readline()
+            _lattice = _parse_extxyz_lattice(_comment)
+            if _lattice is not None:
+                graph.graph["lattice"] = _lattice
+                logger.debug(f"extXYZ Lattice parsed:\n{_lattice}")
+                _origin = _parse_extxyz_origin(_comment)
+                if _origin is not None:
+                    graph.graph["lattice_origin"] = _origin
+                    logger.debug(f"extXYZ Origin parsed:\n{_origin}")
+        except OSError:
+            pass
     else:
         logger.debug("Parsing as QM output via cclib")
         atoms, file_charge, file_mult = _parse_qm_output(p)
@@ -149,14 +164,17 @@ def rotate_with_viewer(graph: nx.Graph) -> None:
 
     Writes a temp XYZ from current positions, launches v, and reads back
     the rotated coordinates.  All edge attributes (TS labels, bond orders, etc.)
-    are preserved.
+    are preserved.  If the graph has a lattice, it is rotated by the same
+    transformation and the cell origin is updated accordingly.
     """
     viewer = _find_viewer()
     logger.info("Opening viewer: %s", viewer)
     n = graph.number_of_nodes()
     atoms: _Atoms = [(graph.nodes[i]["symbol"], graph.nodes[i]["position"]) for i in range(n)]
+    orig_pos = np.array([graph.nodes[i]["position"] for i in range(n)], dtype=float)
+    lattice = graph.graph.get("lattice")
 
-    rotated_text = _run_viewer_with_atoms(viewer, atoms)
+    rotated_text = _run_viewer_with_atoms(viewer, atoms, lattice=lattice)
 
     if not rotated_text.strip():
         sys.exit("No output from viewer — press 'z' in v to output coordinates before closing.")
@@ -167,6 +185,18 @@ def rotate_with_viewer(graph: nx.Graph) -> None:
 
     for i, (_sym, pos) in enumerate(rotated_atoms):
         graph.nodes[i]["position"] = pos
+
+    if lattice is not None:
+        from xyzrender.utils import kabsch_rotation
+
+        new_pos = np.array([graph.nodes[i]["position"] for i in range(n)], dtype=float)
+        rot = kabsch_rotation(orig_pos, new_pos)
+        c1 = orig_pos.mean(axis=0)
+        c2 = new_pos.mean(axis=0)
+        lat = np.array(lattice, dtype=float)
+        origin = np.array(graph.graph.get("lattice_origin", np.zeros(3)), dtype=float)
+        graph.graph["lattice"] = (rot @ lat.T).T
+        graph.graph["lattice_origin"] = rot @ (origin - c1) + c2
 
 
 def _find_viewer() -> str:
@@ -198,23 +228,47 @@ def _find_viewer() -> str:
     )
 
 
-def _run_viewer(viewer: str, xyz_path: str) -> str:
+def _run_viewer(viewer: str, xyz_path: str, extra_args: list[str] | None = None) -> str:
     """Launch v on an XYZ file and capture stdout."""
-    result = subprocess.run([viewer, xyz_path], capture_output=True, text=True, check=False)
+    result = subprocess.run([viewer, xyz_path, *(extra_args or [])], capture_output=True, text=True, check=False)
     return result.stdout
 
 
-def _run_viewer_with_atoms(viewer: str, atoms: _Atoms) -> str:
-    """Write atoms to temp XYZ, launch v, capture stdout."""
+def _run_viewer_with_atoms(viewer: str, atoms: _Atoms, lattice: np.ndarray | None = None) -> str:
+    """Write atoms to temp XYZ, launch v, capture stdout.
+
+    If *lattice* is a diagonal (orthogonal) box, passes `cell:b{a},{b},{c}`
+    to v so the cell frame is shown in the viewer too.
+    """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".xyz", delete=False) as f:
         f.write(f"{len(atoms)}\n\n")
         for sym, (x, y, z) in atoms:
             f.write(f"{sym}  {x: .6f}  {y: .6f}  {z: .6f}\n")
         tmp = f.name
+    extra: list[str] = []
+    if lattice is not None:
+        # v accepts the 3x3 matrix as 9 comma-separated values
+        flat = lattice.flatten()
+        extra.append("cell:" + ",".join(f"{v:.6f}" for v in flat))
     try:
-        return _run_viewer(viewer, tmp)
+        return _run_viewer(viewer, tmp, extra)
     finally:
         os.unlink(tmp)
+
+
+def _apply_rot_to_lattice(graph: nx.Graph, rot: np.ndarray, centroid: np.ndarray) -> None:
+    """Rotate the lattice vectors and cell origin stored on *graph* by *rot*.
+
+    The origin (if present) rotates around *centroid* like any atom would.
+    When absent, render_svg defaults to (0, 0, 0) which needs no rotation.
+    """
+    if "lattice" not in graph.graph:
+        return
+    lat = np.array(graph.graph["lattice"], dtype=float)
+    graph.graph["lattice"] = (rot @ lat.T).T
+    if "lattice_origin" in graph.graph:
+        origin = np.array(graph.graph["lattice_origin"], dtype=float)
+        graph.graph["lattice_origin"] = rot @ (origin - centroid) + centroid
 
 
 def apply_rotation(graph: nx.Graph, rx: float, ry: float, rz: float) -> None:
@@ -240,6 +294,7 @@ def apply_rotation(graph: nx.Graph, rx: float, ry: float, rz: float) -> None:
     rotated = (rot @ (positions - centroid).T).T + centroid
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    _apply_rot_to_lattice(graph, rot, centroid)
 
 
 def apply_axis_angle_rotation(graph: nx.Graph, axis: np.ndarray, angle: float) -> None:
@@ -260,12 +315,13 @@ def apply_axis_angle_rotation(graph: nx.Graph, axis: np.ndarray, angle: float) -
     rotated = (rot @ (positions - centroid).T).T + centroid
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    _apply_rot_to_lattice(graph, rot, centroid)
 
 
 def load_trajectory_frames(path: str | Path) -> list[dict]:
     """Load all frames from a multi-frame XYZ or QM output (cclib).
 
-    Returns list of ``{"symbols": [...], "positions": [[x,y,z], ...]}``
+    Returns list of `{"symbols": [...], "positions": [[x,y,z], ...]}`
     matching the graphRC frame format.
     """
     p = str(path)
@@ -370,6 +426,62 @@ def _load_xyz_frames(path: str) -> list[dict]:
             }
         )
     return frames
+
+
+def _parse_extxyz_lattice(comment: str) -> np.ndarray | None:
+    """Extract Lattice matrix from an XYZ comment line.
+
+    Handles two formats:
+
+    - extXYZ: `Lattice="a11 a12 a13 a21 a22 a23 a31 a32 a33"`
+    - Bare 9-float: comment line is exactly 9 space-separated floats
+
+    Returns a (3, 3) float array (row vectors a, b, c) or None.
+    """
+    import re
+
+    m = re.search(r'Lattice\s*=\s*"([^"]+)"', comment, re.IGNORECASE)
+    if m:
+        vals_str = m.group(1)
+        try:
+            vals = [float(x) for x in vals_str.split()]
+        except ValueError:
+            logger.warning("extXYZ Lattice= found but content is not numeric: %r", vals_str)
+            return None
+        if len(vals) != 9:
+            logger.warning("extXYZ Lattice= found but expected 9 values, got %d: %r", len(vals), vals_str)
+            return None
+        return np.array(vals, dtype=float).reshape(3, 3)
+
+    # Bare 9-float fallback (no Lattice= key — comment is exactly 9 floats)
+    stripped = comment.strip()
+    try:
+        vals = [float(x) for x in stripped.split()]
+    except ValueError:
+        return None
+    if len(vals) != 9:
+        return None
+    return np.array(vals, dtype=float).reshape(3, 3)
+
+
+def _parse_extxyz_origin(comment: str) -> np.ndarray | None:
+    """Extract cell Origin from an extXYZ comment line.
+
+    Looks for Origin="ox oy oz" and returns a (3,) float array or
+    None if the key is absent.
+    """
+    import re
+
+    m = re.search(r'Origin\s*=\s*"([^"]+)"', comment, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        vals = [float(x) for x in m.group(1).split()]
+    except ValueError:
+        return None
+    if len(vals) != 3:
+        return None
+    return np.array(vals, dtype=float)
 
 
 def _load_qm_frames(path: str) -> list[dict]:

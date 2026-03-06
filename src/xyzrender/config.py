@@ -77,7 +77,7 @@ def build_render_config(config_data: dict, cli_overrides: dict) -> RenderConfig:
     merged.pop("dens_color", None)
 
     # Resolve any named colors to hex for fields that downstream code parses as hex
-    for key in ("background", "bond_color", "atom_stroke_color", "label_color", "cmap_unlabeled"):
+    for key in ("background", "bond_color", "atom_stroke_color", "label_color", "cmap_unlabeled", "cell_color"):
         if key in merged:
             merged[key] = resolve_color(merged[key])
 

@@ -14,6 +14,9 @@ xyzrender "$DIR/caffeine.xyz" -o "$OUT/caffeine_default.png"
 xyzrender "$DIR/caffeine.xyz" --config flat -o "$OUT/caffeine_flat.svg"
 xyzrender "$DIR/caffeine.xyz" --config paton -o "$OUT/caffeine_paton.svg"
 
+echo "=== Crystal / unit cell ==="
+xyzrender "$DIR/caffeine_cell.xyz" --cell -o "$OUT/caffeine_cell.svg" --no-orient --gif-rot -go "$OUT/caffeine_cell.gif" 
+
 echo "=== Display options ==="
 xyzrender "$DIR/ethanol.xyz" --hy -o "$OUT/ethanol_all_h.svg"           # all H
 xyzrender "$DIR/ethanol.xyz" --hy 7 8 9 -o "$OUT/ethanol_some_h.svg"   # specific H atoms

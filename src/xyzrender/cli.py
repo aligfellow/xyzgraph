@@ -121,6 +121,13 @@ def main() -> None:
     )
     disp_g.add_argument("--fog", action=argparse.BooleanOptionalAction, default=None, help="Depth fog")
     disp_g.add_argument("--vdw", nargs="?", const="", default=None, help='VdW spheres (no args=all, or "1-20,25")')
+    disp_g.add_argument(
+        "--cell",
+        action="store_true",
+        default=False,
+        help="Draw unit cell box from extXYZ Lattice",
+    )
+    disp_g.add_argument("--cell-color", default=None, help="Unit cell edge color (hex or named, default: #888888)")
 
     # --- Surfaces (MO / density / ESP) ---
     surf_g = p.add_argument_group("surfaces")
@@ -289,6 +296,9 @@ def main() -> None:
     else:
         cfg.auto_orient = True
 
+    if args.cell_color is not None:
+        cfg.cell_color = args.cell_color
+
     # Output path defaults and validation
     base = _basename(args.input, from_stdin)
     if not args.output:
@@ -384,6 +394,20 @@ def main() -> None:
     # Post-load analysis
     if args.nci:
         graph = detect_nci(graph)
+
+    # Unit cell box (extXYZ Lattice)
+    if args.cell:
+        if "lattice" not in graph.graph:
+            logger.warning("--cell: no Lattice found in input file, cell box will not be drawn")
+        cfg.show_cell = True
+    elif "lattice" in graph.graph:
+        logger.info("Lattice= found in file, use --cell to draw the unit cell box")
+
+    # Bond orders are unreliable for periodic structures (no PBC-aware perception).
+    # Disable by default; the user can re-enable with --bo.
+    if "lattice" in graph.graph and args.bo is None:
+        cfg.bond_orders = False
+        logger.warning("Periodic structure: bond orders disabled (use --bo to override)")
 
     # Measurements (terminal only — no SVG effect)
     if args.measure is not None:

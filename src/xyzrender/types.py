@@ -183,3 +183,6 @@ class RenderConfig:
     atom_cmap: dict[int, float] | None = None
     cmap_range: tuple[float, float] | None = None
     cmap_unlabeled: str = "#ffffff"  # fill for atoms absent from cmap file
+    # Unit cell box (extXYZ Lattice)
+    show_cell: bool = False
+    cell_color: str = "#888888"

@@ -37,6 +37,16 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     pos = np.array([graph.nodes[i]["position"] for i in node_ids], dtype=float)
     a_nums = [DATA.s2n.get(s, 0) for s in symbols]  # 0 for NCI centroid nodes ("*")
 
+    # Unit cell vectors and origin (extXYZ Lattice), rotated along with atoms
+    cell_vecs: np.ndarray | None = None
+    cell_origin_3d: np.ndarray = np.zeros(3)
+    if cfg.show_cell and "lattice" in graph.graph:
+        cell_vecs = np.array(graph.graph["lattice"], dtype=float)
+        if "lattice_origin" in graph.graph:
+            # Explicit Origin= from file — use as-is
+            cell_origin_3d = np.array(graph.graph["lattice_origin"], dtype=float)
+        # else: cell_origin_3d stays np.zeros(3) — chemically correct, cell at (0,0,0)
+
     if cfg.auto_orient and n > 1:
         # Collect TS bond pairs to prioritize in orientation
         ts_pairs = list(cfg.ts_bonds) if cfg.ts_bonds else []
@@ -48,7 +58,13 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         fit_mask = atom_mask if not atom_mask.all() else None
         from xyzrender.utils import pca_orient
 
-        pos = pca_orient(pos, ts_pairs or None, fit_mask=fit_mask)
+        if cell_vecs is not None:
+            pre_centroid = pos.mean(axis=0)
+            pos, _rot_mat = pca_orient(pos, ts_pairs, fit_mask=fit_mask, return_matrix=True)
+            cell_vecs = (_rot_mat @ cell_vecs.T).T
+            cell_origin_3d = _rot_mat @ (cell_origin_3d - pre_centroid)
+        else:
+            pos = pca_orient(pos, ts_pairs, fit_mask=fit_mask)
 
     raw_vdw = np.array(
         [_CENTROID_VDW if s == "*" else DATA.vdw.get(s, 1.5) * (_H_ATOM_SCALE if s == "H" else 1.0) for s in symbols]
@@ -80,6 +96,17 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     if cfg.esp_surface is not None:
         extra_lo = np.array([cfg.esp_surface.x_min, cfg.esp_surface.y_min])
         extra_hi = np.array([cfg.esp_surface.x_max, cfg.esp_surface.y_max])
+    if cell_vecs is not None:
+        cell_corners_xy = np.array(
+            [
+                cell_origin_3d + i * cell_vecs[0] + j * cell_vecs[1] + k * cell_vecs[2]
+                for i, j, k in itertools.product([0, 1], repeat=3)
+            ]
+        )[:, :2]
+        cell_lo = cell_corners_xy.min(axis=0)
+        cell_hi = cell_corners_xy.max(axis=0)
+        extra_lo = np.minimum(extra_lo, cell_lo) if extra_lo is not None else cell_lo
+        extra_hi = np.maximum(extra_hi, cell_hi) if extra_hi is not None else cell_hi
     scale, cx, cy, canvas_w, canvas_h = _fit_canvas(pos, fit_radii, cfg, extra_lo=extra_lo, extra_hi=extra_hi)
 
     # scale_ratio: encodes both molecule complexity AND canvas size so that
@@ -128,13 +155,14 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     for i, j in cfg.nci_bonds:
         bonds[(i, j)] = bonds[(j, i)] = (bonds.get((i, j), (1.0, BondStyle.SOLID))[0], BondStyle.DOTTED)
 
-    # Only hide C-H hydrogens (not O-H, N-H, etc.)
+    # Only hide C-H hydrogens (not O-H, N-H, free H, etc.)
     hidden = set()
     if cfg.hide_h:
         show = set(cfg.show_h_indices)
         for ai in range(n):
             if symbols[ai] == "H" and ai not in show:
-                if all(symbols[nb] == "C" for nb in graph.neighbors(ai)):
+                neighbours = list(graph.neighbors(ai))
+                if neighbours and all(symbols[nb] == "C" for nb in neighbours):
                     hidden.add(ai)
 
     aromatic_rings = [set(r) for r in graph.graph.get("aromatic_rings", [])]
@@ -390,6 +418,39 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 xi, yi = _proj(pos[ai], scale, cx, cy, canvas_w, canvas_h)
                 svg.append(f'    <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{vr:.1f}" fill="url(#vg{a_nums[ai]})"/>')
         svg.append("  </g>")
+
+    # --- Unit cell box (extXYZ Lattice) ---
+    if cell_vecs is not None:
+        a, b, c = cell_vecs
+        o = cell_origin_3d
+        cell_corners = {(i, j, k): o + i * a + j * b + k * c for i, j, k in itertools.product([0, 1], repeat=3)}
+        cell_edges = [
+            # along a
+            ((0, 0, 0), (1, 0, 0)),
+            ((0, 1, 0), (1, 1, 0)),
+            ((0, 0, 1), (1, 0, 1)),
+            ((0, 1, 1), (1, 1, 1)),
+            # along b
+            ((0, 0, 0), (0, 1, 0)),
+            ((1, 0, 0), (1, 1, 0)),
+            ((0, 0, 1), (0, 1, 1)),
+            ((1, 0, 1), (1, 1, 1)),
+            # along c
+            ((0, 0, 0), (0, 0, 1)),
+            ((1, 0, 0), (1, 0, 1)),
+            ((0, 1, 0), (0, 1, 1)),
+            ((1, 1, 0), (1, 1, 1)),
+        ]
+        cell_lw = max(1.0, bw * 0.4)
+        cell_dash = f"{cell_lw * 2.5:.1f},{cell_lw * 3:.1f}"
+        for e1, e2 in cell_edges:
+            x1, y1 = _proj(cell_corners[e1], scale, cx, cy, canvas_w, canvas_h)
+            x2, y2 = _proj(cell_corners[e2], scale, cx, cy, canvas_w, canvas_h)
+            svg.append(
+                f'  <line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                f'stroke="{cfg.cell_color}" stroke-width="{cell_lw:.1f}" '
+                f'stroke-dasharray="{cell_dash}" stroke-linecap="round"/>'
+            )
 
     # --- Annotations (bond/angle/dihedral/custom labels, always on top) ---
     has_annotations = bool(cfg.annotations)

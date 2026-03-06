@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import sys
 from io import BytesIO
@@ -90,10 +91,17 @@ def _orient_graph(graph, vt: np.ndarray) -> None:
     """Apply PCA rotation to graph node positions in-place."""
     nodes = list(graph.nodes())
     pos = np.array([graph.nodes[n]["position"] for n in nodes])
-    centered = pos - pos.mean(axis=0)
-    rotated = centered @ vt.T
+    centroid = pos.mean(axis=0)
+    rotated = (pos - centroid) @ vt.T
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    if "lattice" in graph.graph:
+        lat = np.array(graph.graph["lattice"], dtype=float)
+        graph.graph["lattice"] = (vt @ lat.T).T
+        # Always set up the origin (even if implicit) so the GIF matches
+        # the static SVG: cell_origin = PCA(file_origin - pre_centroid).
+        origin = np.array(graph.graph.get("lattice_origin", np.zeros(3)), dtype=float)
+        graph.graph["lattice_origin"] = vt @ (origin - centroid)  # new centroid = 0
 
 
 if TYPE_CHECKING:
@@ -293,11 +301,39 @@ def render_rotation_gif(
     if config.auto_orient:
         _orient_graph(graph, pca_matrix(np.array([graph.nodes[n]["position"] for n in nodes])))
 
+    # Set up the cell origin (0,0,0) so _apply_rot_to_lattice rotates it around
+    # the molecular centre of mass, not around the origin.
+    # _orient_graph already does this for the PCA path; this covers --no-orient.
+    if "lattice" in graph.graph and "lattice_origin" not in graph.graph:
+        graph.graph["lattice_origin"] = np.zeros(3)
+
     original_positions = {n: graph.nodes[n]["position"] for n in nodes}
+    original_lattice = np.array(graph.graph["lattice"], dtype=float) if "lattice" in graph.graph else None
+    original_lattice_origin = (
+        np.array(graph.graph["lattice_origin"], dtype=float) if "lattice_origin" in graph.graph else None
+    )
 
     axis_vec, axis_sign = _rotation_axis(axis)
     frame = {"positions": list(original_positions.values()), "symbols": [graph.nodes[n]["symbol"] for n in nodes]}
     rot_cfg = _fixed_viewport([frame], config, rotation_axis=axis_vec)
+
+    # Expand viewport to include all cell corners at each rotation angle.
+    if original_lattice is not None and original_lattice_origin is not None:
+        atom_centroid_3d = np.array(list(original_positions.values())).mean(axis=0)
+        cell_corners = np.array(
+            [
+                original_lattice_origin + i * original_lattice[0] + j * original_lattice[1] + k * original_lattice[2]
+                for i, j, k in itertools.product([0, 1], repeat=3)
+            ]
+        )
+        rel = cell_corners - atom_centroid_3d
+        along = rel @ axis_vec
+        perp = np.linalg.norm(rel - np.outer(along, axis_vec), axis=1)
+        needed = 2 * max(float(perp.max()), float(along.max() - along.min()) / 2)
+        assert rot_cfg.fixed_span is not None
+        if needed > rot_cfg.fixed_span:
+            rot_cfg.fixed_span = needed
+            logger.debug("Expanded GIF viewport for cell: span=%.2f", needed)
 
     # Expand viewport if density surface extends beyond atoms
     if dens_data is not None:
@@ -326,13 +362,16 @@ def render_rotation_gif(
             rot_cfg.fixed_span = 2 * needed
             logger.debug("Expanded GIF viewport for density: r=%.2f -> span=%.2f", dens_r, rot_cfg.fixed_span)
 
-    axis_vec, axis_sign = _rotation_axis(axis)
     step = 360.0 / n_frames
     logger.info("Rendering rotation GIF (%d frames, axis=%s)", n_frames, axis)
     pngs = []
     for frame_idx in range(n_frames):
         for n in nodes:
             graph.nodes[n]["position"] = original_positions[n]
+        if original_lattice is not None:
+            graph.graph["lattice"] = original_lattice.copy()
+        if original_lattice_origin is not None:
+            graph.graph["lattice_origin"] = original_lattice_origin.copy()
 
         apply_axis_angle_rotation(graph, axis_vec, axis_sign * step * frame_idx)
 

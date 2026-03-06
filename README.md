@@ -154,6 +154,42 @@ xyzrender asparagine.xyz --hy --vdw "1-6" -o asparagine_vdw_partial.svg  # vdW s
 xyzrender asparagine.xyz --hy --vdw --config paton -o asparagine_vdw_paton.svg  # vdW spheres on all atoms
 ```
 
+### Crystal structures / unit cell
+
+Draw the unit cell box for periodic structures from an extXYZ file with a `Lattice=` header and the `--cell` flag.
+
+| Unit cell | Cell rotation |
+|-----------|---------------|
+| ![cell](examples/caffeine_cell.svg) | ![cell rot](examples/caffeine_cell.gif) |
+
+```bash
+xyzrender caffeine_cell.xyz --cell -o caffeine_cell.svg                            # unit cell box
+xyzrender caffeine_cell.xyz --cell --gif-rot -go caffeine_cell.gif                 # rotation GIF with cell
+xyzrender caffeine_cell.xyz --cell --cell-color maroon -o caffeine_cell_custom.svg # custom edge color
+```
+
+The input must be an **extXYZ** file - a standard XYZ file whose comment line (line 2) contains a `Lattice=` key:
+
+```
+100
+Lattice="14.8 0.0 0.0 0.0 16.7 0.0 -0.484 0.0 3.940" Properties=species:S:1:pos:R:3 ...
+C   3.137   3.716   3.547
+...
+```
+
+The `Lattice=` value is the 3×3 cell matrix as nine space-separated floats: **a**, **b**, **c**. An optional `Origin=` key (e.g. `Origin="0.5 0.5 0.5"`) shifts the cell origin (default: `0 0 0`). Tools like [ASE](https://ase-lib.org/) can export to extXYZ from CIF or other periodic formats.  
+
+This can also handle nine space-separated float values *e.g.*:  
+```
+100
+14.8 0.0 0.0 0.0 16.7 0.0 -0.484 0.0 3.940
+C   3.137   3.716   3.547
+...
+```
+
+Note:  
+- **Bond orders are disabled by default** for periodic structures — geometry-based perception is not PBC-aware. Pass `--bo` to re-enable.
+
 ### Transition states and NCI
 
 xyzrender uses [xyzgraph](https://github.com/aligfellow/xyzgraph) for molecular graph construction from Cartesian coordinates — determining bond connectivity, bond orders, detecting aromatic rings, and non-covalent interactions. It also provides element data (van der Waals radii, atomic numbers) used throughout rendering.
@@ -593,6 +629,9 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--vdw-opacity` | vdW sphere opacity (default: 0.25) |
 | `--vdw-scale` | vdW sphere radius scale |
 | `--vdw-gradient` | vdW sphere gradient strength |
+| **Crystal / unit cell** | |
+| `--cell` | Draw unit cell box from `Lattice=` in extXYZ header |
+| `--cell-color` | Cell edge color (hex or named, default: `gray`) |
 | **Orientation** | |
 | `-I`, `--interactive` | Interactive rotation via `v` viewer |
 | `--orient` / `--no-orient` | Auto-orientation toggle |
