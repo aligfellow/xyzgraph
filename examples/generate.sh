@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Generate all example outputs from sample structures.
-# Run from the repo root: bash examples/generate.sh
 
 set -euo pipefail
 
-DIR=examples/structures
-OUT=examples
+OUT=$(dirname $(realpath ${BASH_SOURCE[0]%/*}))
+DIR=$OUT/structures
 mkdir -p "$OUT"
 
 echo "=== Presets ==="
@@ -34,11 +33,16 @@ xyzrender "$DIR/bimp.out" -o "$OUT/bimp_qm.svg"
 xyzrender "$DIR/mn-h2.log" -o "$OUT/mn-h2_qm.svg" --ts
 
 echo "=== TS and NCI options ==="
-xyzrender "$DIR/sn2.out" --ts-bond "1-2" -o "$OUT/sn2_ts_man.svg" 
-xyzrender "$DIR/sn2.out" --ts --hy -o "$OUT/sn2_ts.svg" 
+if [ -n "$(which ORCA)" ]; then
+    xyzrender "$DIR/sn2.out" --ts-bond "1-2" -o "$OUT/sn2_ts_man.svg"
+    xyzrender "$DIR/sn2.out" --ts --hy -o "$OUT/sn2_ts.svg" 
+    xyzrender "$DIR/bimp.out" --nci -o "$OUT/bimp_nci.svg"  # all NCI bonds
+else
+    echo "ORCA not found, skipping some examples."
+fi
 xyzrender "$DIR/Hbond.xyz" --hy --nci-bond "8-9" -o "$OUT/nci_man.svg"  # specific NCI bond only
 xyzrender "$DIR/Hbond.xyz" --hy --nci -o "$OUT/nci.svg"  # specific NCI bond only
-xyzrender "$DIR/bimp.out" --nci -o "$OUT/bimp_nci.svg"  # all NCI bonds
+
 
 echo "=== Annotations & measurements ==="
 xyzrender "$DIR/caffeine.xyz" --idx -o "$OUT/caffeine_idx.svg" 
@@ -47,7 +51,11 @@ xyzrender "$DIR/caffeine.xyz" --hy --cmap "$DIR/caffeine_charges.txt" -o "$OUT/c
 xyzrender "$DIR/caffeine.xyz" --hy --cmap "$DIR/caffeine_charges.txt" -o "$OUT/caffeine_cmap.svg" --cmap-range -0.5 0.5
 xyzrender "$DIR/caffeine.xyz" -l 13 6 9 4 t -l 1 a -l 14 d -l 7 12 8 a -l 11 d -o "$OUT/caffeine_dihedral.svg"
 xyzrender "$DIR/caffeine.xyz" -l 1 best -l 2 "NBO: 0.4" -o "$OUT/caffeine_labels.svg"
-xyzrender "$DIR/sn2.out" --ts --label "$OUT/sn2_label.txt" -o "$OUT/sn2_ts_label.svg" --label-size 40
+if [ -n "$(which ORCA)" ]; then
+    xyzrender "$DIR/sn2.out" --ts --label "$OUT/sn2_label.txt" -o "$OUT/sn2_ts_label.svg" --label-size 40
+else
+    echo "ORCA not found, skipping some examples."
+fi
 
 echo "=== Molecular orbitals ==="
 xyzrender "$DIR/caffeine_lumo.cube" --mo --mo-colors maroon teal -o "$OUT/caffeine_lumo.svg"
