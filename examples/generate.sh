@@ -77,4 +77,14 @@ xyzrender "$DIR/mn-h2.log" -o "$OUT/mn-h2_gif.svg" --gif-ts -go "$OUT/mn-h2.gif"
 xyzrender "$DIR/bimp.out" -o "$OUT/bimp_nci.svg" --ts --gif-trj --vdw 84-169 --nci -go "$OUT/bimp_nci_trj.gif"
 xyzrender "$DIR/bimp.out" -o "$OUT/bimp_nci.svg" --gif-ts --gif-rot --vdw 84-169 --nci -go "$OUT/bimp_nci_ts.gif"
 
+echo "=== Crystal / unit cell ==="
+xyzrender "$DIR/caffeine_cell.xyz" --cell -o "$OUT/caffeine_cell.svg" --no-orient --gif-rot -go "$OUT/caffeine_cell.gif" 
+
+echo "=== Crystal / periodic structures ==="
+xyzrender "$DIR/NV63.vasp" --crystal -o "$OUT/NV63_vasp.svg" --gif-rot -go "$OUT/NV63_vasp.gif"  # auto-detected as VASP
+xyzrender "$DIR/NV63.in" --crystal qe -o "$OUT/NV63_qe.svg"          # explicit QE mode
+xyzrender "$DIR/NV63.vasp" --crystal --no-ghosts -o "$OUT/NV63_vasp_no_img.svg"       # hide image atoms
+xyzrender "$DIR/NV63.vasp" --crystal --no-cell -o "$OUT/NV63_vasp_no_cell.svg"        # hide unit cell box
+xyzrender "$DIR/NV63.vasp" --crystal --axis 111 --gif-rot 111 -o "$OUT/NV63_vasp_111.svg" -go "$OUT/NV63_vasp_111.gif"  # look down [111], rotate around [111]
+
 echo "Done! Outputs written to $OUT/"

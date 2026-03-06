@@ -29,6 +29,9 @@ homepage = "https://github.com/aligfellow/xyzrender"
 [project.scripts]
 xyzrender = "xyzrender.cli:main"
 
+[project.optional-dependencies]
+crystal = ["phonopy"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -42,6 +45,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.14.14",
     "ty>=0.0.14",
+    "phonopy",  # optional dep
 ]
 
 # ===== Ruff =====
