@@ -402,6 +402,11 @@ def main() -> None:
     cube_data = None
     crystal_data = None
     needs_ts = args.ts_detect or args.gif_ts
+    if is_cube and needs_ts:
+        print(
+            "Warning: --ts/--gif-ts has no effect with cube files (single geometry, no frequency data). "
+            "Use --ts-bond to manually specify TS bonds."
+        )
     if is_cube:
         from xyzrender.io import load_cube
 
