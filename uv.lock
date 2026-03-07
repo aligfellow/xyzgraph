@@ -7,6 +7,22 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "ase"
+version = "3.27.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8e/a6/d38b39abd24110deb13bee0dc14404eca1f2113c01bc9bbf075dc3e1c2dd/ase-3.27.0.tar.gz", hash = "sha256:92ada752d6866a61d2d27e0e6a4fd5b8cd86f59ca79a58f1d2fe29d7099153dc", size = 2363050, upload-time = "2025-12-28T15:41:22.419Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/9b/9b55b4d4855743de61ba91566d03b2560285ed8fc0387b9cf914795d4abf/ase-3.27.0-py3-none-any.whl", hash = "sha256:058c48ea504fe7fbbe7c932f778415243ef2df45b1ab869866f24efcc17f0538", size = 2885170, upload-time = "2025-12-28T15:41:20.257Z" },
+]
+
+[[package]]
 name = "cairocffi"
 version = "1.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1744,38 +1760,58 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "ase" },
+    { name = "phonopy" },
+    { name = "rdkit" },
+]
+cif = [
+    { name = "ase" },
+]
 crystal = [
     { name = "phonopy" },
+]
+smi = [
+    { name = "rdkit" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "ase" },
     { name = "phonopy" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "rdkit" },
     { name = "ruff" },
     { name = "ty" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "ase", marker = "extra == 'all'" },
+    { name = "ase", marker = "extra == 'cif'" },
     { name = "cairosvg" },
     { name = "cclib" },
     { name = "graphrc" },
     { name = "numpy", specifier = ">=1.24" },
+    { name = "phonopy", marker = "extra == 'all'" },
     { name = "phonopy", marker = "extra == 'crystal'" },
     { name = "pillow" },
+    { name = "rdkit", marker = "extra == 'all'" },
+    { name = "rdkit", marker = "extra == 'smi'" },
     { name = "xyzgraph", specifier = ">=1.6.1" },
 ]
-provides-extras = ["crystal"]
+provides-extras = ["crystal", "smi", "cif", "all"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "ase" },
     { name = "phonopy" },
     { name = "pre-commit", specifier = ">=3.5.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
+    { name = "rdkit" },
     { name = "ruff", specifier = ">=0.14.14" },
     { name = "ty", specifier = ">=0.0.14" },
 ]

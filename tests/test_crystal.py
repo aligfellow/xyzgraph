@@ -168,7 +168,8 @@ def test_render_crystal_no_images(vasp_crystal):
 def extxyz_graph():
     from xyzrender.io import load_molecule
 
-    return load_molecule(EXTXYZ_FILE)
+    graph, _ = load_molecule(EXTXYZ_FILE)
+    return graph
 
 
 def test_extxyz_lattice_parsed(extxyz_graph):

@@ -29,6 +29,10 @@ echo "=== QM output files ==="
 xyzrender "$DIR/bimp.out" -o "$OUT/bimp_qm.svg" 
 xyzrender "$DIR/mn-h2.log" -o "$OUT/mn-h2_qm.svg" --ts
 
+echo "=== Input files ==="
+xyzrender "$DIR/ala_phe_ala.pdb" -o "$OUT/ala_phe_ala.svg"
+xyzrender --smi "C1CCCCC1" --hy -o "$OUT/cyclohexane_smi.svg"
+
 echo "=== TS and NCI options ==="
 if [ -n "$(which ORCA)" ]; then
     xyzrender "$DIR/sn2.out" --ts-bond "1-2" -o "$OUT/sn2_ts_man.svg"

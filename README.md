@@ -1,6 +1,6 @@
 # xyzrender: Publication-quality molecular graphics from the command line.
 
-Render molecular structures as publication-quality SVG, PNG, PDF, and animated GIF from XYZ files or quantum chemistry output.
+Render molecular structures as publication-quality SVG, PNG, PDF, and animated GIF from XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, cube files, or quantum chemistry output.
 
 [![PyPI Downloads](https://static.pepy.tech/badge/xyzrender)](https://pepy.tech/projects/xyzrender)
 [![License](https://img.shields.io/github/license/aligfellow/xyzrender)](https://github.com/aligfellow/xyzrender/blob/main/LICENSE)
@@ -27,6 +27,7 @@ Most molecular visualisation tools require manual setup: loading files into a GU
 - **Electrostatic potential (ESP)** — ESP colormapped onto the density surface from paired cube files
 - **vdW surface overlays** — van der Waals spheres on all or selected atoms
 - **Depth fog and gradients** — 3D depth cues without needing a 3D viewer
+- **Cheminformatics formats** — mol, SDF, MOL2, PDB (with CRYST1 unit cell), SMILES (3D embedding via rdkit), and CIF (via ase) — bond connectivity read directly from file
 - **Crystal / periodic structures** — render VASP/Quantum ESPRESSO unit cell structures with unit cell box, adjacent periodic image atoms, and crystallographic axis arrows (a/b/c), loaded via [`phonopy`](https://github.com/phonopy/phonopy)
 - **Multiple output formats** — SVG (default), PNG, PDF, and GIF from the same command
 
@@ -343,6 +344,45 @@ xyzrender bimp.out --gif-ts --gif-rot --nci --vdw 84-169 -go bimp_nci_ts.gif  # 
 xyzrender bimp.out --gif-trj --nci --ts --vdw 84-169 -go bimp_nci_trj.gif  # TS bonds + nci + vdW + trj
 ```
 
+
+### File formats
+
+xyzrender reads bond connectivity where present directly from mol, SDF, MOL2, PDB, SMILES, and CIF files. Parser is dictated by file extension.
+
+```bash
+xyzrender examples/structures/caffeine_sdf.sdf  # SDF — bonds from file
+xyzrender examples/structures/water_mol2.mol2   # MOL2 — Tripos aromatic bonds
+xyzrender examples/structures/ala_phe_ala.pdb   # PDB — ATOM/HETATM + CONECT
+xyzrender examples/structures/caffeine_cif.cif  # CIF — crystal structure via ase
+xyzrender --smi "C1CCCCC1" --hy -o cyclohexane_smi.svg  # SMILES — 3D embedding via rdkit
+```
+
+| PDB | SMILES |
+|-----------|---------------|
+| ![PDB](examples/ala_phe_ala.svg) | ![smiles](examples/cyclohexane_smi.svg) |
+
+- ala_phe_ala.pdb from (here)[https://gist.github.com/cstein/6699200]
+
+**PDB with CRYST1:** if the PDB contains a `CRYST1` record, the unit cell is parsed and the crystal rendering path is used automatically (cell box, same as `--cell`).
+**SMILES (`--smi`):** embeds a SMILES string into 3D using rdkit (ETKDGv3 + MMFF94). An XYZ file of the optimised geometry is written alongside the output image automatically.
+
+  - SMILES requires `pip install xyzrender[smiles]` (rdkit). 
+  - CIF requires `pip install 'xyzrender[cif]'` (ase).
+
+**Multi-record SDF:** use `--mol-frame N` to select a record (default: 0).
+```bash
+xyzrender examples/structures/multi_mol.sdf --mol-frame 1
+```
+
+**Re-detect bonds:** `--rebuild` discards file connectivity and runs xyzgraph distance-based detection instead.
+
+Format-specific flags:
+
+| Flag | Description |
+|------|-------------|
+| `--smi SMILES` | Embed a SMILES string into 3D (requires rdkit) |
+| `--mol-frame N` | Record index in multi-molecule SDF (default: 0) |
+| `--rebuild` | Ignore file connectivity; re-detect bonds with xyzgraph |
 
 ### Crystal structures / unit cell
 
@@ -669,6 +709,9 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `-m`, `--multiplicity` | Spin multiplicity |
 | `--config` | Config preset or JSON path |
 | `-d`, `--debug` | Debug logging |
+| `--smi SMILES` | Embed a SMILES string into 3D (requires rdkit) |
+| `--mol-frame N` | Record index in multi-molecule SDF (default: 0) |
+| `--rebuild` | Ignore file connectivity; re-detect bonds with xyzgraph |
 | **Styling** | |
 | `-S`, `--canvas-size` | Canvas size in px (default: 800) |
 | `-a`, `--atom-scale` | Atom radius scale factor |
@@ -771,8 +814,10 @@ Key dependencies:
 
 Optional dependencies:
 
-- [**phonopy**](https://github.com/phonopy/phonopy) — crystal structure loading
-- [**v**](https://github.com/briling/v) - interactive molecule orientation
+- [**phonopy**](https://github.com/phonopy/phonopy) — crystal structure loading (`pip install 'xyzrender[crystal]'`)
+- [**rdkit**](https://www.rdkit.org/) — SMILES 3D embedding (`pip install 'xyzrender[smiles]'`)
+- [**ase**](https://wiki.fysik.dtu.dk/ase/) — CIF parsing (`pip install 'xyzrender[cif]'`)
+- [**v**](https://github.com/briling/v) — interactive molecule orientation
 
 Generated from [aligfellow/python-template](https://github.com/aligfellow/python-template).
 
