@@ -423,7 +423,7 @@ Note:
 The unit cell box is drawn in the background and crystallographic axis arrows (**a**, **b**, **c**) are overlaid on top. Periodic ghost/image atoms — those from neighbouring cells that bond across the cell boundary — are drawn at half opacity so the cell contents are clear. Use `--no-ghosts` to hide them.
 
 > [!NOTE]
-> **Ghost bond detection** uses independent covalent-radius distance rules which is different to the automatic bond detection with `xyzgraph`. This should be updated in the future.
+> **Ghost bond detection** uses the same bonding distance thresholds from `xyzgraph` but without further geometric validation.
 
 ### Crystal / periodic structures
 
@@ -482,8 +482,6 @@ Crystal-specific flags:
 | `--cell-width` | Unit cell box line width (default: 2.0) |
 | `--ghost-opacity` | Opacity of ghost atoms/bonds (default: 0.5) |
 | `--axis HKL` | Orient looking down a crystallographic direction (e.g. `111`, `001`) |
-
-- TODO: the ghosts uses covalent radii in crystal module to determine bonding. This is currently inconsistent with bond detection using `xyzgraph`, these should be unified. 
 
 ### Molecular orbitals
 
