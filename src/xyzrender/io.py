@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
 import numpy as np
@@ -16,42 +17,81 @@ from xyzgraph import DATA, build_graph, read_xyz_file
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import networkx as nx
+
+    from xyzrender.cube import CubeData
+    from xyzrender.types import CrystalData
 
 _Atoms: TypeAlias = list[tuple[str, tuple[float, float, float]]]
 
 
 def load_molecule(
     path: str | Path,
+    frame: int = 0,
     charge: int = 0,
     multiplicity: int | None = None,
     kekule: bool = False,
-) -> nx.Graph:
-    """Read molecular structure file and build graph.
+    rebuild: bool = False,
+) -> tuple[nx.Graph, CrystalData | None]:
+    """Read a molecular structure file and build a graph.
 
-    Supports .xyz natively, .cube (Gaussian cube files), and all other
-    formats (ORCA .out, Gaussian .log, Q-Chem, etc.) via cclib.  Bond
-    orders are always determined by xyzgraph.
+    Dispatches on file extension.  Always returns ``(graph, crystal)`` where
+    *crystal* is ``None`` for non-periodic structures.
     """
+    import xyzrender.formats as fmt
+    from xyzrender.types import CrystalData
+
     p = str(path)
     logger.info("Loading %s", p)
+    crystal: CrystalData | None = None
+
     if p.endswith(".cube"):
-        logger.debug("Parsing as Gaussian cube file")
         graph, _cube = load_cube(p, charge=charge, multiplicity=multiplicity, kekule=kekule)
     elif p.endswith(".xyz"):
-        logger.debug("Parsing as XYZ")
         graph = build_graph(read_xyz_file(p), charge=charge, multiplicity=multiplicity, kekule=kekule)
+        try:
+            with open(p) as _f:
+                _f.readline()
+                _comment = _f.readline()
+            _lattice = _parse_extxyz_lattice(_comment)
+            if _lattice is not None:
+                graph.graph["lattice"] = _lattice
+                logger.debug(f"extXYZ Lattice parsed:\n{_lattice}")
+                _origin = _parse_extxyz_origin(_comment)
+                if _origin is not None:
+                    graph.graph["lattice_origin"] = _origin
+        except OSError:
+            pass
+    elif p.endswith((".mol", ".sdf", ".mol2")):
+        data = fmt.parse(p, frame=frame)
+        graph = graph_from_moldata(data, charge=charge, multiplicity=multiplicity, kekule=kekule, rebuild=rebuild)
+    elif p.endswith(".pdb"):
+        data = fmt.parse_pdb(p)
+        graph = graph_from_moldata(data, charge=charge, multiplicity=multiplicity, kekule=kekule, rebuild=rebuild)
+        if data.pbc_cell is not None:
+            # Position cell so it's centred on the molecular centroid.
+            # PDB atoms are in Cartesian coords and needn't be near the origin,
+            # so without this adjustment the cell box appears disconnected.
+            centroid = np.array([pos for _, pos in data.atoms], dtype=float).mean(axis=0)
+            cell_origin = centroid - 0.5 * data.pbc_cell.sum(axis=0)
+            crystal = CrystalData(lattice=data.pbc_cell, cell_origin=cell_origin)
+    elif p.endswith(".smi"):
+        smi = Path(p).read_text(encoding="utf-8").splitlines()[0].strip()
+        data = fmt.parse_smiles(smi, kekule=kekule)
+        graph = graph_from_moldata(data, charge=charge, multiplicity=multiplicity, kekule=kekule, rebuild=rebuild)
+    elif p.endswith(".cif"):
+        data = fmt.parse_cif(p)
+        graph = build_graph(data.atoms, charge=charge, multiplicity=multiplicity, kekule=kekule)
+        assert data.pbc_cell is not None
+        crystal = CrystalData(lattice=data.pbc_cell)
     else:
-        logger.debug("Parsing as QM output via cclib")
         atoms, file_charge, file_mult = _parse_qm_output(p)
         c = charge if charge != 0 else file_charge
         m = multiplicity if multiplicity is not None else file_mult
-        logger.debug("cclib: charge=%d, multiplicity=%s", c, m)
         graph = build_graph(atoms, charge=c, multiplicity=m, kekule=kekule)
+
     logger.info("Built graph: %d atoms, %d bonds", graph.number_of_nodes(), graph.number_of_edges())
-    return graph
+    return graph, crystal
 
 
 def load_cube(
@@ -59,7 +99,7 @@ def load_cube(
     charge: int = 0,
     multiplicity: int | None = None,
     kekule: bool = False,
-) -> tuple[nx.Graph, object]:
+) -> tuple[nx.Graph, CubeData]:
     """Load molecular structure and orbital data from a Gaussian cube file.
 
     Returns both the molecular graph and the CubeData for orbital rendering.
@@ -72,6 +112,52 @@ def load_cube(
         "Cube graph: %d atoms, %d bonds, MO %s", graph.number_of_nodes(), graph.number_of_edges(), cube.mo_index
     )
     return graph, cube
+
+
+def graph_from_moldata(
+    data: object,
+    charge: int = 0,
+    multiplicity: int | None = None,
+    kekule: bool = False,
+    rebuild: bool = False,
+) -> nx.Graph:
+    """Build a graph from MolData, using file bonds or xyzgraph detection."""
+    import networkx as nx
+
+    from xyzrender.formats import MolData
+
+    assert isinstance(data, MolData)
+
+    if not rebuild and data.bonds is not None:
+        graph: nx.Graph = nx.Graph()
+        for i, (sym, pos) in enumerate(data.atoms):
+            graph.add_node(i, symbol=sym, position=pos)
+        for i, j, order in data.bonds:
+            graph.add_edge(i, j, bond_order=order)
+        isolated = sum(1 for n in graph.nodes if graph.degree(n) == 0)
+        if isolated > 0:
+            logger.warning(
+                "%d/%d atoms have no bonds from file connectivity — use --rebuild to re-detect with xyzgraph",
+                isolated,
+                graph.number_of_nodes(),
+            )
+        else:
+            logger.info(
+                "Graph from file connectivity: %d atoms, %d bonds",
+                graph.number_of_nodes(),
+                graph.number_of_edges(),
+            )
+        return graph
+
+    # Fall back to xyzgraph distance-based detection
+    c = charge if charge != 0 else data.charge
+    graph = build_graph(data.atoms, charge=c, multiplicity=multiplicity, kekule=kekule)
+    logger.info(
+        "Graph rebuilt via xyzgraph: %d atoms, %d bonds",
+        graph.number_of_nodes(),
+        graph.number_of_edges(),
+    )
+    return graph
 
 
 def detect_nci(graph: nx.Graph) -> nx.Graph:
@@ -149,14 +235,17 @@ def rotate_with_viewer(graph: nx.Graph) -> None:
 
     Writes a temp XYZ from current positions, launches v, and reads back
     the rotated coordinates.  All edge attributes (TS labels, bond orders, etc.)
-    are preserved.
+    are preserved.  If the graph has a lattice, it is rotated by the same
+    transformation and the cell origin is updated accordingly.
     """
     viewer = _find_viewer()
     logger.info("Opening viewer: %s", viewer)
     n = graph.number_of_nodes()
     atoms: _Atoms = [(graph.nodes[i]["symbol"], graph.nodes[i]["position"]) for i in range(n)]
+    orig_pos = np.array([graph.nodes[i]["position"] for i in range(n)], dtype=float)
+    lattice = graph.graph.get("lattice")
 
-    rotated_text = _run_viewer_with_atoms(viewer, atoms)
+    rotated_text = _run_viewer_with_atoms(viewer, atoms, lattice=lattice)
 
     if not rotated_text.strip():
         sys.exit("No output from viewer — press 'z' in v to output coordinates before closing.")
@@ -167,6 +256,18 @@ def rotate_with_viewer(graph: nx.Graph) -> None:
 
     for i, (_sym, pos) in enumerate(rotated_atoms):
         graph.nodes[i]["position"] = pos
+
+    if lattice is not None:
+        from xyzrender.utils import kabsch_rotation
+
+        new_pos = np.array([graph.nodes[i]["position"] for i in range(n)], dtype=float)
+        rot = kabsch_rotation(orig_pos, new_pos)
+        c1 = orig_pos.mean(axis=0)
+        c2 = new_pos.mean(axis=0)
+        lat = np.array(lattice, dtype=float)
+        origin = np.array(graph.graph.get("lattice_origin", np.zeros(3)), dtype=float)
+        graph.graph["lattice"] = (rot @ lat.T).T
+        graph.graph["lattice_origin"] = rot @ (origin - c1) + c2
 
 
 def _find_viewer() -> str:
@@ -198,23 +299,47 @@ def _find_viewer() -> str:
     )
 
 
-def _run_viewer(viewer: str, xyz_path: str) -> str:
+def _run_viewer(viewer: str, xyz_path: str, extra_args: list[str] | None = None) -> str:
     """Launch v on an XYZ file and capture stdout."""
-    result = subprocess.run([viewer, xyz_path], capture_output=True, text=True, check=False)
+    result = subprocess.run([viewer, xyz_path, *(extra_args or [])], capture_output=True, text=True, check=False)
     return result.stdout
 
 
-def _run_viewer_with_atoms(viewer: str, atoms: _Atoms) -> str:
-    """Write atoms to temp XYZ, launch v, capture stdout."""
+def _run_viewer_with_atoms(viewer: str, atoms: _Atoms, lattice: np.ndarray | None = None) -> str:
+    """Write atoms to temp XYZ, launch v, capture stdout.
+
+    If *lattice* is a diagonal (orthogonal) box, passes `cell:b{a},{b},{c}`
+    to v so the cell frame is shown in the viewer too.
+    """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".xyz", delete=False) as f:
         f.write(f"{len(atoms)}\n\n")
         for sym, (x, y, z) in atoms:
             f.write(f"{sym}  {x: .6f}  {y: .6f}  {z: .6f}\n")
         tmp = f.name
+    extra: list[str] = []
+    if lattice is not None:
+        # v accepts the 3x3 matrix as 9 comma-separated values
+        flat = lattice.flatten()
+        extra.append("cell:" + ",".join(f"{v:.6f}" for v in flat))
     try:
-        return _run_viewer(viewer, tmp)
+        return _run_viewer(viewer, tmp, extra)
     finally:
         os.unlink(tmp)
+
+
+def _apply_rot_to_lattice(graph: nx.Graph, rot: np.ndarray, centroid: np.ndarray) -> None:
+    """Rotate the lattice vectors and cell origin stored on *graph* by *rot*.
+
+    The origin (if present) rotates around *centroid* like any atom would.
+    When absent, render_svg defaults to (0, 0, 0) which needs no rotation.
+    """
+    if "lattice" not in graph.graph:
+        return
+    lat = np.array(graph.graph["lattice"], dtype=float)
+    graph.graph["lattice"] = (rot @ lat.T).T
+    if "lattice_origin" in graph.graph:
+        origin = np.array(graph.graph["lattice_origin"], dtype=float)
+        graph.graph["lattice_origin"] = rot @ (origin - centroid) + centroid
 
 
 def apply_rotation(graph: nx.Graph, rx: float, ry: float, rz: float) -> None:
@@ -240,6 +365,7 @@ def apply_rotation(graph: nx.Graph, rx: float, ry: float, rz: float) -> None:
     rotated = (rot @ (positions - centroid).T).T + centroid
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    _apply_rot_to_lattice(graph, rot, centroid)
 
 
 def apply_axis_angle_rotation(graph: nx.Graph, axis: np.ndarray, angle: float) -> None:
@@ -260,12 +386,13 @@ def apply_axis_angle_rotation(graph: nx.Graph, axis: np.ndarray, angle: float) -
     rotated = (rot @ (positions - centroid).T).T + centroid
     for i, nid in enumerate(nodes):
         graph.nodes[nid]["position"] = tuple(rotated[i].tolist())
+    _apply_rot_to_lattice(graph, rot, centroid)
 
 
 def load_trajectory_frames(path: str | Path) -> list[dict]:
     """Load all frames from a multi-frame XYZ or QM output (cclib).
 
-    Returns list of ``{"symbols": [...], "positions": [[x,y,z], ...]}``
+    Returns list of `{"symbols": [...], "positions": [[x,y,z], ...]}`
     matching the graphRC frame format.
     """
     p = str(path)
@@ -370,6 +497,62 @@ def _load_xyz_frames(path: str) -> list[dict]:
             }
         )
     return frames
+
+
+def _parse_extxyz_lattice(comment: str) -> np.ndarray | None:
+    """Extract Lattice matrix from an XYZ comment line.
+
+    Handles two formats:
+
+    - extXYZ: `Lattice="a11 a12 a13 a21 a22 a23 a31 a32 a33"`
+    - Bare 9-float: comment line is exactly 9 space-separated floats
+
+    Returns a (3, 3) float array (row vectors a, b, c) or None.
+    """
+    import re
+
+    m = re.search(r'Lattice\s*=\s*"([^"]+)"', comment, re.IGNORECASE)
+    if m:
+        vals_str = m.group(1)
+        try:
+            vals = [float(x) for x in vals_str.split()]
+        except ValueError:
+            logger.warning("extXYZ Lattice= found but content is not numeric: %r", vals_str)
+            return None
+        if len(vals) != 9:
+            logger.warning("extXYZ Lattice= found but expected 9 values, got %d: %r", len(vals), vals_str)
+            return None
+        return np.array(vals, dtype=float).reshape(3, 3)
+
+    # Bare 9-float fallback (no Lattice= key — comment is exactly 9 floats)
+    stripped = comment.strip()
+    try:
+        vals = [float(x) for x in stripped.split()]
+    except ValueError:
+        return None
+    if len(vals) != 9:
+        return None
+    return np.array(vals, dtype=float).reshape(3, 3)
+
+
+def _parse_extxyz_origin(comment: str) -> np.ndarray | None:
+    """Extract cell Origin from an extXYZ comment line.
+
+    Looks for Origin="ox oy oz" and returns a (3,) float array or
+    None if the key is absent.
+    """
+    import re
+
+    m = re.search(r'Origin\s*=\s*"([^"]+)"', comment, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        vals = [float(x) for x in m.group(1).split()]
+    except ValueError:
+        return None
+    if len(vals) != 3:
+        return None
+    return np.array(vals, dtype=float)
 
 
 def _load_qm_frames(path: str) -> list[dict]:

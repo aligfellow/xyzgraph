@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xyzrender"
-version = "0.1.5"
+version = "0.1.6"
 description = "Publication-quality molecular graphics from the command line."
 authors = [{name = "Dr Alister S. Goodfellow"}]
 readme = "README.md"
@@ -29,6 +29,12 @@ homepage = "https://github.com/aligfellow/xyzrender"
 [project.scripts]
 xyzrender = "xyzrender.cli:main"
 
+[project.optional-dependencies]
+crystal = ["phonopy"]
+smi     = ["rdkit"]
+cif     = ["ase"]
+all     = ["phonopy", "rdkit", "ase"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -42,6 +48,9 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.14.14",
     "ty>=0.0.14",
+    "phonopy",  # optional dep
+    "ase",      # optional dep (needed for test_formats.py pdb fixtures)
+    "rdkit",    # optional dep (needed for test_formats.py mol/sdf fixtures)
 ]
 
 # ===== Ruff =====

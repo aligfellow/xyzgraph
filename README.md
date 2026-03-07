@@ -1,6 +1,6 @@
 # xyzrender: Publication-quality molecular graphics from the command line.
 
-Render molecular structures as publication-quality SVG, PNG, PDF, and animated GIF from XYZ files or quantum chemistry output.
+Render molecular structures as publication-quality SVG, PNG, PDF, and animated GIF from XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, cube files, or quantum chemistry output.
 
 [![PyPI Downloads](https://static.pepy.tech/badge/xyzrender)](https://pepy.tech/projects/xyzrender)
 [![License](https://img.shields.io/github/license/aligfellow/xyzrender)](https://github.com/aligfellow/xyzrender/blob/main/LICENSE)
@@ -10,7 +10,7 @@ Render molecular structures as publication-quality SVG, PNG, PDF, and animated G
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/aligfellow/xyzrender/ci.yml?branch=main&logo=github-actions)](https://github.com/aligfellow/xyzrender/actions)
 [![Codecov](https://img.shields.io/codecov/c/github/aligfellow/xyzrender)](https://codecov.io/gh/aligfellow/xyzrender)
 
-xyzrender turns XYZ files and quantum chemistry output (ORCA, Gaussian, Q-Chem, etc.) into clean SVG, PNG, PDF, and animated GIF graphics — ready for papers, presentations, and supporting information. The SVG rendering approach is built on and inspired by [**xyz2svg**](https://github.com/briling/xyz2svg) by [Ksenia Briling **@briling**](https://github.com/briling).
+xyzrender turns XYZ files and quantum chemistry input/output (MOl, MOL2, SDF, PDB, ORCA, Gaussian, Q-Chem, etc.) into clean SVG, PNG, PDF, and animated GIF graphics — ready for papers, presentations, and supporting information. The SVG rendering approach is built on and inspired by [**xyz2svg**](https://github.com/briling/xyz2svg) by [Ksenia Briling **@briling**](https://github.com/briling).
 
 Most molecular visualisation tools require manual setup: loading files into a GUI, tweaking camera angles, exporting at the right resolution and adding specific TS or NCI bonds. `xyzrender` skips this. One command gives you a (mostly) oriented, depth-cued structure with correct bond orders, aromatic ring rendering, automatic bond connectivity, with TS bonds and NCI bonds.
 
@@ -27,6 +27,8 @@ Most molecular visualisation tools require manual setup: loading files into a GU
 - **Electrostatic potential (ESP)** — ESP colormapped onto the density surface from paired cube files
 - **vdW surface overlays** — van der Waals spheres on all or selected atoms
 - **Depth fog and gradients** — 3D depth cues without needing a 3D viewer
+- **Cheminformatics formats** — mol, SDF, MOL2, PDB (with CRYST1 unit cell), SMILES (3D embedding via rdkit), and CIF (via ase) — bond connectivity read directly from file
+- **Crystal / periodic structures** — render VASP/Quantum ESPRESSO unit cell structures with unit cell box, adjacent periodic image atoms, and crystallographic axis arrows (a/b/c), loaded via [`phonopy`](https://github.com/phonopy/phonopy)
 - **Multiple output formats** — SVG (default), PNG, PDF, and GIF from the same command
 
 **Preconfigured but extensible.** Built-in presets (`default`, `flat`, `paton`) cover common use cases. Every setting — colors, radii, bond widths, gradients, fog — can be overridden via CLI flags or a custom JSON config file.
@@ -342,6 +344,145 @@ xyzrender bimp.out --gif-ts --gif-rot --nci --vdw 84-169 -go bimp_nci_ts.gif  # 
 xyzrender bimp.out --gif-trj --nci --ts --vdw 84-169 -go bimp_nci_trj.gif  # TS bonds + nci + vdW + trj
 ```
 
+
+### File formats
+
+xyzrender reads bond connectivity where present directly from mol, SDF, MOL2, PDB, SMILES, and CIF files. Parser is dictated by file extension.
+
+```bash
+xyzrender examples/structures/caffeine_sdf.sdf  # SDF — bonds from file
+xyzrender examples/structures/water_mol2.mol2   # MOL2 — Tripos aromatic bonds
+xyzrender examples/structures/ala_phe_ala.pdb   # PDB — ATOM/HETATM + CONECT
+xyzrender examples/structures/caffeine_cif.cif  # CIF — crystal structure via ase
+xyzrender --smi "C1CCCCC1" --hy -o cyclohexane_smi.svg  # SMILES — 3D embedding via rdkit
+```
+
+| PDB | SMILES |
+|-----------|---------------|
+| ![PDB](examples/ala_phe_ala.svg) | ![smiles](examples/cyclohexane_smi.svg) |
+
+- ala_phe_ala.pdb from (here)[https://gist.github.com/cstein/6699200]
+
+**PDB with CRYST1:** if the PDB contains a `CRYST1` record, the unit cell is parsed and the crystal rendering path is used automatically (cell box, same as `--cell`).
+**SMILES (`--smi`):** embeds a SMILES string into 3D using rdkit (ETKDGv3 + MMFF94). An XYZ file of the optimised geometry is written alongside the output image automatically.
+
+  - SMILES requires `pip install xyzrender[smiles]` (rdkit). 
+  - CIF requires `pip install 'xyzrender[cif]'` (ase).
+
+**Multi-record SDF:** use `--mol-frame N` to select a record (default: 0).
+```bash
+xyzrender examples/structures/multi_mol.sdf --mol-frame 1
+```
+
+**Re-detect bonds:** `--rebuild` discards file connectivity and runs xyzgraph distance-based detection instead.
+
+Format-specific flags:
+
+| Flag | Description |
+|------|-------------|
+| `--smi SMILES` | Embed a SMILES string into 3D (requires rdkit) |
+| `--mol-frame N` | Record index in multi-molecule SDF (default: 0) |
+| `--rebuild` | Ignore file connectivity; re-detect bonds with xyzgraph |
+
+### Crystal structures / unit cell
+
+Draw the unit cell box for periodic structures from an extXYZ file with a `Lattice=` header and the `--cell` flag.
+
+| Unit cell | Cell rotation |
+|-----------|---------------|
+| ![cell](examples/caffeine_cell.svg) | ![cell rot](examples/caffeine_cell.gif) |
+
+```bash
+xyzrender caffeine_cell.xyz --cell -o caffeine_cell.svg                            # unit cell box
+xyzrender caffeine_cell.xyz --cell --gif-rot -go caffeine_cell.gif                 # rotation GIF with cell
+xyzrender caffeine_cell.xyz --cell --cell-color maroon -o caffeine_cell_custom.svg # custom edge color
+```
+
+The input must be an **extXYZ** file - a standard XYZ file whose comment line (line 2) contains a `Lattice=` key:
+
+```
+100
+Lattice="14.8 0.0 0.0 0.0 16.7 0.0 -0.484 0.0 3.940" Properties=species:S:1:pos:R:3 ...
+C   3.137   3.716   3.547
+...
+```
+
+The `Lattice=` value is the 3×3 cell matrix as nine space-separated floats: **a**, **b**, **c**. An optional `Origin=` key (e.g. `Origin="0.5 0.5 0.5"`) shifts the cell origin (default: `0 0 0`). Tools like [ASE](https://ase-lib.org/) can export to extXYZ from CIF or other periodic formats.  
+
+This can also handle nine space-separated float values *e.g.*:  
+```
+100
+14.8 0.0 0.0 0.0 16.7 0.0 -0.484 0.0 3.940
+C   3.137   3.716   3.547
+...
+```
+
+Note:  
+- **Bond orders are disabled by default** for periodic structures — geometry-based perception is not PBC-aware. Pass `--bo` to re-enable.
+
+The unit cell box is drawn in the background and crystallographic axis arrows (**a**, **b**, **c**) are overlaid on top. Periodic ghost/image atoms — those from neighbouring cells that bond across the cell boundary — are drawn at half opacity so the cell contents are clear. Use `--no-ghosts` to hide them.
+
+> [!NOTE]
+> **Ghost bond detection** uses the same bonding distance thresholds from `xyzgraph` but without further geometric validation.
+
+### Crystal / periodic structures
+
+Render VASP (`POSCAR`/`CONTCAR`, `.vasp`) and Quantum ESPRESSO (`.in`) unit cell structures.
+
+> [!NOTE]
+> **phonopy is only required for `--crystal`** (loading VASP/QE structure files). Everything else — `--cell` (extXYZ), CIF (ase), PDB CRYST1, ghost atoms, `--axes`, `--axis` — works without it.
+> Use `pip install xyzrender[crystal]` or `pip install -e .[crystal]`.
+
+File format is auto-detected from extension (`.vasp`, `POSCAR`, `CONTCAR` → VASP; `.in` → QE). Pass the format explicitly with `--crystal vasp` or `--crystal qe`.
+
+| Default | No ghost atoms | No cell box |
+|---------|----------------|-------------|
+| ![NV63 vasp](examples/NV63_vasp.svg) | ![NV63 no ghosts](examples/NV63_vasp_no_img.svg) | ![NV63 no cell](examples/NV63_vasp_no_cell.svg) |
+
+```bash
+xyzrender NV63.vasp --crystal -o NV63_vasp.svg               # auto-detected as VASP
+xyzrender NV63.in --crystal qe -o NV63_qe.svg                # explicit QE mode
+xyzrender NV63.vasp --crystal --no-ghosts -o NV63_vasp_no_img.svg   # hide ghost atoms
+xyzrender NV63.vasp --crystal --no-cell -o NV63_vasp_no_cell.svg    # hide unit cell box
+xyzrender NV63.vasp --crystal --no-axes -o NV63_vasp_no_axes.svg    # hide axes
+```
+
+#### Crystallographic viewing direction (`--axis`)
+
+Orient the crystal looking down a given crystallographic direction. The `--axis` argument takes a 3-digit Miller index string (each digit is one index, 0–9):
+
+| View along [001] (default) | View along [111] |
+|----------------------------|------------------|
+| ![NV63 vasp](examples/NV63_vasp.svg) | ![NV63 111](examples/NV63_vasp_111.svg) |
+
+```bash
+xyzrender NV63.vasp --crystal --axis 001 -o NV63_001.svg   # looking down [001]
+xyzrender NV63.vasp --crystal --axis 111 -o NV63_111.svg   # looking down [111]
+```
+
+For GIF rotation around a crystallographic axis, pass the same Miller index string to `--gif-rot`:
+
+| Rotate around [111] |
+|---------------------|
+| ![NV63 111 gif](examples/NV63_vasp_111.gif) |
+
+```bash
+xyzrender NV63.vasp --crystal --axis 111 --gif-rot 111 -o NV63_111_rot.svg -go NV63_vasp_111.gif
+```
+
+Crystal-specific flags:
+
+| Flag | Description |
+|------|-------------|
+| `--crystal [{vasp,qe}]` | Load as crystal via `phonopy`; format auto-detected or specify explicitly |
+| `--no-cell` | Hide the unit cell box |
+| `--ghosts` / `--no-ghosts` | Hide ghost (periodic image) atoms outside the cell |
+| `--axes` / `--no-axes` | Show/hide the a/b/c axis arrows (default: shown) |
+| `--cell-color` | Unit cell box color (hex or named, default: `gray`) |
+| `--cell-width` | Unit cell box line width (default: 2.0) |
+| `--ghost-opacity` | Opacity of ghost atoms/bonds (default: 0.5) |
+| `--axis HKL` | Orient looking down a crystallographic direction (e.g. `111`, `001`) |
+
 ### Molecular orbitals
 
 Render molecular orbitals from cube files (`.cube`). Requires the `--mo` flag. The cube file contains both the molecular geometry and a 3D volumetric grid of orbital values so no separate XYZ file needed.
@@ -561,7 +702,7 @@ Requires `cairosvg` and `Pillow` (`pip install 'xyzrender[gif]'`).
 | `--gif-fps` | Frames per second (default: 10) |
 | `--rot-frames` | Rotation frame count (default: 120) |
 
-Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Prefix `-` to reverse (e.g. `-xy`).
+Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Prefix `-` to reverse (e.g. `-xy`). For crystal inputs, a 3-digit Miller index string is also accepted (e.g. `111`, `001`) and the rotation is performed around the corresponding lattice direction.
 
 ## All CLI flags
 
@@ -572,6 +713,9 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `-m`, `--multiplicity` | Spin multiplicity |
 | `--config` | Config preset or JSON path |
 | `-d`, `--debug` | Debug logging |
+| `--smi SMILES` | Embed a SMILES string into 3D (requires rdkit) |
+| `--mol-frame N` | Record index in multi-molecule SDF (default: 0) |
+| `--rebuild` | Ignore file connectivity; re-detect bonds with xyzgraph |
 | **Styling** | |
 | `-S`, `--canvas-size` | Canvas size in px (default: 800) |
 | `-a`, `--atom-scale` | Atom radius scale factor |
@@ -593,6 +737,9 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--vdw-opacity` | vdW sphere opacity (default: 0.25) |
 | `--vdw-scale` | vdW sphere radius scale |
 | `--vdw-gradient` | vdW sphere gradient strength |
+| **Crystal / unit cell** | |
+| `--cell` | Draw unit cell box from `Lattice=` in extXYZ header |
+| `--cell-color` | Cell edge color (hex or named, default: `gray`) |
 | **Orientation** | |
 | `-I`, `--interactive` | Interactive rotation via `v` viewer |
 | `--orient` / `--no-orient` | Auto-orientation toggle |
@@ -618,6 +765,15 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--label-size PT` | Label font size (overrides preset) |
 | `--cmap FILE` | Per-atom property colormap (Viridis, 1-indexed) |
 | `--cmap-range VMIN VMAX` | Explicit colormap range (default: auto from file) |
+| **Crystal** | |
+| `--crystal [{vasp,qe}]` | Load as crystal via phonopy; format auto-detected or specify explicitly |
+| `--no-cell` | Hide the unit cell box |
+| `--no-ghosts` | Hide ghost (periodic image) atoms outside the cell |
+| `--axes` / `--no-axes` | Show/hide the a/b/c axis arrows (default: shown) |
+| `--cell-color` | Unit cell box color (hex or named, default: `gray`) |
+| `--cell-width` | Unit cell box line width (default: 2.0) |
+| `--ghost-opacity` | Opacity of ghost atoms/bonds (default: 0.5) |
+| `--axis HKL` | Orient looking down a crystallographic direction (e.g. `111`, `001`) |
 
 ## Development
 
@@ -660,9 +816,12 @@ Key dependencies:
 - [**CairoSVG**](https://github.com/Kozea/CairoSVG) — SVG to PNG/PDF conversion
 - [**Pillow**](https://github.com/python-pillow/Pillow) — GIF frame assembly
 
-Optional dependency:
+Optional dependencies:
 
-- [**v**](https://github.com/briling/v) - interactive molecule orientation
+- [**phonopy**](https://github.com/phonopy/phonopy) — crystal structure loading (`pip install 'xyzrender[crystal]'`)
+- [**rdkit**](https://www.rdkit.org/) — SMILES 3D embedding (`pip install 'xyzrender[smiles]'`)
+- [**ase**](https://wiki.fysik.dtu.dk/ase/) — CIF parsing (`pip install 'xyzrender[cif]'`)
+- [**v**](https://github.com/briling/v) — interactive molecule orientation
 
 Generated from [aligfellow/python-template](https://github.com/aligfellow/python-template).
 
