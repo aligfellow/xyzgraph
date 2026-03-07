@@ -614,8 +614,8 @@ xyzrender base-pair-dens.cube --nci-surf base-pair-grad.cube --nci-coloring unif
 
 | Mode | Description |
 |------|-------------|
-| `avg` (default) | Each patch filled with its mean `sign(λ₂)·ρ` mapped through a blue→green→red colormap: blue = H-bond (attractive), green = vdW (weak), red = steric (repulsive) |
-| `pixel` | Per-pixel `sign(λ₂)·ρ` raster clipped to each patch outline — shows intra-patch variation |
+| `avg` (default) | Each NCI lobe filled with its mean `sign(λ₂)·ρ` mapped through a blue→green→red colormap: blue = H-bond (attractive), green = vdW (weak), red = steric (repulsive) |
+| `pixel` | Per-pixel `sign(λ₂)·ρ` raster — shows intra-lobe variation |
 | `uniform` | Flat single color for all NCI regions (see `--nci-color`, default: forestgreen) |
 
 NCI-specific flags:
@@ -624,7 +624,7 @@ NCI-specific flags:
 |------|-------------|
 | `--nci-surf CUBE` | NCI gradient (RDG) cube file (implies density rendering) |
 | `--nci-coloring MODE` | Coloring mode: `avg` (default), `pixel`, `uniform` |
-| `--nci-color COLOR` | Patch color for `uniform` mode (hex or named, default: `forestgreen`) |
+| `--nci-color COLOR` | Lobe color for `uniform` mode (hex or named, default: `forestgreen`) |
 | `--iso` | RDG isovalue threshold (default: 0.3) |
 | `--opacity` | Surface opacity multiplier (default: 1.0) |
 
@@ -806,9 +806,9 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--dens` | Render density isosurface from `.cube` input |
 | `--dens-color` | Density surface color (default: `steelblue`) |
 | `--esp CUBE` | ESP cube file for potential coloring (implies `--dens`) |
-| `--nci-surf CUBE` | NCI gradient (RDG) cube — render NCI surface patches |
+| `--nci-surf CUBE` | NCI gradient (RDG) cube — render NCI surface lobes |
 | `--nci-coloring MODE` | NCI coloring: `avg` (default), `pixel`, `uniform` |
-| `--nci-color COLOR` | Patch color for `uniform` mode (default: `forestgreen`) |
+| `--nci-color COLOR` | NCI lobe color for `uniform` mode (default: `forestgreen`) |
 | `--iso` | Isosurface threshold (MO default: 0.05, density/ESP default: 0.001, NCI default: 0.3) |
 | `--opacity` | Surface opacity multiplier (default: 1.0) |
 | **Annotations** | |
