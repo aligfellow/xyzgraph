@@ -79,6 +79,8 @@ def build_render_config(config_data: dict, cli_overrides: dict) -> RenderConfig:
     merged.pop("flat_mo", None)
     merged.pop("dens_iso", None)
     merged.pop("dens_color", None)
+    merged.pop("nci_iso", None)
+    merged.pop("nci_color", None)
 
     # Resolve any named colors to hex for fields that downstream code parses as hex
     for key in ("background", "bond_color", "atom_stroke_color", "label_color", "cmap_unlabeled", "cell_color"):

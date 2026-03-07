@@ -586,6 +586,51 @@ ESP-specific flags:
 `--esp` is mutually exclusive with `--mo`, `--dens`, and `--vdw`.
 `--gif-rot` is **not available**; however, the `-I` flag allows for interactive orientation of the molecule prior to generating the image.
 
+### NCI surface
+
+Visualise non-covalent interaction (NCI) regions from two NCIPLOT cube files: a density cube (main input, containing `sign(λ₂)·ρ`) and a reduced density gradient cube (`--nci-surf`).
+
+> [!NOTE]  
+> This is a 2D projection of a 3D surface. This is not a replacement for more detailed analysis using a 3D visualiser (VMD, PyMOL, NCIplot). This quickly conveys regions of NCI, smears out grid artifacts and uses average colours per interaction region.  
+
+| H-bond base pair | Phenol π-stacking |
+|-----------------|-------------------|
+| ![base-pair NCI](examples/base-pair-nci_surf.svg) | ![phenol NCI](examples/phenol_di-nci_surf.svg) |
+
+```bash
+# avg coloring (default): blue=H-bond, green=vdW, red=steric
+xyzrender base-pair-dens.cube --nci-surf base-pair-grad.cube -o base-pair-nci_surf.svg
+xyzrender phenol_di-dens.cube --nci-surf phenol_di-grad.cube -o phenol_di-nci_surf.svg
+
+# per-pixel raster (more detail, less schematic)
+xyzrender base-pair-dens.cube --nci-surf base-pair-grad.cube --nci-coloring pixel -o base-pair-nci_pixel.svg
+
+# flat color (uniform green)
+xyzrender base-pair-dens.cube --nci-surf base-pair-grad.cube --nci-coloring uniform -o base-pair-nci_green.svg
+```
+- These surfaces were generated using NCIPlot on sample structures, see [here](https://github.com/juliacontrerasgarcia/NCIPLOT-4.2/tree/master/tests).
+
+**Coloring modes** (`--nci-coloring`):
+
+| Mode | Description |
+|------|-------------|
+| `avg` (default) | Each NCI lobe filled with its mean `sign(λ₂)·ρ` mapped through a blue→green→red colormap: blue = H-bond (attractive), green = vdW (weak), red = steric (repulsive) |
+| `pixel` | Per-pixel `sign(λ₂)·ρ` raster — shows intra-lobe variation |
+| `uniform` | Flat single color for all NCI regions (see `--nci-color`, default: forestgreen) |
+
+NCI-specific flags:
+
+| Flag | Description |
+|------|-------------|
+| `--nci-surf CUBE` | NCI gradient (RDG) cube file (implies density rendering) |
+| `--nci-coloring MODE` | Coloring mode: `avg` (default), `pixel`, `uniform` |
+| `--nci-color COLOR` | Lobe color for `uniform` mode (hex or named, default: `forestgreen`) |
+| `--iso` | RDG isovalue threshold (default: 0.3) |
+| `--opacity` | Surface opacity multiplier (default: 1.0) |
+
+- `--nci-surf` is mutually exclusive with `--mo`, `--dens`, `--esp` and `--vdw`.
+- `--gif-rot` is **not available**; however, the `-I` flag allows for interactive orientation prior to generating the image.
+
 ## Orientation
 
 Auto-orientation is on by default (largest variance along x-axis). Disabled automatically for stdin and interactive mode.
@@ -761,7 +806,10 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--dens` | Render density isosurface from `.cube` input |
 | `--dens-color` | Density surface color (default: `steelblue`) |
 | `--esp CUBE` | ESP cube file for potential coloring (implies `--dens`) |
-| `--iso` | Isosurface threshold (MO default: 0.05, density/ESP default: 0.001) |
+| `--nci-surf CUBE` | NCI gradient (RDG) cube — render NCI surface lobes |
+| `--nci-coloring MODE` | NCI coloring: `avg` (default), `pixel`, `uniform` |
+| `--nci-color COLOR` | NCI lobe color for `uniform` mode (default: `forestgreen`) |
+| `--iso` | Isosurface threshold (MO default: 0.05, density/ESP default: 0.001, NCI default: 0.3) |
 | `--opacity` | Surface opacity multiplier (default: 1.0) |
 | **Annotations** | |
 | `--measure [TYPE...]` | Print bond measurements to stdout (`d`, `a`, `t`; combine or omit for all) |

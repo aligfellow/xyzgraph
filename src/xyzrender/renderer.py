@@ -83,6 +83,9 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     elif cfg.dens_contours is not None:
         extra_lo = np.array([cfg.dens_contours.x_min, cfg.dens_contours.y_min])
         extra_hi = np.array([cfg.dens_contours.x_max, cfg.dens_contours.y_max])
+    elif cfg.nci_contours is not None:
+        extra_lo = np.array([cfg.nci_contours.x_min, cfg.nci_contours.y_min])
+        extra_hi = np.array([cfg.nci_contours.x_max, cfg.nci_contours.y_max])
     if cfg.esp_surface is not None:
         extra_lo = np.array([cfg.esp_surface.x_min, cfg.esp_surface.y_min])
         extra_hi = np.array([cfg.esp_surface.x_max, cfg.esp_surface.y_max])
@@ -321,6 +324,23 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 f'stroke-dasharray="{cell_dash}" stroke-linecap="round"/>'
             )
 
+    # NCI patches are z-sorted into the atom/bond loop so they appear at the correct
+    # depth (in the interstitial space) rather than covering the whole molecule.
+    nci_lobes_flat: list[tuple[float, list[str]]] = []
+    nci_lobe_idx = 0
+    if cfg.nci_contours is not None:
+        from xyzrender.nci import nci_lobe_svg_items, nci_static_svg_defs
+
+        if cfg.nci_contours.nci_raster_png:
+            svg.extend(nci_static_svg_defs(cfg.nci_contours, scale, cx, cy, canvas_w, canvas_h))
+        nci_lobes_flat = nci_lobe_svg_items(cfg.nci_contours, cfg.surface_opacity, scale, cx, cy, canvas_w, canvas_h)
+
+    def _drain_nci(next_z: float) -> None:
+        nonlocal nci_lobe_idx
+        while nci_lobe_idx < len(nci_lobes_flat) and nci_lobes_flat[nci_lobe_idx][0] < next_z:
+            svg.extend(nci_lobes_flat[nci_lobe_idx][1])
+            nci_lobe_idx += 1
+
     # Interleaved z-order: for each atom, render it then its bonds to deeper atoms
     gap = cfg.bond_gap * bw  # pixel gap scales with bond width
 
@@ -396,6 +416,11 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     for idx, ai in enumerate(z_order):
         if ai in hidden:
             continue
+
+        # Drain NCI patches that belong behind this atom (before drawing it or its bonds)
+        if nci_lobes_flat:
+            _drain_nci(float(pos[ai][2]))
+
         xi, yi = _proj(pos[ai], scale, cx, cy, canvas_w, canvas_h)
         is_image = graph.nodes[ai].get("image", False)
         atom_op = cfg.periodic_image_opacity if is_image else 1.0
@@ -436,6 +461,11 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             # Use periodic_image_opacity if either endpoint is an image atom
             bond_op = cfg.periodic_image_opacity if (is_image or graph.nodes[aj].get("image", False)) else 1.0
             add_bond(ai, aj, bo, style, opacity=bond_op)
+
+    # NCI patches in front of all atoms (z_depth > frontmost atom)
+    while nci_lobe_idx < len(nci_lobes_flat):
+        svg.extend(nci_lobes_flat[nci_lobe_idx][1])
+        nci_lobe_idx += 1
 
     # --- Front MO orbital lobes (on top of molecule) ---
     if cfg.mo_contours is not None:

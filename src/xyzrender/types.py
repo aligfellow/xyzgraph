@@ -187,10 +187,11 @@ class RenderConfig:
     fixed_span: float | None = None  # fixed viewport span (disables auto-fit)
     fixed_center: tuple[float, float] | None = None  # fixed XY center (disables auto-center)
     color_overrides: dict[str, str] | None = None  # element symbol → hex color
-    # Surface rendering (MO / density / ESP share one opacity)
+    # Surface rendering (MO / density / ESP / NCI share one opacity)
     mo_contours: MOContours | None = None
     dens_contours: MOContours | None = None
     esp_surface: ESPSurface | None = None
+    nci_contours: MOContours | None = None
     surface_opacity: float = 1.0
     flat_mo: bool = False
     # Annotations and measurements
