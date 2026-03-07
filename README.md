@@ -420,20 +420,21 @@ C   3.137   3.716   3.547
 Note:  
 - **Bond orders are disabled by default** for periodic structures — geometry-based perception is not PBC-aware. Pass `--bo` to re-enable.
 
+The unit cell box is drawn in the background and crystallographic axis arrows (**a**, **b**, **c**) are overlaid on top. Periodic ghost/image atoms — those from neighbouring cells that bond across the cell boundary — are drawn at half opacity so the cell contents are clear.
+
 ### Crystal / periodic structures
 
 Render VASP (`POSCAR`/`CONTCAR`, `.vasp`) and Quantum ESPRESSO (`.in`) unit cell structures. 
 
 > [!NOTE]  
-> Requires `phonopy` dependency. Use `pip install xyzrender[crystal]` or `pip install -e .[crystal]` 
-
-The unit cell box is drawn in the background and crystallographic axis arrows (**a**, **b**, **c**) are overlaid on top. Periodic image atoms — those from neighbouring cells that bond across the cell boundary — are drawn at half opacity so the cell contents are easily distinguished.
+> The `--crystal` flag requires `phonopy` dependency. Use `pip install xyzrender[crystal]` or `pip install -e .[crystal]` 
+> `--axes`, `--axis`, `--ghosts` all work without this dependency, *e.g.* with the `--cell` flag above.
 
 File format is auto-detected from extension (`.vasp`, `POSCAR`, `CONTCAR` → VASP; `.in` → QE). Pass the format explicitly with `--crystal vasp` or `--crystal qe`.
 
-| Default | No image atoms | No cell box |
+| Default | No ghost atoms | No cell box |
 |---------|----------------|-------------|
-| ![NV63 vasp](examples/NV63_vasp.svg) | ![NV63 no images](examples/NV63_vasp_no_img.svg) | ![NV63 no cell](examples/NV63_vasp_no_cell.svg) |
+| ![NV63 vasp](examples/NV63_vasp.svg) | ![NV63 no ghosts](examples/NV63_vasp_no_img.svg) | ![NV63 no cell](examples/NV63_vasp_no_cell.svg) |
 
 ```bash
 xyzrender NV63.vasp --crystal -o NV63_vasp.svg               # auto-detected as VASP
@@ -472,12 +473,14 @@ Crystal-specific flags:
 |------|-------------|
 | `--crystal [{vasp,qe}]` | Load as crystal via `phonopy`; format auto-detected or specify explicitly |
 | `--no-cell` | Hide the unit cell box |
-| `--no-ghosts` | Hide ghost (periodic image) atoms outside the cell |
+| `--ghosts` / `--no-ghosts` | Hide ghost (periodic image) atoms outside the cell |
 | `--axes` / `--no-axes` | Show/hide the a/b/c axis arrows (default: shown) |
 | `--cell-color` | Unit cell box color (hex or named, default: `gray`) |
 | `--cell-width` | Unit cell box line width (default: 2.0) |
 | `--ghost-opacity` | Opacity of ghost atoms/bonds (default: 0.5) |
 | `--axis HKL` | Orient looking down a crystallographic direction (e.g. `111`, `001`) |
+
+- TODO: the ghosts uses covalent radii in crystal module to determine bonding. This is currently inconsistent with bond detection using `xyzgraph`, these should be unified. 
 
 ### Molecular orbitals
 

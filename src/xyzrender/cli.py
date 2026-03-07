@@ -274,7 +274,10 @@ def main() -> None:
     )
     crystal_g.add_argument("--no-cell", action="store_true", default=False, help="Hide the unit cell box (--crystal)")
     crystal_g.add_argument(
-        "--no-ghosts", action="store_true", default=False, help="Hide image atoms outside the cell (--crystal)"
+        "--ghosts",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Show/hide periodic image atoms (default: on when --cell/--crystal, off otherwise)",
     )
     crystal_g.add_argument(
         "--axes",
@@ -487,11 +490,9 @@ def main() -> None:
 
         graph, cube_data = load_cube(args.input, charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
     elif interface_mode is not None:
-        from xyzrender.crystal import add_crystal_images, load_crystal
+        from xyzrender.crystal import load_crystal
 
         graph, crystal_data = load_crystal(args.input, interface_mode)
-        if not args.no_ghosts:
-            add_crystal_images(graph, crystal_data)
     elif needs_ts and args.input:
         graph, _ts_frames = load_ts_molecule(
             args.input,
@@ -596,6 +597,16 @@ def main() -> None:
                 cfg.cell_line_width = args.cell_width
     elif "lattice" in graph.graph:
         logger.info("Lattice= found in file; use --cell to draw the unit cell box")
+
+    # Ghost (periodic image) atoms.
+    # Default: on when cell is explicitly requested (--cell / --crystal), off for
+    # files that carry a cell automatically (CIF, PDB CRYST1) unless user opts in.
+    _cell_requested = interface_mode is not None or args.cell
+    _show_ghosts = args.ghosts if args.ghosts is not None else _cell_requested
+    if cfg.crystal_data is not None and _show_ghosts:
+        from xyzrender.crystal import add_crystal_images
+
+        add_crystal_images(graph, cfg.crystal_data)
 
     # Default --no-bo for any periodic input (phonopy crystal or extXYZ cell box).
     # Bond orders from xyzgraph are not PBC-aware so they are unreliable for periodic structures.

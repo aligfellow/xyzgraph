@@ -212,6 +212,10 @@ def add_crystal_images(graph: nx.Graph, crystal_data: CrystalData) -> int:
             img_pos = cell_pos[src_id] + offset
             ri = _cov_r(sym_i)
 
+            # TODO: ghost bond detection uses its own covalent-radii at 1.2x
+            # tolerance, defined above, independent of xyzgraph.
+            # Ideally the ghost detection would reuse the graph's existing bond
+            # logic, should be able to acess the distance detection from xyzgraph.
             bonded_to: list[int] = [
                 j for j in cell_ids if float(np.linalg.norm(img_pos - cell_pos[j])) < (ri + _cov_r(cell_syms[j])) * 1.2
             ]
