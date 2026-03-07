@@ -420,15 +420,18 @@ C   3.137   3.716   3.547
 Note:  
 - **Bond orders are disabled by default** for periodic structures — geometry-based perception is not PBC-aware. Pass `--bo` to re-enable.
 
-The unit cell box is drawn in the background and crystallographic axis arrows (**a**, **b**, **c**) are overlaid on top. Periodic ghost/image atoms — those from neighbouring cells that bond across the cell boundary — are drawn at half opacity so the cell contents are clear.
+The unit cell box is drawn in the background and crystallographic axis arrows (**a**, **b**, **c**) are overlaid on top. Periodic ghost/image atoms — those from neighbouring cells that bond across the cell boundary — are drawn at half opacity so the cell contents are clear. Use `--no-ghosts` to hide them.
+
+> [!NOTE]
+> **Ghost bond detection** uses independent covalent-radius distance rules which is different to the automatic bond detection with `xyzgraph`. This should be updated in the future.
 
 ### Crystal / periodic structures
 
-Render VASP (`POSCAR`/`CONTCAR`, `.vasp`) and Quantum ESPRESSO (`.in`) unit cell structures. 
+Render VASP (`POSCAR`/`CONTCAR`, `.vasp`) and Quantum ESPRESSO (`.in`) unit cell structures.
 
-> [!NOTE]  
-> The `--crystal` flag requires `phonopy` dependency. Use `pip install xyzrender[crystal]` or `pip install -e .[crystal]` 
-> `--axes`, `--axis`, `--ghosts` all work without this dependency, *e.g.* with the `--cell` flag above.
+> [!NOTE]
+> **phonopy is only required for `--crystal`** (loading VASP/QE structure files). Everything else — `--cell` (extXYZ), CIF (ase), PDB CRYST1, ghost atoms, `--axes`, `--axis` — works without it.
+> Use `pip install xyzrender[crystal]` or `pip install -e .[crystal]`.
 
 File format is auto-detected from extension (`.vasp`, `POSCAR`, `CONTCAR` → VASP; `.in` → QE). Pass the format explicitly with `--crystal vasp` or `--crystal qe`.
 

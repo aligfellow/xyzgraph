@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Covalent radii in Å for common elements. Used to detect PBC image bonds.
-# VdW * 0.55 yeilds too many periodic image atoms
 # Source: Alvarez (2008), DOI:10.1039/b801115j (single-bond radii)
+# TODO: change to share xyzgraph bond detection logic
 _COVALENT_RADII: dict[str, float] = {
     "H": 0.31,
     "He": 0.28,
