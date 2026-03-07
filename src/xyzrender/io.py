@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
 import numpy as np
@@ -16,37 +17,41 @@ from xyzgraph import DATA, build_graph, read_xyz_file
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import networkx as nx
+
+    from xyzrender.cube import CubeData
+    from xyzrender.types import CrystalData
 
 _Atoms: TypeAlias = list[tuple[str, tuple[float, float, float]]]
 
 
 def load_molecule(
     path: str | Path,
+    frame: int = 0,
     charge: int = 0,
     multiplicity: int | None = None,
     kekule: bool = False,
-) -> nx.Graph:
-    """Read molecular structure file and build graph.
+    rebuild: bool = False,
+) -> tuple[nx.Graph, CrystalData | None]:
+    """Read a molecular structure file and build a graph.
 
-    Supports .xyz natively, .cube (Gaussian cube files), and all other
-    formats (ORCA .out, Gaussian .log, Q-Chem, etc.) via cclib.  Bond
-    orders are always determined by xyzgraph.
+    Dispatches on file extension.  Always returns ``(graph, crystal)`` where
+    *crystal* is ``None`` for non-periodic structures.
     """
+    import xyzrender.formats as fmt
+    from xyzrender.types import CrystalData
+
     p = str(path)
     logger.info("Loading %s", p)
+    crystal: CrystalData | None = None
+
     if p.endswith(".cube"):
-        logger.debug("Parsing as Gaussian cube file")
         graph, _cube = load_cube(p, charge=charge, multiplicity=multiplicity, kekule=kekule)
     elif p.endswith(".xyz"):
-        logger.debug("Parsing as XYZ")
         graph = build_graph(read_xyz_file(p), charge=charge, multiplicity=multiplicity, kekule=kekule)
-        # Try to parse extXYZ Lattice (and optional Origin) from the comment line
         try:
             with open(p) as _f:
-                _f.readline()  # atom count
+                _f.readline()
                 _comment = _f.readline()
             _lattice = _parse_extxyz_lattice(_comment)
             if _lattice is not None:
@@ -55,18 +60,38 @@ def load_molecule(
                 _origin = _parse_extxyz_origin(_comment)
                 if _origin is not None:
                     graph.graph["lattice_origin"] = _origin
-                    logger.debug(f"extXYZ Origin parsed:\n{_origin}")
         except OSError:
             pass
+    elif p.endswith((".mol", ".sdf", ".mol2")):
+        data = fmt.parse(p, frame=frame)
+        graph = graph_from_moldata(data, charge=charge, multiplicity=multiplicity, kekule=kekule, rebuild=rebuild)
+    elif p.endswith(".pdb"):
+        data = fmt.parse_pdb(p)
+        graph = graph_from_moldata(data, charge=charge, multiplicity=multiplicity, kekule=kekule, rebuild=rebuild)
+        if data.pbc_cell is not None:
+            # Position cell so it's centred on the molecular centroid.
+            # PDB atoms are in Cartesian coords and needn't be near the origin,
+            # so without this adjustment the cell box appears disconnected.
+            centroid = np.array([pos for _, pos in data.atoms], dtype=float).mean(axis=0)
+            cell_origin = centroid - 0.5 * data.pbc_cell.sum(axis=0)
+            crystal = CrystalData(lattice=data.pbc_cell, cell_origin=cell_origin)
+    elif p.endswith(".smi"):
+        smi = Path(p).read_text(encoding="utf-8").splitlines()[0].strip()
+        data = fmt.parse_smiles(smi, kekule=kekule)
+        graph = graph_from_moldata(data, charge=charge, multiplicity=multiplicity, kekule=kekule, rebuild=rebuild)
+    elif p.endswith(".cif"):
+        data = fmt.parse_cif(p)
+        graph = build_graph(data.atoms, charge=charge, multiplicity=multiplicity, kekule=kekule)
+        assert data.pbc_cell is not None
+        crystal = CrystalData(lattice=data.pbc_cell)
     else:
-        logger.debug("Parsing as QM output via cclib")
         atoms, file_charge, file_mult = _parse_qm_output(p)
         c = charge if charge != 0 else file_charge
         m = multiplicity if multiplicity is not None else file_mult
-        logger.debug("cclib: charge=%d, multiplicity=%s", c, m)
         graph = build_graph(atoms, charge=c, multiplicity=m, kekule=kekule)
+
     logger.info("Built graph: %d atoms, %d bonds", graph.number_of_nodes(), graph.number_of_edges())
-    return graph
+    return graph, crystal
 
 
 def load_cube(
@@ -74,7 +99,7 @@ def load_cube(
     charge: int = 0,
     multiplicity: int | None = None,
     kekule: bool = False,
-) -> tuple[nx.Graph, object]:
+) -> tuple[nx.Graph, CubeData]:
     """Load molecular structure and orbital data from a Gaussian cube file.
 
     Returns both the molecular graph and the CubeData for orbital rendering.
@@ -87,6 +112,52 @@ def load_cube(
         "Cube graph: %d atoms, %d bonds, MO %s", graph.number_of_nodes(), graph.number_of_edges(), cube.mo_index
     )
     return graph, cube
+
+
+def graph_from_moldata(
+    data: object,
+    charge: int = 0,
+    multiplicity: int | None = None,
+    kekule: bool = False,
+    rebuild: bool = False,
+) -> nx.Graph:
+    """Build a graph from MolData, using file bonds or xyzgraph detection."""
+    import networkx as nx
+
+    from xyzrender.formats import MolData
+
+    assert isinstance(data, MolData)
+
+    if not rebuild and data.bonds is not None:
+        graph: nx.Graph = nx.Graph()
+        for i, (sym, pos) in enumerate(data.atoms):
+            graph.add_node(i, symbol=sym, position=pos)
+        for i, j, order in data.bonds:
+            graph.add_edge(i, j, bond_order=order)
+        isolated = sum(1 for n in graph.nodes if graph.degree(n) == 0)
+        if isolated > 0:
+            logger.warning(
+                "%d/%d atoms have no bonds from file connectivity — use --rebuild to re-detect with xyzgraph",
+                isolated,
+                graph.number_of_nodes(),
+            )
+        else:
+            logger.info(
+                "Graph from file connectivity: %d atoms, %d bonds",
+                graph.number_of_nodes(),
+                graph.number_of_edges(),
+            )
+        return graph
+
+    # Fall back to xyzgraph distance-based detection
+    c = charge if charge != 0 else data.charge
+    graph = build_graph(data.atoms, charge=c, multiplicity=multiplicity, kekule=kekule)
+    logger.info(
+        "Graph rebuilt via xyzgraph: %d atoms, %d bonds",
+        graph.number_of_nodes(),
+        graph.number_of_edges(),
+    )
+    return graph
 
 
 def detect_nci(graph: nx.Graph) -> nx.Graph:

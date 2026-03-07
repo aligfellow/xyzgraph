@@ -12,7 +12,7 @@ from xyzrender.config import build_render_config, load_config
 
 if TYPE_CHECKING:
     from xyzrender.cube import CubeData
-    from xyzrender.types import RenderConfig
+    from xyzrender.types import CrystalData, RenderConfig
 
 from xyzrender.io import (
     detect_nci,
@@ -88,11 +88,30 @@ def main() -> None:
 
     # --- Input / Output ---
     io_g = p.add_argument_group("input/output")
-    io_g.add_argument("input", nargs="?", help="XYZ file (reads stdin if omitted)")
+    io_g.add_argument("input", nargs="?", help="Input file (.xyz, .mol, .sdf, .mol2, .pdb, .smi, .cif, .cube, …)")
     io_g.add_argument("-o", "--output", help="Output file (.svg, .png, .pdf)")
     io_g.add_argument("-c", "--charge", type=int, default=0)
     io_g.add_argument("-m", "--multiplicity", type=int, default=None)
     io_g.add_argument("-d", "--debug", action="store_true", help="Debug output")
+    io_g.add_argument(
+        "--smi",
+        default=None,
+        metavar="SMILES",
+        help="Parse a SMILES string directly (requires rdkit: pip install 'xyzrender[smiles]')",
+    )
+    io_g.add_argument(
+        "--mol-frame",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Record index to read from a multi-molecule SDF file (default: 0)",
+    )
+    io_g.add_argument(
+        "--rebuild",
+        action="store_true",
+        default=False,
+        help="Ignore file connectivity and re-detect bonds with xyzgraph",
+    )
 
     # --- Styling ---
     style_g = p.add_argument_group("styling")
@@ -255,7 +274,10 @@ def main() -> None:
     )
     crystal_g.add_argument("--no-cell", action="store_true", default=False, help="Hide the unit cell box (--crystal)")
     crystal_g.add_argument(
-        "--no-ghosts", action="store_true", default=False, help="Hide image atoms outside the cell (--crystal)"
+        "--ghosts",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Show/hide periodic image atoms (default: on when --cell/--crystal, off otherwise)",
     )
     crystal_g.add_argument(
         "--axes",
@@ -376,6 +398,14 @@ def main() -> None:
 
     is_cube = args.input and args.input.endswith(".cube")
 
+    # Validate --smi / --mol-frame / --rebuild usage
+    if args.smi and args.input:
+        p.error("--smi cannot be combined with a positional input file")
+    if args.mol_frame != 0 and not (args.input and args.input.endswith(".sdf")):
+        logger.warning("--mol-frame has no effect on non-SDF input")
+    if args.rebuild and args.smi:
+        logger.warning("--rebuild has no effect on SMILES input (rdkit bonds are always used)")
+
     # --- Crystal / periodic structure detection ---
     # interface_mode is non-None iff phonopy crystal loading is requested (--crystal flag).
     # --cell is a separate, lighter path: extXYZ box only, no phonopy, no image atoms.
@@ -432,24 +462,37 @@ def main() -> None:
             p.error(f"GIF output must have .gif extension, got: .{gif_ext}")
 
     # Load molecule (--gif-ts implies TS detection)
-    cube_data = None
-    crystal_data = None
+    cube_data: CubeData | None = None
+    crystal_data: CrystalData | None = None
     needs_ts = args.ts_detect or args.gif_ts
     if is_cube and needs_ts:
         print(
             "Warning: --ts/--gif-ts has no effect with cube files (single geometry, no frequency data). "
             "Use --ts-bond to manually specify TS bonds."
         )
-    if is_cube:
+    if args.smi:
+        import xyzrender.formats as fmt
+        from xyzrender.io import graph_from_moldata
+
+        data = fmt.parse_smiles(args.smi, kekule=args.kekule)
+        graph = graph_from_moldata(data, charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
+        xyz_path = Path(args.output).with_suffix(".xyz")
+        nodes = list(graph.nodes())
+        xyz_lines = [f"{len(nodes)}\n", f"{args.smi}\n"]
+        for i in nodes:
+            sym = graph.nodes[i]["symbol"]
+            x, y, z = graph.nodes[i]["position"]
+            xyz_lines.append(f"{sym:<3} {x:12.6f} {y:12.6f} {z:12.6f}\n")
+        xyz_path.write_text("".join(xyz_lines))
+        logger.info("3D geometry written to %s", xyz_path)
+    elif is_cube:
         from xyzrender.io import load_cube
 
         graph, cube_data = load_cube(args.input, charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
     elif interface_mode is not None:
-        from xyzrender.crystal import add_crystal_images, load_crystal
+        from xyzrender.crystal import load_crystal
 
         graph, crystal_data = load_crystal(args.input, interface_mode)
-        if not args.no_ghosts:
-            add_crystal_images(graph, crystal_data)
     elif needs_ts and args.input:
         graph, _ts_frames = load_ts_molecule(
             args.input,
@@ -459,9 +502,17 @@ def main() -> None:
             kekule=args.kekule,
         )
     elif args.input:
-        graph = load_molecule(args.input, charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
+        graph, crystal_data = load_molecule(
+            args.input,
+            frame=args.mol_frame,
+            charge=args.charge,
+            multiplicity=args.multiplicity,
+            kekule=args.kekule,
+            rebuild=args.rebuild,
+        )
     elif not sys.stdin.isatty():
         graph = load_stdin(charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
+        crystal_data = None
     else:
         p.error("No input file and stdin is a terminal")
 
@@ -547,6 +598,16 @@ def main() -> None:
     elif "lattice" in graph.graph:
         logger.info("Lattice= found in file; use --cell to draw the unit cell box")
 
+    # Ghost (periodic image) atoms.
+    # Default: on when cell is explicitly requested (--cell / --crystal), off for
+    # files that carry a cell automatically (CIF, PDB CRYST1) unless user opts in.
+    _cell_requested = interface_mode is not None or args.cell
+    _show_ghosts = args.ghosts if args.ghosts is not None else _cell_requested
+    if cfg.crystal_data is not None and _show_ghosts:
+        from xyzrender.crystal import add_crystal_images
+
+        add_crystal_images(graph, cfg.crystal_data)
+
     # Default --no-bo for any periodic input (phonopy crystal or extXYZ cell box).
     # Bond orders from xyzgraph are not PBC-aware so they are unreliable for periodic structures.
     if cfg.crystal_data is not None and args.bo is None:
@@ -617,15 +678,13 @@ def main() -> None:
 
     # MO contour computation (PCA must happen here so rot is available for the grid)
     if args.mo and cube_data is not None:
-        from typing import cast
-
         import numpy as np
 
         from xyzrender.mo import build_mo_contours
         from xyzrender.utils import kabsch_rotation, pca_orient
 
         assert mo_colors is not None  # set when args.mo is True
-        cube = cast("CubeData", cube_data)
+        cube = cube_data
         rot = None
         if cfg.auto_orient:
             node_ids = list(graph.nodes())
@@ -678,15 +737,13 @@ def main() -> None:
 
     # Density isosurface computation
     if args.dens and cube_data is not None:
-        from typing import cast
-
         import numpy as np
 
         from xyzrender.dens import build_density_contours
         from xyzrender.types import resolve_color
         from xyzrender.utils import kabsch_rotation, pca_orient
 
-        cube = cast("CubeData", cube_data)
+        cube = cube_data
         dens_color = resolve_color(args.dens_color or config_data.get("dens_color", "steelblue"))
         dens_isovalue = args.iso if args.iso is not None else config_data.get("dens_iso", 0.001)
 
@@ -725,15 +782,13 @@ def main() -> None:
     # ESP surface computation
     esp_cube_data = None
     if args.esp and cube_data is not None:
-        from typing import cast
-
         import numpy as np
 
         from xyzrender.cube import parse_cube
         from xyzrender.esp import _compute_normals_phys, build_esp_surface
         from xyzrender.utils import kabsch_rotation, pca_orient
 
-        cube = cast("CubeData", cube_data)
+        cube = cube_data
         esp_cube_data = parse_cube(args.esp)
 
         # Verify grid shapes match

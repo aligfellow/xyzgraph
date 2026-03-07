@@ -23,8 +23,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from xyzgraph import DATA, build_graph
+from xyzgraph.parameters import BondThresholds
 
 from xyzrender.types import CrystalData
+
+_bond_thresholds = BondThresholds()
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -33,102 +36,31 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Covalent radii in Å for common elements. Used to detect PBC image bonds.
-# VdW * 0.55 yeilds too many periodic image atoms
-# Source: Alvarez (2008), DOI:10.1039/b801115j (single-bond radii)
-_COVALENT_RADII: dict[str, float] = {
-    "H": 0.31,
-    "He": 0.28,
-    "Li": 1.28,
-    "Be": 0.96,
-    "B": 0.84,
-    "C": 0.76,
-    "N": 0.71,
-    "O": 0.66,
-    "F": 0.57,
-    "Ne": 0.58,
-    "Na": 1.66,
-    "Mg": 1.41,
-    "Al": 1.21,
-    "Si": 1.11,
-    "P": 1.07,
-    "S": 1.05,
-    "Cl": 1.02,
-    "Ar": 1.06,
-    "K": 2.03,
-    "Ca": 1.76,
-    "Sc": 1.70,
-    "Ti": 1.60,
-    "V": 1.53,
-    "Cr": 1.39,
-    "Mn": 1.50,
-    "Fe": 1.42,
-    "Co": 1.38,
-    "Ni": 1.24,
-    "Cu": 1.32,
-    "Zn": 1.22,
-    "Ga": 1.22,
-    "Ge": 1.20,
-    "As": 1.19,
-    "Se": 1.20,
-    "Br": 1.20,
-    "Kr": 1.16,
-    "Rb": 2.20,
-    "Sr": 1.95,
-    "Y": 1.90,
-    "Zr": 1.75,
-    "Nb": 1.64,
-    "Mo": 1.54,
-    "Tc": 1.47,
-    "Ru": 1.46,
-    "Rh": 1.42,
-    "Pd": 1.39,
-    "Ag": 1.45,
-    "Cd": 1.44,
-    "In": 1.42,
-    "Sn": 1.39,
-    "Sb": 1.39,
-    "Te": 1.38,
-    "I": 1.39,
-    "Xe": 1.40,
-    "Cs": 2.44,
-    "Ba": 2.15,
-    "La": 2.07,
-    "Ce": 2.04,
-    "Pr": 2.03,
-    "Nd": 2.01,
-    "Pm": 1.99,
-    "Sm": 1.98,
-    "Eu": 1.98,
-    "Gd": 1.96,
-    "Tb": 1.94,
-    "Dy": 1.92,
-    "Ho": 1.92,
-    "Er": 1.89,
-    "Tm": 1.90,
-    "Yb": 1.87,
-    "Lu": 1.87,
-    "Hf": 1.75,
-    "Ta": 1.70,
-    "W": 1.62,
-    "Re": 1.51,
-    "Os": 1.44,
-    "Ir": 1.41,
-    "Pt": 1.36,
-    "Au": 1.36,
-    "Hg": 1.32,
-    "Tl": 1.45,
-    "Pb": 1.46,
-    "Bi": 1.48,
-    "Po": 1.40,
-    "At": 1.50,
-    "Rn": 1.50,
-}
 
+def _is_bonded(sym_i: str, sym_j: str, dist: float) -> bool:
+    """Return True if two atoms at *dist* Å apart are likely bonded.
 
-def _cov_r(sym: str) -> float:
-    """Covalent radius (Å) from the Alvarez (2008) table; falls back to 0.55 x VdW."""
-    return _COVALENT_RADII.get(sym, DATA.vdw.get(sym, 1.5) * 0.55)
+    Uses xyzgraph's VDW radii (DATA.vdw) and the same type-specific distance
+    thresholds as xyzgraph's BondThresholds defaults, so ghost-bond detection
+    is consistent with main-cell bond detection.  Note: xyzgraph also applies
+    geometric pruning (bond angles, valence) which is not replicated here.
+    """
+    ri = DATA.vdw.get(sym_i, 2.0)
+    rj = DATA.vdw.get(sym_j, 2.0)
+    metals = DATA.metals
+    hi, hj = sym_i == "H", sym_j == "H"
+    mi, mj = sym_i in metals, sym_j in metals
+    if hi and hj:
+        t = _bond_thresholds.threshold_h_h
+    elif hi or hj:
+        t = _bond_thresholds.threshold_h_metal if (mi or mj) else _bond_thresholds.threshold_h_nonmetal
+    elif mi and mj:
+        t = _bond_thresholds.threshold_metal_metal_self
+    elif mi or mj:
+        t = _bond_thresholds.threshold_metal_ligand
+    else:
+        t = _bond_thresholds.threshold_nonmetal_nonmetal
+    return dist < t * (ri + rj)
 
 
 def load_crystal(
@@ -210,10 +142,9 @@ def add_crystal_images(graph: nx.Graph, crystal_data: CrystalData) -> int:
         for src_id in cell_ids:
             sym_i = cell_syms[src_id]
             img_pos = cell_pos[src_id] + offset
-            ri = _cov_r(sym_i)
 
             bonded_to: list[int] = [
-                j for j in cell_ids if float(np.linalg.norm(img_pos - cell_pos[j])) < (ri + _cov_r(cell_syms[j])) * 1.2
+                j for j in cell_ids if _is_bonded(sym_i, cell_syms[j], float(np.linalg.norm(img_pos - cell_pos[j])))
             ]
 
             if not bonded_to:

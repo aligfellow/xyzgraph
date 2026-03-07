@@ -31,6 +31,9 @@ xyzrender = "xyzrender.cli:main"
 
 [project.optional-dependencies]
 crystal = ["phonopy"]
+smi     = ["rdkit"]
+cif     = ["ase"]
+all     = ["phonopy", "rdkit", "ase"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -46,6 +49,8 @@ dev = [
     "ruff>=0.14.14",
     "ty>=0.0.14",
     "phonopy",  # optional dep
+    "ase",      # optional dep (needed for test_formats.py pdb fixtures)
+    "rdkit",    # optional dep (needed for test_formats.py mol/sdf fixtures)
 ]
 
 # ===== Ruff =====
