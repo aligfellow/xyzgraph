@@ -449,6 +449,8 @@ def _project_lobe_2d(
     rot: np.ndarray | None = None,
     atom_centroid: np.ndarray | None = None,
     target_centroid: np.ndarray | None = None,
+    blur_sigma: float = _BLUR_SIGMA,
+    upsample_factor: int = _UPSAMPLE_FACTOR,
 ) -> LobeContour2D | None:
     """Project one 3D lobe to 2D, blur, upsample, and extract contours."""
     lobe_pos = pos_flat_ang[lobe.flat_indices].copy()
@@ -480,7 +482,7 @@ def _project_lobe_2d(
     nz_rows, nz_cols = np.nonzero(grid_2d)
     if len(nz_rows) == 0:
         return None
-    pad = max(3, int(_BLUR_SIGMA * 4) + 1)
+    pad = max(3, int(blur_sigma * 4) + 1)
     r0 = max(0, int(nz_rows.min()) - pad)
     r1 = min(resolution, int(nz_rows.max()) + pad + 1)
     c0 = max(0, int(nz_cols.min()) - pad)
@@ -488,13 +490,13 @@ def _project_lobe_2d(
     cropped = grid_2d[r0:r1, c0:c1]
 
     # Blur + upsample the cropped region only
-    blurred = _gaussian_blur_2d(cropped, _BLUR_SIGMA)
+    blurred = _gaussian_blur_2d(cropped, blur_sigma)
     if lobe.phase == "pos":
         blurred = np.maximum(blurred, 0.0)
     else:
         blurred = np.minimum(blurred, 0.0)
 
-    upsampled = _upsample_2d(blurred, _UPSAMPLE_FACTOR)
+    upsampled = _upsample_2d(blurred, upsample_factor)
 
     # Extract contours on cropped grid
     if lobe.phase == "pos":
@@ -503,7 +505,7 @@ def _project_lobe_2d(
         raw_loops = chain_segments(marching_squares(-upsampled, isovalue))
 
     # Offset contour coords back to full-grid space
-    offset = np.array([r0 * _UPSAMPLE_FACTOR, c0 * _UPSAMPLE_FACTOR])
+    offset = np.array([r0 * upsample_factor, c0 * upsample_factor])
     offset_loops = [loop + offset for loop in raw_loops]
 
     loops = [_resample_loop(lp) for lp in offset_loops if _loop_perimeter(lp) >= _MIN_LOOP_PERIMETER]
@@ -532,6 +534,8 @@ def build_mo_contours(
     lobes_3d: list[Lobe3D] | None = None,
     pos_flat_ang: np.ndarray | None = None,
     fixed_bounds: tuple[float, float, float, float] | None = None,
+    blur_sigma: float = _BLUR_SIGMA,
+    upsample_factor: int = _UPSAMPLE_FACTOR,
 ) -> MOContours:
     """Build MO contour data from a parsed cube file.
 
@@ -588,6 +592,8 @@ def build_mo_contours(
             rot=rot,
             atom_centroid=atom_centroid,
             target_centroid=target_centroid,
+            blur_sigma=blur_sigma,
+            upsample_factor=upsample_factor,
         )
         if lc is not None:
             lobe_contours.append(lc)
@@ -595,7 +601,7 @@ def build_mo_contours(
     # Sort back-to-front by z-depth
     lobe_contours.sort(key=lambda lc: lc.z_depth)
 
-    res = base_res * _UPSAMPLE_FACTOR
+    res = base_res * upsample_factor
     total_loops = sum(len(lc.loops) for lc in lobe_contours)
     if total_loops == 0:
         logger.warning(
@@ -883,5 +889,7 @@ def recompute_mo(graph: nx.Graph, config: RenderConfig, mo_data: dict) -> None:
         lobes_3d=mo_data["lobes_3d"],
         pos_flat_ang=mo_data["pos_flat_ang"],
         fixed_bounds=fixed_bounds,
+        blur_sigma=mo_data.get("blur_sigma", _BLUR_SIGMA),
+        upsample_factor=mo_data.get("upsample_factor", _UPSAMPLE_FACTOR),
     )
     config.surface_opacity = mo_data["surface_opacity"]

@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
+    from xyzrender.annotations import Annotation
     from xyzrender.esp import ESPSurface
     from xyzrender.mo import MOContours
 
@@ -135,6 +138,24 @@ def resolve_color(color: str) -> str:
 
 
 @dataclass
+class CrystalData:
+    """Periodic lattice data for crystal structure rendering.
+
+    Parameters
+    ----------
+    lattice:
+        3x3 array where each row is a lattice vector (a, b, c) in Ångströms.
+    cell_origin:
+        3-vector (Å) of the (0,0,0) cell corner in the current coordinate frame.
+        Defaults to the origin; updated during GIF rotation so the box keeps
+        pace with the atoms.
+    """
+
+    lattice: np.ndarray  # shape (3, 3), rows = a, b, c in Å
+    cell_origin: np.ndarray = field(default_factory=lambda: np.zeros(3))  # (3,) in Å
+
+
+@dataclass
 class RenderConfig:
     """Rendering settings."""
 
@@ -161,6 +182,7 @@ class RenderConfig:
     vdw_gradient_strength: float = 1.0  # scales lighten/darken of VdW sphere gradient
     auto_orient: bool = False
     background: str = "#ffffff"
+    transparent: bool = False
     dpi: int = 300
     fixed_span: float | None = None  # fixed viewport span (disables auto-fit)
     fixed_center: tuple[float, float] | None = None  # fixed XY center (disables auto-center)
@@ -171,3 +193,24 @@ class RenderConfig:
     esp_surface: ESPSurface | None = None
     nci_contours: MOContours | None = None
     surface_opacity: float = 1.0
+    flat_mo: bool = False
+    # Annotations and measurements
+    annotations: list[Annotation] = field(default_factory=list)
+    show_indices: bool = False
+    idx_format: str = "sn"  # "sn" (C1) | "s" (C) | "n" (1) — 1-indexed numbers
+    label_font_size: float = 11.0
+    label_color: str = "#222222"
+    label_offset: float = 0.5  # perpendicular label offset as a fraction of font size (bond: -, dihedral: +)
+    # Atom property colormap (--cmap)
+    atom_cmap: dict[int, float] | None = None
+    cmap_range: tuple[float, float] | None = None
+    cmap_unlabeled: str = "#ffffff"  # fill for atoms absent from cmap file
+    # Crystal / periodic structure
+    crystal_data: CrystalData | None = None
+    show_cell: bool = True
+    show_crystal_axes: bool = True
+    cell_color: str = "#333333"
+    cell_line_width: float = 2.0
+    periodic_image_opacity: float = 0.5
+    axis_colors: tuple[str, str, str] = ("#b22222", "#228b22", "#4169e1")  # firebrick, forestgreen, royalblue
+    axis_width_scale: float = 3.0  # multiplier on cell_line_width for axis stroke width
