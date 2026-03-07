@@ -157,25 +157,28 @@ def main() -> None:
         "--esp", default=None, metavar="CUBE", help="ESP cube file for potential coloring (implies --dens)"
     )
     surf_g.add_argument(
-        "--nci-grad",
+        "--nci-surf",
         default=None,
         metavar="CUBE",
-        dest="nci_grad",
+        dest="nci_surf",
         help="NCI gradient cube file — find patches where RDG is low (implies density rendering)",
     )
-    surf_g.add_argument("--nci-color", default=None, help="NCI patch colour (hex or named, default: forestgreen)")
+    surf_g.add_argument(
+        "--nci-color", default=None, help="NCI patch colour for uniform mode (hex or named, default: forestgreen)"
+    )
     surf_g.add_argument(
         "--nci-coloring",
         default=None,
-        choices=["avg", "pixel"],
+        choices=["avg", "pixel", "uniform"],
         dest="nci_coloring",
-        help="NCI surface coloring: avg=per-lobe mean sign(l2)*rho (MO-like), pixel=per-pixel static raster",
+        help="NCI surface coloring: avg=per-lobe mean sign(l2)*rho blue/green/red (default), pixel=per-pixel raster, "
+        "uniform=flat color (see --nci-color)",
     )
     surf_g.add_argument(
         "--iso",
         type=float,
         default=None,
-        help="Isosurface threshold (MO default: 0.05, density/ESP default: 0.001, NCI/RDG default: 0.5)",
+        help="Isosurface threshold (MO default: 0.05, density/ESP default: 0.001, NCI/RDG default: 0.3)",
     )
     surf_g.add_argument(
         "--flat-mo",
@@ -487,14 +490,14 @@ def main() -> None:
         p.error("--esp requires a .cube density input file")
     if args.esp and wants_gif:
         p.error("--esp does not support GIF rotation")
-    if args.nci_grad and (args.mo or args.dens or args.esp):
-        p.error("--nci-grad is mutually exclusive with --mo, --dens, and --esp")
-    if args.nci_grad and args.vdw is not None:
-        p.error("--nci-grad and --vdw are mutually exclusive")
-    if args.nci_grad and not is_cube:
-        p.error("--nci-grad requires a .cube density input file")
-    if args.nci_grad and wants_gif:
-        p.error("--nci-grad does not support GIF animation")
+    if args.nci_surf and (args.mo or args.dens or args.esp):
+        p.error("--nci-surf is mutually exclusive with --mo, --dens, and --esp")
+    if args.nci_surf and args.vdw is not None:
+        p.error("--nci-surf and --vdw are mutually exclusive")
+    if args.nci_surf and not is_cube:
+        p.error("--nci-surf requires a .cube density input file")
+    if args.nci_surf and wants_gif:
+        p.error("--nci-surf does not support GIF animation")
     if wants_gif:
         gif_path = args.gif_output or f"{base}.gif"
         gif_ext = gif_path.rsplit(".", 1)[-1].lower()
@@ -882,9 +885,7 @@ def main() -> None:
         )
 
     # NCI surface computation (grad cube defines the surface, dens cube provides geometry)
-    if args.nci_grad and cube_data is not None:
-        from typing import cast
-
+    if args.nci_surf and cube_data is not None:
         import numpy as np
 
         from xyzrender.cube import parse_cube
@@ -892,18 +893,18 @@ def main() -> None:
         from xyzrender.types import resolve_color
         from xyzrender.utils import kabsch_rotation, pca_orient
 
-        cube = cast("CubeData", cube_data)
-        nci_grad_cube = parse_cube(args.nci_grad)
+        cube = cube_data
+        nci_surf_cube = parse_cube(args.nci_surf)
 
-        if cube.grid_shape != nci_grad_cube.grid_shape:
+        if cube.grid_shape != nci_surf_cube.grid_shape:
             p.error(
                 f"Grid shape mismatch: density cube {cube.grid_shape} vs NCI gradient cube "
-                f"{nci_grad_cube.grid_shape}. Both cubes must come from the same calculation."
+                f"{nci_surf_cube.grid_shape}. Both cubes must come from the same calculation."
             )
 
         nci_color = resolve_color(args.nci_color or config_data.get("nci_color", "forestgreen"))
         nci_isovalue = args.iso if args.iso is not None else config_data.get("nci_iso", 0.3)
-        nci_coloring = args.nci_coloring or "uniform"
+        nci_coloring = args.nci_coloring or "avg"
 
         rot = None
         if cfg.auto_orient:
@@ -928,7 +929,7 @@ def main() -> None:
         ).mean(axis=0)
 
         cfg.nci_contours = build_nci_contours(
-            nci_grad_cube,
+            nci_surf_cube,
             cube,
             isovalue=nci_isovalue,
             color=nci_color,

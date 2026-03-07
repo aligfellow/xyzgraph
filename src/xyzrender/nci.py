@@ -39,15 +39,9 @@ from xyzrender.mo import (
 )
 
 # Blur is kept tight so the rendered patch faithfully represents the RDG
-# isosurface without over-inflation.  The adaptive dilation step handles
-# the edge-on visibility problem for thin patches.
+# isosurface without over-inflation.
 _NCI_BLUR_SIGMA = 1.0
 _NCI_MIN_REGION_VOLUME_BOHR3 = 0.1  # discard 3D NCI regions smaller than this (Bohr^3)
-# Dilation is only applied to projections with fewer than this many unique pixels.
-# Edge-on patches (H-bonds viewed edge-on) project to very few pixels (< 60) and
-# need gap-filling; large face-on patches project to many pixels and must not be
-# dilated (it merges distinct sub-features and inflates the rendered shape).
-_NCI_DILATION_PIXEL_THRESHOLD = 40
 
 # ---------------------------------------------------------------------------
 # NCI colormap — CSS4 named colors, same pattern as ESP_COLORMAP in esp.py
@@ -242,13 +236,20 @@ def _project_nci_region_2d(
     c1 = min(resolution, int(nz_cols.max()) + pad + 1)
     cropped = grid_2d[r0:r1, c0:c1]
 
-    # Dilation before blur: fills single-pixel checkerboard gaps from edge-on
-    # projections (e.g. H-bond disks viewed at an angle) so the Gaussian blur
-    # reaches the 0.5 membership threshold.  Only applied to sparse projections
-    # (few unique pixels = edge-on patch); large face-on projections are left
-    # untouched to avoid merging sub-features or inflating patch boundaries.
+    # Dilation before blur: fills single-pixel gaps so the Gaussian blur reaches
+    # the 0.5 threshold.  Two conditions trigger it:
+    #   - very few projected pixels: small or near-invisible patch needs dilation
+    #     to produce any closed contour at all
+    #   - low fill fraction (n_unique / bbox area): catches thin patches of any
+    #     orientation — including diagonal pi-pi stacking viewed at an angle,
+    #     which has large row_span AND col_span but few pixels relative to bbox.
+    #     A solid face-on patch fills ~π/4 ≈ 0.78 of its bbox; 0.4 is a safe
+    #     threshold below that.
     n_unique = len(nz_rows)
-    to_blur = _dilate_binary_2d(cropped) if n_unique < _NCI_DILATION_PIXEL_THRESHOLD else cropped
+    row_span = int(nz_rows.max()) - int(nz_rows.min()) + 1
+    col_span = int(nz_cols.max()) - int(nz_cols.min()) + 1
+    fill_fraction = n_unique / max(1, row_span * col_span)
+    to_blur = _dilate_binary_2d(cropped) if (n_unique < 20 or fill_fraction < 0.4) else cropped
     blurred = np.maximum(_gaussian_blur_2d(to_blur, _NCI_BLUR_SIGMA), 0.0)
     upsampled = _upsample_2d(blurred, _UPSAMPLE_FACTOR)
 
@@ -363,7 +364,7 @@ def build_nci_contours(
     dens_cube: CubeData,
     isovalue: float = 0.3,
     color: str = "#228b22",  # forestgreen
-    color_mode: str = "uniform",
+    color_mode: str = "avg",
     *,
     rot: np.ndarray | None = None,
     atom_centroid: np.ndarray | None = None,
@@ -380,9 +381,9 @@ def build_nci_contours(
     Parameters
     ----------
     color_mode:
-        ``"uniform"`` — flat green fill (default).
-        ``"avg"`` -- each lobe filled with mean sign(l2)*rho color (MO-like).
+        ``"avg"`` -- each lobe filled with mean sign(l2)*rho color (default: blue=H-bond, green=vdW, red=steric).
         ``"pixel"`` -- per-pixel sign(l2)*rho raster clipped to loop shapes (static only).
+        ``"uniform"`` -- flat single color (see ``color`` argument, default: forestgreen).
     """
     n1, n2, n3 = grad_cube.grid_shape
     base_res = max(n1, n2, n3)
@@ -526,6 +527,86 @@ def build_nci_contours(
 # ---------------------------------------------------------------------------
 # Step 3: SVG rendering — individual flat-filled NCI patches
 # ---------------------------------------------------------------------------
+
+
+def nci_static_svg_defs(
+    nci: MOContours,
+    scale: float,
+    cx: float,
+    cy: float,
+    canvas_w: int,
+    canvas_h: int,
+) -> list[str]:
+    """Emit the ``<defs>`` block for pixel-mode NCI: shared raster image + per-lobe clip paths.
+
+    The ``<use>`` elements that actually paint the raster are emitted separately
+    (z-sorted into the atom/bond render loop by the renderer).
+    """
+    if not nci.nci_raster_png or not nci.lobes:
+        return []
+
+    img_x = canvas_w / 2 + scale * (nci.x_min - cx)
+    img_y = canvas_h / 2 - scale * (nci.y_max - cy)
+    img_w = scale * (nci.x_max - nci.x_min)
+    img_h = scale * (nci.y_max - nci.y_min)
+
+    lines: list[str] = ["  <defs>"]
+    lines.append(
+        f'    <image id="nci_raster" x="{img_x:.1f}" y="{img_y:.1f}" '
+        f'width="{img_w:.1f}" height="{img_h:.1f}" '
+        f'href="{nci.nci_raster_png}" '
+        f'preserveAspectRatio="none" image-rendering="optimizeQuality"/>'
+    )
+    for i, lobe in enumerate(nci.lobes):
+        d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
+        if d:
+            lines.append(f'    <clipPath id="nci_clip_{i}">')
+            lines.append(f'      <path d="{d}" fill-rule="evenodd"/>')
+            lines.append("    </clipPath>")
+    lines.append("  </defs>")
+    return lines
+
+
+def nci_lobe_svg_items(
+    nci: MOContours,
+    surface_opacity: float,
+    scale: float,
+    cx: float,
+    cy: float,
+    canvas_w: int,
+    canvas_h: int,
+) -> list[tuple[float, list[str]]]:
+    """Return per-lobe ``(z_depth, svg_lines)`` pairs for z-sorted rendering.
+
+    Sorted ascending by z_depth (back-to-front) to match the painter's-algorithm
+    z_order traversal in the renderer.  The renderer interleaves these between
+    atoms at the correct depth rather than painting all patches on top.
+
+    For pixel mode the returned lines are ``<use>`` references to the shared
+    ``#nci_raster`` image (clip path defs must be emitted first via
+    ``nci_static_svg_defs``).  For avg/uniform mode they are flat ``<path>``
+    elements.
+    """
+    if not nci.lobes:
+        return []
+
+    items: list[tuple[float, list[str]]] = []
+    opacity = surface_opacity
+
+    if nci.nci_raster_png:
+        for i, lobe in enumerate(nci.lobes):
+            use_str = f'  <use href="#nci_raster" clip-path="url(#nci_clip_{i})" opacity="{opacity:.3f}"/>'
+            items.append((lobe.z_depth, [use_str]))
+    else:
+        for lobe in nci.lobes:
+            color = lobe.lobe_color if lobe.lobe_color is not None else nci.pos_color
+            d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
+            if d:
+                path_str = f'  <path d="{d}" fill="{color}" fill-rule="evenodd" stroke="none" opacity="{opacity:.3f}"/>'
+                items.append((lobe.z_depth, [path_str]))
+
+    # nci.lobes is already sorted ascending z_depth; items preserves that order
+    return items
 
 
 def nci_loops_svg(
