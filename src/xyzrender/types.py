@@ -192,6 +192,7 @@ class RenderConfig:
     dens_contours: MOContours | None = None
     esp_surface: ESPSurface | None = None
     surface_opacity: float = 1.0
+    flat_mo: bool = False
     # Annotations and measurements
     annotations: list[Annotation] = field(default_factory=list)
     show_indices: bool = False

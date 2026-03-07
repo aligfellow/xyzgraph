@@ -157,6 +157,14 @@ def main() -> None:
         "--esp", default=None, metavar="CUBE", help="ESP cube file for potential coloring (implies --dens)"
     )
     surf_g.add_argument(
+        "--flat-mo",
+        action="store_true",
+        default=False,
+        help="Disable MO depth classification (all lobes rendered as front)",
+    )
+    surf_g.add_argument("--mo-blur", type=float, default=None, help="MO Gaussian blur sigma (default: 0.8)")
+    surf_g.add_argument("--mo-upsample", type=int, default=None, help="MO upsample factor (default: 3)")
+    surf_g.add_argument(
         "--iso", type=float, default=None, help="Isosurface threshold (MO default: 0.05, density/ESP default: 0.001)"
     )
     surf_g.add_argument("--opacity", type=float, default=None, help="Surface opacity (default: 1.0, >1 boosts)")
@@ -725,15 +733,22 @@ def main() -> None:
             dtype=float,
         ).mean(axis=0)
 
+        mo_iso = args.iso if args.iso is not None else config_data.get("mo_iso", 0.05)
+        mo_blur = args.mo_blur if args.mo_blur is not None else config_data.get("mo_blur", 0.8)
+        mo_upsample = args.mo_upsample if args.mo_upsample is not None else config_data.get("mo_upsample", 3)
+
         cfg.mo_contours = build_mo_contours(
             cube,
             rot=rot,
-            isovalue=args.iso if args.iso is not None else 0.05,
+            isovalue=mo_iso,
             pos_color=mo_colors[0],
             neg_color=mo_colors[1],
             atom_centroid=atom_centroid,
             target_centroid=curr_centroid,
+            blur_sigma=mo_blur,
+            upsample_factor=mo_upsample,
         )
+        cfg.flat_mo = args.flat_mo or config_data.get("flat_mo", False)
 
     # Density isosurface computation
     if args.dens and cube_data is not None:
@@ -911,10 +926,12 @@ def main() -> None:
                 assert mo_colors is not None  # set when args.mo is True
                 mo_data = {
                     "cube_data": cube_data,
-                    "isovalue": args.iso if args.iso is not None else 0.05,
+                    "isovalue": mo_iso,
                     "pos_color": mo_colors[0],
                     "neg_color": mo_colors[1],
                     "surface_opacity": cfg.surface_opacity,
+                    "blur_sigma": mo_blur,
+                    "upsample_factor": mo_upsample,
                 }
             dens_data = None
             if args.dens and cube_data is not None:

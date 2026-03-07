@@ -264,7 +264,10 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     mo_is_front = None
     if cfg.mo_contours is not None:
         mo = cfg.mo_contours
-        mo_is_front = classify_mo_lobes(mo.lobes, float(pos[:, 2].mean()))
+        if cfg.flat_mo:
+            mo_is_front = [True] * len(mo.lobes)
+        else:
+            mo_is_front = classify_mo_lobes(mo.lobes, float(pos[:, 2].mean()))
         svg.append("  <defs>")
         svg.extend(mo_gradient_defs_svg(mo))
         svg.append("  </defs>")
