@@ -204,7 +204,6 @@ def main() -> None:
     ts_g.add_argument("--ts-bond", default="", help='Manual TS bond pair(s), 1-indexed: "1-6,3-4"')
     ts_g.add_argument(
         "--nci",
-        "--nci-detect",
         action="store_true",
         dest="nci_detect",
         help="Auto-detect NCI interactions via xyzgraph",
