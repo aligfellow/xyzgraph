@@ -748,7 +748,7 @@ def main() -> None:
             blur_sigma=mo_blur,
             upsample_factor=mo_upsample,
         )
-        cfg.flat_mo = args.flat_mo
+        cfg.flat_mo = args.flat_mo or config_data.get("flat_mo", False)
 
     # Density isosurface computation
     if args.dens and cube_data is not None:
@@ -924,19 +924,14 @@ def main() -> None:
             mo_data = None
             if args.mo and cube_data is not None:
                 assert mo_colors is not None  # set when args.mo is True
-                gif_mo_iso = args.iso if args.iso is not None else config_data.get("mo_iso", 0.05)
-                gif_mo_blur = args.mo_blur if args.mo_blur is not None else config_data.get("mo_blur", 0.8)
-                gif_mo_upsample = (
-                    args.mo_upsample if args.mo_upsample is not None else config_data.get("mo_upsample", 3)
-                )
                 mo_data = {
                     "cube_data": cube_data,
-                    "isovalue": gif_mo_iso,
+                    "isovalue": mo_iso,
                     "pos_color": mo_colors[0],
                     "neg_color": mo_colors[1],
                     "surface_opacity": cfg.surface_opacity,
-                    "blur_sigma": gif_mo_blur,
-                    "upsample_factor": gif_mo_upsample,
+                    "blur_sigma": mo_blur,
+                    "upsample_factor": mo_upsample,
                 }
             dens_data = None
             if args.dens and cube_data is not None:

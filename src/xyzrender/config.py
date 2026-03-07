@@ -76,6 +76,7 @@ def build_render_config(config_data: dict, cli_overrides: dict) -> RenderConfig:
     merged.pop("mo_iso", None)
     merged.pop("mo_blur", None)
     merged.pop("mo_upsample", None)
+    merged.pop("flat_mo", None)
     merged.pop("dens_iso", None)
     merged.pop("dens_color", None)
 
