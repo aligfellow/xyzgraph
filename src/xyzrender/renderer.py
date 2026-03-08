@@ -20,6 +20,7 @@ from xyzrender.types import BondStyle, Color, RenderConfig
 
 logger = logging.getLogger(__name__)
 
+_render_counter = itertools.count()  # unique ID prefix per render call (SVG ids are global in Jupyter HTML)
 _RADIUS_SCALE = 0.075  # VdW → display radius
 _REF_SPAN = 6.0  # reference molecular span (Å) for proportional bond/stroke scaling
 _REF_CANVAS = 800  # reference canvas size (px) — bond/label widths are defined at this size
@@ -48,11 +49,11 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         fit_mask = atom_mask if not atom_mask.all() else None
         from xyzrender.utils import pca_orient
 
-        if cfg.crystal_data is not None:
+        if cfg.cell_data is not None:
             pre_centroid = pos.mean(axis=0)
             pos, _rot_mat = pca_orient(pos, ts_pairs, fit_mask=fit_mask, return_matrix=True)
-            cfg.crystal_data.lattice = (_rot_mat @ cfg.crystal_data.lattice.T).T
-            cfg.crystal_data.cell_origin = _rot_mat @ (cfg.crystal_data.cell_origin - pre_centroid)
+            cfg.cell_data.lattice = (_rot_mat @ cfg.cell_data.lattice.T).T
+            cfg.cell_data.cell_origin = _rot_mat @ (cfg.cell_data.cell_origin - pre_centroid)
         else:
             pos = pca_orient(pos, ts_pairs, fit_mask=fit_mask)
 
@@ -90,10 +91,10 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         extra_lo = np.array([cfg.esp_surface.x_min, cfg.esp_surface.y_min])
         extra_hi = np.array([cfg.esp_surface.x_max, cfg.esp_surface.y_max])
     # Expand canvas to encompass the unit cell box when crystal mode is active
-    if cfg.crystal_data is not None and cfg.show_cell:
-        lat = cfg.crystal_data.lattice
+    if cfg.cell_data is not None and cfg.show_cell:
+        lat = cfg.cell_data.lattice
         a_vec, b_vec, c_vec = lat[0], lat[1], lat[2]
-        orig3d = cfg.crystal_data.cell_origin
+        orig3d = cfg.cell_data.cell_origin
         box_verts = np.array(
             [orig3d + i * a_vec + j * b_vec + k * c_vec for i, j, k in itertools.product((0, 1), repeat=3)]
         )
@@ -195,7 +196,9 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     # --- Build SVG ---
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
-        f'width="{canvas_w}" height="{canvas_h}">'
+        f'viewBox="0 0 {canvas_w} {canvas_h}" width="{canvas_w}" height="{canvas_h}"'
+        + (' style="background:transparent"' if cfg.transparent else "")
+        + ">"
     ]
     if not cfg.transparent:
         svg.append(f'  <rect width="100%" height="100%" fill="{cfg.background}"/>')
@@ -283,10 +286,10 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         )
 
     # --- Unit cell box (12 edges, drawn before atoms so bonds/atoms render on top) ---
-    if cfg.crystal_data is not None and cfg.show_cell:
-        lat = cfg.crystal_data.lattice
+    if cfg.cell_data is not None and cfg.show_cell:
+        lat = cfg.cell_data.lattice
         a_vec, b_vec, c_vec = lat[0], lat[1], lat[2]
-        orig3d = cfg.crystal_data.cell_origin
+        orig3d = cfg.cell_data.cell_origin
         # 8 vertices indexed by (i,j,k)
         verts: dict[tuple[int, int, int], tuple[float, float]] = {}
         for i, j, k in itertools.product((0, 1), repeat=3):
@@ -331,7 +334,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     if cfg.nci_contours is not None:
         from xyzrender.nci import nci_lobe_svg_items, nci_static_svg_defs
 
-        if cfg.nci_contours.nci_raster_png:
+        if cfg.nci_contours.raster_png:
             svg.extend(nci_static_svg_defs(cfg.nci_contours, scale, cx, cy, canvas_w, canvas_h))
         nci_lobes_flat = nci_lobe_svg_items(cfg.nci_contours, cfg.surface_opacity, scale, cx, cy, canvas_w, canvas_h)
 
@@ -505,9 +508,9 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
     # --- Crystallographic axis arrows (a=red, b=green, c=blue) ---
     # Drawn last so they are always on top of atoms, bonds, and image atoms.
-    if cfg.crystal_data is not None and cfg.show_crystal_axes:
-        lat = cfg.crystal_data.lattice
-        orig3d = cfg.crystal_data.cell_origin
+    if cfg.cell_data is not None and cfg.show_crystal_axes:
+        lat = cfg.cell_data.lattice
+        orig3d = cfg.cell_data.cell_origin
         axis_lw = cfg.cell_line_width * scale_ratio * cfg.axis_width_scale
         fs_axis = fs_label * 1.6  # larger than atom index labels
         _axis_labels = ("a", "b", "c")
@@ -549,7 +552,16 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             )
 
     svg.append("</svg>")
-    return "\n".join(svg)
+    raw = "\n".join(svg)
+    # SVG id= values are global in an HTML document — multiple renders in the same
+    # Jupyter notebook page collide, causing atoms/gradients from the first render to
+    # appear in all subsequent ones.  Prefix every id, href, and url() reference with
+    # a unique token so each SVG is self-contained regardless of embedding context.
+    p = f"x{next(_render_counter)}"
+    raw = raw.replace('id="', f'id="{p}')
+    raw = raw.replace('href="#', f'href="#{p}')
+    raw = raw.replace("url(#", f"url(#{p}")
+    return raw
 
 
 # ---------------------------------------------------------------------------
