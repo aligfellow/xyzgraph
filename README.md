@@ -40,11 +40,10 @@
   - `rdkit`: RDKit's DetermineBonds algorithm [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
   - `orca`: Reads Mayer bond orders and Mulliken charges from ORCA outputs.
 - **Cheminformatics modes**:
-  - `--quick`: Fast (crude) valence adjustment
-  - Full optimization with valence and charge minimisation
-    - `--optimizer`:  
-      **beam**: optimization across multiple paths (slightly slower, default)  
-      **greedy**: iterative valence adjustment
+  - `--quick`: Geometric detection only — no bond order assignment, formal charges, or aromatic detection
+  - `--optimizer`: Full optimization with valence and charge minimisation
+    - **beam**: optimization across multiple paths (slightly slower, default)  
+    - **greedy**: iterative valence adjustment
 - **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings (optional `--kekule` to keep Kekulé bond orders)
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
@@ -404,14 +403,14 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 | Feature | cheminf (quick) | cheminf (full) | xtb |
 |---------|----------------|----------------|-----|
-| **Speed** | Very Fast | Fast | Moderate |
-| **Accuracy** | Okay for simple molecules | Very good across various systems | Only limited by xTB performance (QM-based) |
+| **Speed** | Fastest | Fast | Moderate |
+| **Accuracy** | Connectivity only | Very good across various systems | Only limited by xTB performance (QM-based) |
 | **External deps** | None | None | Requires xTB binary |
-| **Bond orders** | Heuristic (integer-like) | Optimized formal charge and valency | Wiberg (fractional) |
-| **Charges** | Gasteiger | Gasteiger | Mulliken |
-| **Metal complexes** | Limited | Reasonable | Reasonable (limited by xTB metal performance) |
-| **Conjugated systems** | Basic | Excellent | Excellent |
-| **Best for** | Quick checks, where connectivity most important | Most cases | Awkward bonding, validation |
+| **Bond orders** | None (all bonds set to 1) | Optimized formal charge and valency | Wiberg (fractional) |
+| **Charges** | None | Gasteiger | Mulliken |
+| **Metal complexes** | Detection only | Reasonable | Reasonable (limited by xTB metal performance) |
+| **Conjugated systems** | Not detected | Excellent | Excellent |
+| **Best for** | Topology screening, pre-processing | Most cases | Awkward bonding, validation |
 
 ### When to Use Each Method
 
@@ -423,9 +422,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 **Use `--method cheminf --quick`**:
 
-- Extremely large molecules
-- Initial rapid screening
-- When approximate bond orders suffice
+- Extremely large molecules or batch pre-processing
+- When only connectivity (which atoms are bonded) is needed
 
 **Use `--method xtb`**:
 
@@ -484,7 +482,7 @@ Common Options:
                         Total molecular charge (default: 0)
   -m MULTIPLICITY, --multiplicity MULTIPLICITY
                         Spin multiplicity (default: auto estimation)
-  -q, --quick           Quick mode: connectivity only, no formal charge optimization
+  -q, --quick           Geometric detection only: skip bond order assignment, formal charges, and aromatic detection
   -k, --kekule          Keep Kekule bond orders (do not convert aromatic rings to 1.5)
   --relaxed             Relaxed geometric validation (for transition states)
   -t THRESHOLD, --threshold THRESHOLD

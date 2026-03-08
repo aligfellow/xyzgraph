@@ -181,7 +181,7 @@ def main():
         "--quick",
         action="store_true",
         default=DEFAULT_PARAMS["quick"],
-        help="Quick mode: connectivity only, no formal charge optimization",
+        help="Geometric detection only: skip bond order assignment, formal charges, and aromatic detection",
     )
     common.add_argument(
         "-k",

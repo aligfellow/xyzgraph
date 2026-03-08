@@ -131,7 +131,7 @@ def test_quick_valence_adjust_ethylene(optimizer):
     ]
     edges = [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5)]
     G = _make_graph(atoms, edges)
-    stats = optimizer.optimize(G, quick=True)
+    stats = optimizer._quick_valence_adjust(G)
     # C-C bond should be double
     assert G.edges[0, 1]["bond_order"] == 2.0
     assert isinstance(stats, dict)

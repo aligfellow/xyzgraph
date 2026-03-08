@@ -142,7 +142,7 @@ class BondOrderOptimizer:
     # Public API
     # =========================================================================
 
-    def optimize(self, G: nx.Graph, mode: str = "beam", quick: bool = False) -> Dict[str, Any]:
+    def optimize(self, G: nx.Graph, mode: str = "beam") -> Dict[str, Any]:
         """Optimize bond orders.
 
         Parameters
@@ -151,16 +151,12 @@ class BondOrderOptimizer:
             Graph with initial bond_order=1.0 edges.
         mode : str
             Optimizer: "greedy" or "beam".
-        quick : bool
-            Use fast heuristic (no formal charge optimization).
 
         Returns
         -------
         dict
             Statistics about the optimization run.
         """
-        if quick:
-            return self._quick_valence_adjust(G)
         if mode == "greedy":
             return self._full_valence_optimize(G)
         if mode == "beam":

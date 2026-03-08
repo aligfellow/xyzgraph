@@ -316,6 +316,14 @@ class GraphBuilder:
 
         self.log(f"Initial bonds: {G.number_of_edges()}", 1)
 
+        if self.quick:
+            # Detection-only: skip all bond order optimisation, formal charges,
+            # aromatic detection and ligand classification.
+            G.graph["total_charge"] = self.charge
+            G.graph["multiplicity"] = self.multiplicity
+            G.graph["method"] = "cheminf-detect"
+            return G
+
         # Bond order optimization (delegates to BondOrderOptimizer)
         self._optimizer.log_buffer.clear()
 
@@ -323,7 +331,7 @@ class GraphBuilder:
         self._optimizer.init_kekule(G)
 
         # Valence adjustment
-        self._optimizer.optimize(G, mode=self.optimizer, quick=self.quick)
+        self._optimizer.optimize(G, mode=self.optimizer)
 
         # Compute formal charges BEFORE aromatic detection
         formal_charges = self._optimizer.compute_formal_charges(G)
@@ -371,7 +379,7 @@ class GraphBuilder:
 
         G.graph["total_charge"] = self.charge
         G.graph["multiplicity"] = self.multiplicity
-        G.graph["method"] = "cheminf-quick" if self.quick else "cheminf-full"
+        G.graph["method"] = "cheminf-full"
 
         return G
 
