@@ -134,6 +134,44 @@ class Molecule:
     cell_data: CellData | None = None
     oriented: bool = False
 
+    def to_xyz(self, path: str | os.PathLike, title: str = "") -> None:
+        """Write the molecule to an XYZ file.
+
+        If the molecule carries ``cell_data`` (e.g. loaded with ``cell=True``
+        or ``crystal=...``), the file is written in extXYZ format with a
+        ``Lattice=`` header so it can be reloaded with ``load(..., cell=True)``.
+        Ghost (periodic image) atoms are excluded.
+
+        Parameters
+        ----------
+        path:
+            Output path — should end with ``.xyz``.
+        title:
+            Comment line written as the second line of the file.
+        """
+        if path and not str(path).lower().endswith(".xyz"):
+            logger.warning("to_xyz: output path does not end with .xyz: %s", path)
+        nodes = [(i, self.graph.nodes[i]) for i in self.graph.nodes() if self.graph.nodes[i].get("symbol", "") != "*"]
+
+        lines: list[str] = [f"{len(nodes)}\n"]
+
+        if self.cell_data is not None:
+            lat = self.cell_data.lattice  # shape (3, 3), rows = a, b, c in Å
+            flat = " ".join(f"{v:.10g}" for v in lat.ravel())
+            header = f'Lattice="{flat}" Properties=species:S:1:pos:R:3'
+            if title:
+                header = f"{header} # {title}"
+            lines.append(header + "\n")
+        else:
+            lines.append((title or "") + "\n")
+
+        for _, data in nodes:
+            sym = data["symbol"]
+            x, y, z = data["position"]
+            lines.append(f"{sym:<3} {x:15.8f} {y:15.8f} {z:15.8f}\n")
+
+        Path(path).write_text("".join(lines))
+
 
 # ---------------------------------------------------------------------------
 # Public API functions
@@ -384,7 +422,7 @@ def render(
     ts_bonds: list[tuple[int, int]] | None = None,
     nci_bonds: list[tuple[int, int]] | None = None,
     vdw: bool | list[int] | None = None,
-    show_indices: bool | str = False,
+    idx: bool | str = False,
     cmap: str | os.PathLike | dict[int, float] | None = None,
     cmap_range: tuple[float, float] | None = None,
     # --- Annotations ---
@@ -434,7 +472,7 @@ def render(
     vdw:
         VdW sphere display.  ``True`` = all atoms; a list of 1-indexed atom
         indices = specific atoms; ``None`` = off (default).
-    show_indices:
+    idx:
         Atom index labels.  ``True`` or ``"sn"`` (e.g. ``C1``); ``"s"``
         (element only); ``"n"`` (number only).
     cmap:
@@ -464,8 +502,8 @@ def render(
     # --- Early parameter validation ---
     if transparent and background is not None:
         logger.warning("transparent and background are mutually exclusive; transparent takes precedence")
-    if isinstance(show_indices, str) and show_indices not in {"sn", "s", "n"}:
-        msg = f"show_indices: unknown format {show_indices!r} (valid: 'sn', 's', 'n')"
+    if isinstance(idx, str) and idx not in {"sn", "s", "n"}:
+        msg = f"idx: unknown format {idx!r} (valid: 'sn', 's', 'n')"
         raise ValueError(msg)
 
     # --- Load if path ---
@@ -495,9 +533,9 @@ def render(
             cfg.nci_bonds = [(a - 1, b - 1) for a, b in nci_bonds]
         if vdw is not None:
             cfg.vdw_indices = [i - 1 for i in vdw] if isinstance(vdw, list) else []
-        if show_indices:
+        if idx:
             cfg.show_indices = True
-            cfg.idx_format = show_indices if isinstance(show_indices, str) else "sn"
+            cfg.idx_format = idx if isinstance(idx, str) else "sn"
         if cmap is not None:
             cfg.atom_cmap = _resolve_cmap(cmap, mol.graph)
         if cmap_range is not None:
@@ -509,8 +547,8 @@ def render(
         _ts_0 = [(a - 1, b - 1) for a, b in ts_bonds] if ts_bonds else None
         _nci_0 = [(a - 1, b - 1) for a, b in nci_bonds] if nci_bonds else None
         _vdw_0 = [] if vdw is True else ([i - 1 for i in vdw] if vdw else None)
-        _show = bool(show_indices)
-        _ifmt = show_indices if isinstance(show_indices, str) else "sn"
+        _show = bool(idx)
+        _ifmt = idx if isinstance(idx, str) else "sn"
         _cmap_0 = _resolve_cmap(cmap, mol.graph) if cmap is not None else None
 
         cfg = build_config(
@@ -538,7 +576,7 @@ def render(
             ts_bonds=_ts_0,
             nci_bonds=_nci_0,
             vdw_indices=_vdw_0,
-            show_indices=_show,
+            show_indices=_show,  # RenderConfig field keeps its name
             idx_format=_ifmt,
             atom_cmap=_cmap_0,
             cmap_range=cmap_range,

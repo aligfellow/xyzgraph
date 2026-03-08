@@ -128,10 +128,10 @@ def test_render_vdw_specific(ethanol):
     assert str(result).startswith("<svg")
 
 
-def test_render_show_indices(caffeine):
+def test_render_idx(caffeine):
     """Index label modes: bool, 's', 'n', 'sn'."""
     for mode in (True, "s", "n", "sn"):
-        svg = str(render(caffeine, show_indices=mode, orient=False))
+        svg = str(render(caffeine, idx=mode, orient=False))
         assert svg.startswith("<svg")
 
 
@@ -210,9 +210,9 @@ def test_render_prebuilt_config_reuse(caffeine, ethanol):
 
 
 def test_render_prebuilt_config_with_overlay(caffeine):
-    """Pre-built config + per-render overlay (ts_bonds + show_indices)."""
+    """Pre-built config + per-render overlay (ts_bonds + idx)."""
     cfg = build_config("default")
-    result = render(caffeine, config=cfg, ts_bonds=[(1, 5)], show_indices=True, orient=False)
+    result = render(caffeine, config=cfg, ts_bonds=[(1, 5)], idx=True, orient=False)
     assert str(result).startswith("<svg")
 
 

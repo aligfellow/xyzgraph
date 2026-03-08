@@ -121,6 +121,8 @@ render(mol, output="caffeine.png")  # save as PNG
 
 # Short-form: pass a path directly (loads with defaults each time)
 render("caffeine.xyz")
+smi = load("C1CC(O)CCC1O", smiles=True)
+smi.to_xyz("smiles.xyz")
 ```
 
 ### Render options
@@ -143,8 +145,8 @@ render(mol, vdw=True)                              # vdW spheres on all atoms
 render(mol, vdw=[1, 3, 5])                         # vdW spheres on specific atoms
 render(mol, ts_bonds=[(1, 6)])                     # manual TS bond (1-indexed)
 render(mol, nci_bonds=[(2, 8)])                    # manual NCI bond (1-indexed)
-render(mol, show_indices=True)                     # atom index labels ("C1", "N3", …)
-render(mol, show_indices="n")                      # index only ("1", "3", …)
+render(mol, idx=True)                              # atom index labels ("C1", "N3", …)
+render(mol, idx="n")                               # index only ("1", "3", …)
 
 # Annotations
 render(mol, labels=["1 2 d", "1 2 3 a"])           # inline spec strings
@@ -202,6 +204,21 @@ mol = load("POSCAR", crystal=True)              # VASP/QE structure (requires ph
 mol = load("caffeine_cell.xyz", cell=True)      # extXYZ Lattice= header
 mol = load("mol.xyz", quick=True)               # skip BO detection (faster, use with bo=False)
 ```
+
+### Saving geometry
+
+`Molecule.to_xyz()` writes the structure to an XYZ file. If the molecule has `cell_data` (loaded with `cell=True` or `crystal=...`), the output is extXYZ with a `Lattice=` header so it can be reloaded directly. Ghost atoms are excluded.
+
+```python
+mol = load("CC(=O)O", smiles=True)   # embed SMILES into 3D
+mol.to_xyz("acetic_acid.xyz")         # plain XYZ
+mol.to_xyz("acetic_acid.xyz", title="acetic acid")  # with comment line
+
+mol_cell = load("caffeine_cell.xyz", cell=True)
+mol_cell.to_xyz("out.xyz")            # extXYZ with Lattice= header
+```
+
+`--smi` in the CLI also saves the embedded geometry to an XYZ file automatically alongside the rendered image.
 
 ### Interactive orientation
 

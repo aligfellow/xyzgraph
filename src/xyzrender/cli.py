@@ -416,13 +416,7 @@ def main() -> None:
     if args.smi:
         mol = load(args.smi, smiles=True, charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
         xyz_path = Path(args.output).with_suffix(".xyz")
-        nodes = list(mol.graph.nodes())
-        xyz_lines = [f"{len(nodes)}\n", f"{args.smi}\n"]
-        for i in nodes:
-            sym = mol.graph.nodes[i]["symbol"]
-            x, y, z = mol.graph.nodes[i]["position"]
-            xyz_lines.append(f"{sym:<3} {x:12.6f} {y:12.6f} {z:12.6f}\n")
-        xyz_path.write_text("".join(xyz_lines))
+        mol.to_xyz(xyz_path, title=args.smi)
         logger.info("3D geometry written to %s", xyz_path)
     elif from_stdin:
         graph = load_stdin(charge=args.charge, multiplicity=args.multiplicity, kekule=args.kekule)
