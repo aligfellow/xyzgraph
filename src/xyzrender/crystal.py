@@ -9,7 +9,7 @@ Public API
 ----------
 load_crystal
     Load a VASP/QE/... crystal structure file and return a molecular graph
-    together with its ``CrystalData`` (lattice matrix + cell origin).
+    together with its ``CellData`` (lattice matrix + cell origin).
 add_crystal_images
     Populate a crystal graph with ghost atoms from the 26 neighbouring unit
     cells so that bonds crossing cell boundaries are visible.
@@ -25,7 +25,7 @@ import numpy as np
 from xyzgraph import DATA, build_graph
 from xyzgraph.parameters import BondThresholds
 
-from xyzrender.types import CrystalData
+from xyzrender.types import CellData
 
 _bond_thresholds = BondThresholds()
 
@@ -66,7 +66,7 @@ def _is_bonded(sym_i: str, sym_j: str, dist: float) -> bool:
 def load_crystal(
     path: str | Path,
     interface_mode: str,
-) -> tuple[nx.Graph, CrystalData]:
+) -> tuple[nx.Graph, CellData]:
     """Load a periodic crystal structure using phonopy.
 
     Parameters
@@ -79,10 +79,11 @@ def load_crystal(
 
     Returns
     -------
-    tuple[nx.Graph, CrystalData]
-        Molecular graph with atoms as nodes and ``CrystalData`` containing the
+    tuple[nx.Graph, CellData]
+        Molecular graph with atoms as nodes and ``CellData`` containing the
         3x3 lattice matrix (rows = a, b, c in Å).
     """
+    logger.info("Loading %s", path)
     try:
         from phonopy.interface.calculator import get_calculator_physical_units, read_crystal_structure
     except ImportError:
@@ -109,10 +110,10 @@ def load_crystal(
         graph.number_of_edges(),
         lattice.diagonal().round(3),
     )
-    return graph, CrystalData(lattice=lattice)
+    return graph, CellData(lattice=lattice)
 
 
-def add_crystal_images(graph: nx.Graph, crystal_data: CrystalData) -> int:
+def add_crystal_images(graph: nx.Graph, crystal_data: CellData) -> int:
     """Add periodic image atoms that are bonded to cell atoms.
 
     For each of the 26 neighbouring unit cells, adds image copies of cell
@@ -163,5 +164,5 @@ def add_crystal_images(graph: nx.Graph, crystal_data: CrystalData) -> int:
             for j in bonded_to:
                 graph.add_edge(img_id, j, bond_order=1.0, image_bond=True)
 
-    logger.info("Added %d image atoms", n_added)
+    logger.debug("Added %d image atoms", n_added)
     return n_added

@@ -127,7 +127,8 @@ if TYPE_CHECKING:
     import networkx as nx
     from xyzgraph.nci import NCIAnalyzer
 
-    from xyzrender.types import RenderConfig
+    from xyzrender.cube import CubeData
+    from xyzrender.types import DensParams, MOParams, RenderConfig
 
 
 def render_vibration_gif(
@@ -298,8 +299,10 @@ def render_rotation_gif(
     n_frames: int = 60,
     fps: int = 10,
     axis: str = "y",
-    mo_data: dict | None = None,
-    dens_data: dict | None = None,
+    mo_params: MOParams | None = None,
+    mo_cube: CubeData | None = None,
+    dens_params: DensParams | None = None,
+    dens_cube: CubeData | None = None,
 ) -> None:
     """Render a rotation animation as a GIF.
 
@@ -307,12 +310,12 @@ def render_rotation_gif(
     Uses a fixed viewport (bounding sphere) so the molecule doesn't
     appear to zoom or shift during rotation.
 
-    If *mo_data* is provided (dict with cube_data, isovalue, colors, opacity),
-    MO contours are recomputed for each frame to match the rotation.
-    If *dens_data* is provided (dict with cube_data, isovalue, color, opacity),
-    density contours are recomputed for each frame to match the rotation.
+    If *mo_params* and *mo_cube* are provided, MO contours are recomputed
+    for each frame to match the rotation.
+    If *dens_params* and *dens_cube* are provided, density contours are
+    recomputed for each frame to match the rotation.
     """
-    from xyzrender.io import apply_axis_angle_rotation
+    from xyzrender.utils import apply_axis_angle_rotation
 
     nodes = list(graph.nodes())
 
@@ -333,7 +336,7 @@ def render_rotation_gif(
     )
 
     # Pass lattice to _rotation_axis for crystallographic hkl axis strings
-    _lattice = config.crystal_data.lattice if config.crystal_data is not None else None
+    _lattice = config.cell_data.lattice if config.cell_data is not None else None
     axis_vec, axis_sign = _rotation_axis(axis, lattice=_lattice)
     frame = {"positions": list(original_positions.values()), "symbols": [graph.nodes[n]["symbol"] for n in nodes]}
     rot_cfg = _fixed_viewport([frame], config, rotation_axis=axis_vec)
@@ -342,30 +345,21 @@ def render_rotation_gif(
     _orig_lattice: np.ndarray | None = None
     _orig_cell_origin: np.ndarray | None = None
     _atom_centroid: np.ndarray | None = None
-    if rot_cfg.crystal_data is not None:
-        _orig_lattice = rot_cfg.crystal_data.lattice.copy()
-        _orig_cell_origin = rot_cfg.crystal_data.cell_origin.copy()
+    if rot_cfg.cell_data is not None:
+        _orig_lattice = rot_cfg.cell_data.lattice.copy()
+        _orig_cell_origin = rot_cfg.cell_data.cell_origin.copy()
         _atom_centroid = np.array(list(original_positions.values())).mean(axis=0)
 
     # Expand viewport if density surface extends beyond atoms
-    if dens_data is not None:
+    if dens_params is not None and dens_cube is not None:
         from xyzrender.mo import compute_grid_positions
 
-        cube = dens_data["cube_data"]
-        pos_flat = compute_grid_positions(cube)
-        mask = cube.grid_data >= dens_data["isovalue"]
+        pos_flat = compute_grid_positions(dens_cube)
+        mask = dens_cube.grid_data >= dens_params.isovalue
         flat_indices = np.flatnonzero(mask)
-        # Pre-populate cache for recompute_dens
-        dens_data["pos_flat_ang"] = pos_flat
-        dens_data["flat_indices"] = flat_indices
-
         dens_pos = pos_flat[flat_indices]
-        orig_atoms = np.array([p for _, p in cube.atoms], dtype=float)
+        orig_atoms = np.array([p for _, p in dens_cube.atoms], dtype=float)
         atom_cent = orig_atoms.mean(axis=0)
-        # Pre-populate cache for recompute_dens
-        dens_data["_orig_atoms"] = orig_atoms
-        dens_data["_atom_centroid"] = atom_cent
-
         dens_r = float(np.linalg.norm(dens_pos - atom_cent, axis=1).max())
         needed = dens_r * 1.05  # 5% padding for blur/smoothing
         assert rot_cfg.fixed_span is not None  # set by _fixed_viewport
@@ -376,6 +370,8 @@ def render_rotation_gif(
 
     step = 360.0 / n_frames
     logger.info("Rendering rotation GIF (%d frames, axis=%s)", n_frames, axis)
+    _mo_cache: dict = {}
+    _dens_cache: dict = {}
     pngs = []
     for frame_idx in range(n_frames):
         for n in nodes:
@@ -389,7 +385,7 @@ def render_rotation_gif(
         apply_axis_angle_rotation(graph, axis_vec, total_angle)
 
         # Keep the unit cell box co-rotating with the atoms.
-        if rot_cfg.crystal_data is not None and _orig_lattice is not None:
+        if rot_cfg.cell_data is not None and _orig_lattice is not None:
             assert _orig_cell_origin is not None
             assert _atom_centroid is not None
             theta = np.radians(total_angle)
@@ -397,18 +393,18 @@ def render_rotation_gif(
             c_r, s_r = np.cos(theta), np.sin(theta)
             k_cross = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
             rot_mat = c_r * np.eye(3) + s_r * k_cross + (1 - c_r) * np.outer(k, k)
-            rot_cfg.crystal_data.lattice = _orig_lattice @ rot_mat.T
-            rot_cfg.crystal_data.cell_origin = rot_mat @ (_orig_cell_origin - _atom_centroid) + _atom_centroid
+            rot_cfg.cell_data.lattice = _orig_lattice @ rot_mat.T
+            rot_cfg.cell_data.cell_origin = rot_mat @ (_orig_cell_origin - _atom_centroid) + _atom_centroid
 
-        if mo_data is not None:
+        if mo_params is not None and mo_cube is not None:
             from xyzrender.mo import recompute_mo
 
-            recompute_mo(graph, rot_cfg, mo_data)
+            recompute_mo(graph, rot_cfg, mo_params, mo_cube, rot_cfg.surface_opacity, _mo_cache)
 
-        if dens_data is not None:
+        if dens_params is not None and dens_cube is not None:
             from xyzrender.dens import recompute_dens
 
-            recompute_dens(graph, rot_cfg, dens_data)
+            recompute_dens(graph, rot_cfg, dens_params, dens_cube, rot_cfg.surface_opacity, _dens_cache)
 
         svg = render_svg(graph, rot_cfg, _log=False)
         pngs.append(_svg_to_png(svg, config.canvas_size))
@@ -540,10 +536,10 @@ def _fixed_viewport(frames: list[dict], config: RenderConfig, rotation_axis: np.
     cfg.fixed_span = fixed_span
     cfg.fixed_center = center_xy
     cfg.auto_orient = False
-    # Deep-copy crystal_data so GIF frame updates to lattice/cell_origin don't
+    # Deep-copy cell_data so GIF frame updates to lattice/cell_origin don't
     # mutate the caller's config object.
-    if cfg.crystal_data is not None:
-        cfg.crystal_data = copy.deepcopy(cfg.crystal_data)
+    if cfg.cell_data is not None:
+        cfg.cell_data = copy.deepcopy(cfg.cell_data)
     logger.debug("Fixed viewport: span=%.2f, center=(%.2f, %.2f)", fixed_span, *center_xy)
     return cfg
 
@@ -589,7 +585,7 @@ def _render_frames(
     if nci_analyzer is not None or fixed_ncis is not None:
         from xyzgraph.nci import build_nci_graph
     if rotation_axis is not None:
-        from xyzrender.io import apply_axis_angle_rotation
+        from xyzrender.utils import apply_axis_angle_rotation
 
     total = len(frames)
     step = 360.0 / total if rotation_axis is not None else 0

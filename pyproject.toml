@@ -13,9 +13,10 @@ dependencies = [
     "numpy>=1.24",
     "xyzgraph>=1.6.1",
     "cclib",
-    "graphrc",
+    "graphrc>=1.3.6",
     "cairosvg",
     "Pillow",
+    "ipykernel>=7.2.0",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -14,7 +14,7 @@ from xyzrender.cube import BOHR_TO_ANG, CubeData
 if TYPE_CHECKING:
     import networkx as nx
 
-    from xyzrender.types import RenderConfig
+    from xyzrender.types import MOParams, RenderConfig
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,25 @@ class LobeContour2D:
     lobe_color: str | None = None  # per-lobe color override (NCI avg coloring)
 
 
+@runtime_checkable
+class ContourGrid(Protocol):
+    """Protocol for 2D projection grid metadata used by SVG path converters.
+
+    Both :class:`SurfaceContours` and :class:`~xyzrender.nci.NCIContours`
+    satisfy this protocol, allowing :func:`_mo_combined_path_d` to accept
+    either type without inheritance coupling.
+    """
+
+    resolution: int
+    x_min: float
+    x_max: float
+    y_min: float
+    y_max: float
+
+
 @dataclass
-class MOContours:
-    """Pre-computed MO contour data ready for SVG rendering."""
+class SurfaceContours:
+    """Pre-computed MO or density contour data ready for SVG rendering."""
 
     lobes: list[LobeContour2D] = field(default_factory=list)  # sorted by z_depth
     resolution: int = 0
@@ -69,8 +85,10 @@ class MOContours:
     lobe_x_max: float | None = None
     lobe_y_min: float | None = None
     lobe_y_max: float | None = None
-    # NCI per-pixel colored raster (data URI, static rendering only)
-    nci_raster_png: str | None = None
+
+
+# Backward-compatible alias (used by renderer and other callers)
+MOContours = SurfaceContours
 
 
 # ---------------------------------------------------------------------------
@@ -523,26 +541,58 @@ def _project_lobe_2d(
 
 def build_mo_contours(
     cube: CubeData,
+    params: MOParams,
+    *,
     rot: np.ndarray | None = None,
-    isovalue: float = 0.05,
-    pos_color: str = "#2554A5",
-    neg_color: str = "#851639",
-    resolution: int | None = None,
     atom_centroid: np.ndarray | None = None,
     target_centroid: np.ndarray | None = None,
-    *,
+    resolution: int | None = None,
     lobes_3d: list[Lobe3D] | None = None,
     pos_flat_ang: np.ndarray | None = None,
     fixed_bounds: tuple[float, float, float, float] | None = None,
-    blur_sigma: float = _BLUR_SIGMA,
-    upsample_factor: int = _UPSAMPLE_FACTOR,
-) -> MOContours:
+) -> SurfaceContours:
     """Build MO contour data from a parsed cube file.
 
-    Each 3D lobe is projected and contoured independently.
-    Pre-computed *lobes_3d*, *pos_flat_ang*, and *fixed_bounds* can be
-    passed to avoid recomputation across frames.
+    Each 3D lobe is projected and contoured independently.  Surface
+    appearance (isovalue, colors, blur, upsampling) is driven by *params*.
+
+    Pre-computed *lobes_3d*, *pos_flat_ang*, and *fixed_bounds* may be
+    passed to avoid redundant computation across GIF frames.
+
+    Parameters
+    ----------
+    cube:
+        Parsed Gaussian cube file containing the orbital data.
+    params:
+        MO surface parameters (isovalue, colors, blur, upsampling).
+    rot:
+        Optional 3x3 rotation matrix to align the cube grid with the
+        current atom orientation (output of :func:`~xyzrender.utils.kabsch_rotation`).
+    atom_centroid:
+        Centroid of the original cube atom positions (Å).
+    target_centroid:
+        Centroid of the current (possibly rotated) atom positions (Å).
+    resolution:
+        Override the projection grid resolution (default: largest grid dimension).
+    lobes_3d:
+        Pre-computed 3D lobes (cached between GIF frames).
+    pos_flat_ang:
+        Pre-computed flattened grid positions in Å (cached between GIF frames).
+    fixed_bounds:
+        Fixed ``(x_min, x_max, y_min, y_max)`` in Å (cached between GIF frames).
+
+    Returns
+    -------
+    SurfaceContours
+        Projection data and contour loops ready for SVG rendering.
     """
+    from xyzrender.types import resolve_color
+
+    isovalue = params.isovalue
+    pos_color = resolve_color(params.pos_color)
+    neg_color = resolve_color(params.neg_color)
+    blur_sigma = params.blur_sigma
+    upsample_factor = params.upsample_factor
     n1, n2, n3 = cube.grid_shape
     base_res = resolution or max(n1, n2, n3)
 
@@ -706,7 +756,7 @@ def classify_mo_lobes(lobes: list[LobeContour2D], mol_z: float) -> list[bool]:
 
 def _mo_loop_to_path_d(
     loop: np.ndarray,
-    mo: MOContours,
+    mo: ContourGrid,
     scale: float,
     cx: float,
     cy: float,
@@ -742,7 +792,7 @@ def _mo_loop_to_path_d(
 
 def _mo_combined_path_d(
     loops: list[np.ndarray],
-    mo: MOContours,
+    mo: ContourGrid,
     scale: float,
     cx: float,
     cy: float,
@@ -761,7 +811,7 @@ def _mo_combined_path_d(
     return " ".join(parts) if parts else None
 
 
-def mo_gradient_defs_svg(mo: MOContours) -> list[str]:
+def mo_gradient_defs_svg(mo: SurfaceContours) -> list[str]:
     """Return SVG radialGradient defs for MO lobe front fills."""
     from xyzrender.types import Color
 
@@ -783,7 +833,7 @@ _MO_BASE_OPACITY = 0.7  # base opacity for MO lobes (scaled by surface_opacity)
 
 
 def mo_back_lobes_svg(
-    mo: MOContours,
+    mo: SurfaceContours,
     mo_is_front: list[bool],
     surface_opacity: float,
     scale: float,
@@ -811,7 +861,7 @@ def mo_back_lobes_svg(
 
 
 def mo_front_lobes_svg(
-    mo: MOContours,
+    mo: SurfaceContours,
     mo_is_front: list[bool],
     surface_opacity: float,
     scale: float,
@@ -840,56 +890,73 @@ def mo_front_lobes_svg(
 # ---------------------------------------------------------------------------
 
 
-def recompute_mo(graph: nx.Graph, config: RenderConfig, mo_data: dict) -> None:
-    """Recompute MO contours for the current graph orientation.
+def recompute_mo(
+    graph: nx.Graph,
+    config: RenderConfig,
+    params: MOParams,
+    cube: CubeData,
+    surface_opacity: float,
+    _cache: dict,
+) -> None:
+    """Recompute MO contours for the current graph orientation (GIF frames).
 
-    Caches 3D lobes, grid positions, and bounding sphere on first call;
-    only the rotation changes per frame.
+    *_cache* is a mutable dict managed by the caller across frames.  On the
+    first call it is populated with pre-computed 3D lobes, grid positions,
+    and a bounding sphere radius.  Subsequent calls reuse these cached values
+    and only update the Kabsch rotation.
+
+    Parameters
+    ----------
+    graph:
+        Molecular graph at the current GIF frame orientation.
+    config:
+        Render configuration; ``mo_contours`` and ``surface_opacity`` are
+        updated in-place.
+    params:
+        MO surface parameters (isovalue, colors, blur, upsampling).
+    cube:
+        Gaussian cube file data (read-only; cached values stored in ``_cache``).
+    surface_opacity:
+        Opacity to apply to the MO surface.
+    _cache:
+        Mutable dict for inter-frame caching.  Populated on first call.
     """
     from xyzrender.utils import kabsch_rotation
 
-    cube_data = mo_data["cube_data"]
-
     # Cache lobes and positions on first call
-    if "lobes_3d" not in mo_data:
-        mo_data["lobes_3d"] = find_3d_lobes(cube_data.grid_data, mo_data["isovalue"], steps=cube_data.steps)
-        mo_data["pos_flat_ang"] = compute_grid_positions(cube_data)
+    if "lobes_3d" not in _cache:
+        _cache["lobes_3d"] = find_3d_lobes(cube.grid_data, params.isovalue, steps=cube.steps)
+        _cache["pos_flat_ang"] = compute_grid_positions(cube)
 
-    orig = np.array([p for _, p in cube_data.atoms], dtype=float)
+    orig = np.array([p for _, p in cube.atoms], dtype=float)
     curr = np.array([graph.nodes[i]["position"] for i in graph.nodes()], dtype=float)
     atom_centroid = orig.mean(axis=0)
     target_centroid = curr.mean(axis=0)
 
     # Cache bounding sphere: rotation-invariant bounds from cube corners.
-    if "fixed_bounds" not in mo_data:
-        corners = cube_corners_ang(cube_data)
+    if "_bounding_radius" not in _cache:
+        corners = cube_corners_ang(cube)
         r_max = float(np.linalg.norm(corners - atom_centroid, axis=1).max())
-        pad = r_max * 0.01 + 1e-9
-        mo_data["_bounding_radius"] = r_max + pad
+        _cache["_bounding_radius"] = r_max + r_max * 0.01 + 1e-9
 
-    r = mo_data["_bounding_radius"]
+    r = _cache["_bounding_radius"]
     fixed_bounds = (
         float(target_centroid[0] - r),
         float(target_centroid[0] + r),
         float(target_centroid[1] - r),
         float(target_centroid[1] + r),
     )
-    mo_data["fixed_bounds"] = fixed_bounds
 
     rot = kabsch_rotation(orig, curr)
 
     config.mo_contours = build_mo_contours(
-        cube_data,
+        cube,
+        params,
         rot=rot,
-        isovalue=mo_data["isovalue"],
-        pos_color=mo_data["pos_color"],
-        neg_color=mo_data["neg_color"],
         atom_centroid=atom_centroid,
         target_centroid=target_centroid,
-        lobes_3d=mo_data["lobes_3d"],
-        pos_flat_ang=mo_data["pos_flat_ang"],
+        lobes_3d=_cache["lobes_3d"],
+        pos_flat_ang=_cache["pos_flat_ang"],
         fixed_bounds=fixed_bounds,
-        blur_sigma=mo_data.get("blur_sigma", _BLUR_SIGMA),
-        upsample_factor=mo_data.get("upsample_factor", _UPSAMPLE_FACTOR),
     )
-    config.surface_opacity = mo_data["surface_opacity"]
+    config.surface_opacity = surface_opacity

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -26,7 +27,6 @@ from xyzrender.mo import (
     _UPSAMPLE_FACTOR,
     Lobe3D,
     LobeContour2D,
-    MOContours,
     _gaussian_blur_2d,
     _loop_perimeter,
     _mo_combined_path_d,
@@ -109,8 +109,34 @@ def _dilate_binary_2d(grid: np.ndarray) -> np.ndarray:
 
 if TYPE_CHECKING:
     from xyzrender.cube import CubeData
+    from xyzrender.types import NCIParams
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class NCIContours:
+    """Pre-computed NCI contour data ready for SVG rendering.
+
+    Structurally compatible with :class:`~xyzrender.mo.ContourGrid` so that
+    :func:`~xyzrender.mo._mo_combined_path_d` accepts it directly.
+    """
+
+    lobes: list[LobeContour2D] = field(default_factory=list)  # sorted by z_depth
+    resolution: int = 0
+    x_min: float = 0.0
+    x_max: float = 0.0
+    y_min: float = 0.0
+    y_max: float = 0.0
+    color: str = "#228b22"  # fallback color for uniform mode
+    # Tight Angstrom extent of actual lobe contours (for canvas fitting)
+    lobe_x_min: float | None = None
+    lobe_x_max: float | None = None
+    lobe_y_min: float | None = None
+    lobe_y_max: float | None = None
+    # Per-pixel sign(lambda2)*rho colored raster (data URI, static rendering only)
+    raster_png: str | None = None
+
 
 # Threshold for marching-squares contouring of a binary membership map
 _MEMBERSHIP_THRESHOLD = 0.5
@@ -362,9 +388,7 @@ def _build_nci_color_raster(
 def build_nci_contours(
     grad_cube: CubeData,
     dens_cube: CubeData,
-    isovalue: float = 0.3,
-    color: str = "#228b22",  # forestgreen
-    color_mode: str = "avg",
+    params: NCIParams,
     *,
     rot: np.ndarray | None = None,
     atom_centroid: np.ndarray | None = None,
@@ -372,7 +396,7 @@ def build_nci_contours(
     pos_flat_ang: np.ndarray | None = None,
     fixed_bounds: tuple[float, float, float, float] | None = None,
     regions_3d: list[Lobe3D] | None = None,
-) -> MOContours:
+) -> NCIContours:
     """Build NCI contour data from a grad cube file.
 
     Each connected low-RDG region is projected and contoured independently
@@ -380,11 +404,36 @@ def build_nci_contours(
 
     Parameters
     ----------
-    color_mode:
-        ``"avg"`` -- each lobe filled with mean sign(l2)*rho color (default: blue=H-bond, green=vdW, red=steric).
-        ``"pixel"`` -- per-pixel sign(l2)*rho raster clipped to loop shapes (static only).
-        ``"uniform"`` -- flat single color (see ``color`` argument, default: forestgreen).
+    grad_cube:
+        Gaussian cube file containing the reduced density gradient (RDG) values.
+    dens_cube:
+        Gaussian cube file containing the electron density (sign(lambda2)*rho values).
+    params:
+        NCI surface parameters (isovalue, color, color_mode, dens_cutoff).
+    rot:
+        Optional rotation matrix for grid alignment.
+    atom_centroid:
+        Centroid of the original cube atom positions (Å).
+    target_centroid:
+        Centroid of the current (possibly rotated) atom positions (Å).
+    pos_flat_ang:
+        Pre-computed flattened grid positions (cached between GIF frames).
+    fixed_bounds:
+        Fixed ``(x_min, x_max, y_min, y_max)`` in Å (cached between GIF frames).
+    regions_3d:
+        Pre-computed 3D NCI regions (cached between GIF frames).
+
+    Returns
+    -------
+    NCIContours
+        Contour loops and coloring data ready for SVG rendering.
     """
+    from xyzrender.types import resolve_color
+
+    isovalue = params.isovalue
+    color = resolve_color(params.color)
+    color_mode = params.color_mode
+
     n1, n2, n3 = grad_cube.grid_shape
     base_res = max(n1, n2, n3)
 
@@ -507,20 +556,19 @@ def build_nci_contours(
         lobe_y_max = y_max
 
     res = base_res * _UPSAMPLE_FACTOR
-    return MOContours(
+    return NCIContours(
         lobes=lobe_contours,
         resolution=res,
         x_min=x_min,
         x_max=x_max,
         y_min=y_min,
         y_max=y_max,
-        pos_color=color,
-        neg_color=color,
+        color=color,
         lobe_x_min=lobe_x_min,
         lobe_x_max=lobe_x_max,
         lobe_y_min=lobe_y_min,
         lobe_y_max=lobe_y_max,
-        nci_raster_png=nci_raster_png,
+        raster_png=nci_raster_png,
     )
 
 
@@ -530,7 +578,7 @@ def build_nci_contours(
 
 
 def nci_static_svg_defs(
-    nci: MOContours,
+    nci: NCIContours,
     scale: float,
     cx: float,
     cy: float,
@@ -542,7 +590,7 @@ def nci_static_svg_defs(
     The ``<use>`` elements that actually paint the raster are emitted separately
     (z-sorted into the atom/bond render loop by the renderer).
     """
-    if not nci.nci_raster_png or not nci.lobes:
+    if not nci.raster_png or not nci.lobes:
         return []
 
     img_x = canvas_w / 2 + scale * (nci.x_min - cx)
@@ -554,7 +602,7 @@ def nci_static_svg_defs(
     lines.append(
         f'    <image id="nci_raster" x="{img_x:.1f}" y="{img_y:.1f}" '
         f'width="{img_w:.1f}" height="{img_h:.1f}" '
-        f'href="{nci.nci_raster_png}" '
+        f'href="{nci.raster_png}" '
         f'preserveAspectRatio="none" image-rendering="optimizeQuality"/>'
     )
     for i, lobe in enumerate(nci.lobes):
@@ -568,7 +616,7 @@ def nci_static_svg_defs(
 
 
 def nci_lobe_svg_items(
-    nci: MOContours,
+    nci: NCIContours,
     surface_opacity: float,
     scale: float,
     cx: float,
@@ -593,13 +641,13 @@ def nci_lobe_svg_items(
     items: list[tuple[float, list[str]]] = []
     opacity = surface_opacity
 
-    if nci.nci_raster_png:
+    if nci.raster_png:
         for i, lobe in enumerate(nci.lobes):
             use_str = f'  <use href="#nci_raster" clip-path="url(#nci_clip_{i})" opacity="{opacity:.3f}"/>'
             items.append((lobe.z_depth, [use_str]))
     else:
         for lobe in nci.lobes:
-            color = lobe.lobe_color if lobe.lobe_color is not None else nci.pos_color
+            color = lobe.lobe_color if lobe.lobe_color is not None else nci.color
             d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
             if d:
                 path_str = f'  <path d="{d}" fill="{color}" fill-rule="evenodd" stroke="none" opacity="{opacity:.3f}"/>'
@@ -610,7 +658,7 @@ def nci_lobe_svg_items(
 
 
 def nci_loops_svg(
-    nci: MOContours,
+    nci: NCIContours,
     surface_opacity: float,
     scale: float,
     cx: float,
@@ -622,7 +670,7 @@ def nci_loops_svg(
 
     Each patch uses its per-lobe average sign(l2)*rho color when available
     (blue=H-bond, green=vdW, red=steric), otherwise falls back to the
-    uniform ``nci.pos_color``.  Drawn back-to-front by z_depth.
+    uniform ``nci.color``.  Drawn back-to-front by z_depth.
     """
     if not nci.lobes:
         return []
@@ -631,7 +679,7 @@ def nci_loops_svg(
     lines: list[str] = []
 
     for lobe in nci.lobes:
-        color = lobe.lobe_color if lobe.lobe_color is not None else nci.pos_color
+        color = lobe.lobe_color if lobe.lobe_color is not None else nci.color
         d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
         if d:
             lines.append(f'  <path d="{d}" fill="{color}" fill-rule="evenodd" stroke="none" opacity="{opacity:.3f}"/>')
@@ -640,7 +688,7 @@ def nci_loops_svg(
 
 
 def nci_static_svg(
-    nci: MOContours,
+    nci: NCIContours,
     surface_opacity: float,
     scale: float,
     cx: float,
@@ -655,7 +703,7 @@ def nci_static_svg(
     only visible inside the actual NCI isosurface patches.  This mirrors the
     ESP surface rendering approach.
     """
-    if not nci.nci_raster_png or not nci.lobes:
+    if not nci.raster_png or not nci.lobes:
         return []
 
     img_x = canvas_w / 2 + scale * (nci.x_min - cx)
@@ -668,7 +716,7 @@ def nci_static_svg(
     lines.append(
         f'    <image id="nci_raster" x="{img_x:.1f}" y="{img_y:.1f}" '
         f'width="{img_w:.1f}" height="{img_h:.1f}" '
-        f'href="{nci.nci_raster_png}" '
+        f'href="{nci.raster_png}" '
         f'preserveAspectRatio="none" image-rendering="optimizeQuality"/>'
     )
 

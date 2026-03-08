@@ -124,27 +124,27 @@ def water_pdb_cryst(water, tmp_path_factory):
 
 class TestParseMol:
     def test_atom_count(self, caffeine_mol):
-        from xyzrender.formats import parse_mol
+        from xyzrender.parsers import parse_mol
 
         d = parse_mol(caffeine_mol)
         assert len(d.atoms) == _CAFFEINE_ATOMS
 
     def test_element_symbols(self, caffeine_mol):
-        from xyzrender.formats import parse_mol
+        from xyzrender.parsers import parse_mol
 
         d = parse_mol(caffeine_mol)
         symbols = {sym for sym, _ in d.atoms}
         assert {"C", "N", "O", "H"} == symbols
 
     def test_bonds_present(self, caffeine_mol):
-        from xyzrender.formats import parse_mol
+        from xyzrender.parsers import parse_mol
 
         d = parse_mol(caffeine_mol)
         assert d.bonds is not None
         assert len(d.bonds) > 0
 
     def test_no_pbc_cell(self, caffeine_mol):
-        from xyzrender.formats import parse_mol
+        from xyzrender.parsers import parse_mol
 
         d = parse_mol(caffeine_mol)
         assert d.pbc_cell is None
@@ -157,38 +157,38 @@ class TestParseMol:
 
 class TestParseSdf:
     def test_atom_count(self, caffeine_sdf):
-        from xyzrender.formats import parse_sdf
+        from xyzrender.parsers import parse_sdf
 
         d = parse_sdf(caffeine_sdf, frame=0)
         assert len(d.atoms) == _CAFFEINE_ATOMS
 
     def test_bonds_present(self, caffeine_sdf):
-        from xyzrender.formats import parse_sdf
+        from xyzrender.parsers import parse_sdf
 
         d = parse_sdf(caffeine_sdf, frame=0)
         assert d.bonds is not None
         assert len(d.bonds) > 0
 
     def test_frame_out_of_range(self, caffeine_sdf):
-        from xyzrender.formats import parse_sdf
+        from xyzrender.parsers import parse_sdf
 
         with pytest.raises(IndexError):
             parse_sdf(caffeine_sdf, frame=99)
 
     def test_multi_frame0(self, multi_sdf):
-        from xyzrender.formats import parse_sdf
+        from xyzrender.parsers import parse_sdf
 
         d = parse_sdf(multi_sdf, frame=0)
         assert len(d.atoms) == _CAFFEINE_ATOMS
 
     def test_multi_frame1(self, multi_sdf):
-        from xyzrender.formats import parse_sdf
+        from xyzrender.parsers import parse_sdf
 
         d = parse_sdf(multi_sdf, frame=1)
         assert len(d.atoms) == _WATER_ATOMS
 
     def test_multi_frame_selects_different_molecules(self, multi_sdf):
-        from xyzrender.formats import parse_sdf
+        from xyzrender.parsers import parse_sdf
 
         d0 = parse_sdf(multi_sdf, frame=0)
         d1 = parse_sdf(multi_sdf, frame=1)
@@ -202,20 +202,20 @@ class TestParseSdf:
 
 class TestParseMol2:
     def test_atom_count(self, water_mol2):
-        from xyzrender.formats import parse_mol2
+        from xyzrender.parsers import parse_mol2
 
         d = parse_mol2(water_mol2)
         assert len(d.atoms) == 3
 
     def test_element_symbols(self, water_mol2):
-        from xyzrender.formats import parse_mol2
+        from xyzrender.parsers import parse_mol2
 
         d = parse_mol2(water_mol2)
         symbols = {sym for sym, _ in d.atoms}
         assert symbols == {"O", "H"}
 
     def test_bonds_present(self, water_mol2):
-        from xyzrender.formats import parse_mol2
+        from xyzrender.parsers import parse_mol2
 
         d = parse_mol2(water_mol2)
         assert d.bonds is not None
@@ -229,33 +229,33 @@ class TestParseMol2:
 
 class TestParsePdb:
     def test_atom_count(self, water_pdb):
-        from xyzrender.formats import parse_pdb
+        from xyzrender.parsers import parse_pdb
 
         d = parse_pdb(water_pdb)
         assert len(d.atoms) == 3
 
     def test_element_symbols(self, water_pdb):
-        from xyzrender.formats import parse_pdb
+        from xyzrender.parsers import parse_pdb
 
         d = parse_pdb(water_pdb)
         symbols = {sym for sym, _ in d.atoms}
         assert symbols == {"O", "H"}
 
     def test_no_cryst1(self, water_pdb):
-        from xyzrender.formats import parse_pdb
+        from xyzrender.parsers import parse_pdb
 
         d = parse_pdb(water_pdb)
         assert d.pbc_cell is None
 
     def test_cryst1_parsed(self, water_pdb_cryst):
-        from xyzrender.formats import parse_pdb
+        from xyzrender.parsers import parse_pdb
 
         d = parse_pdb(water_pdb_cryst)
         assert d.pbc_cell is not None
         assert d.pbc_cell.shape == (3, 3)
 
     def test_cryst1_orthorhombic(self, water_pdb_cryst):
-        from xyzrender.formats import parse_pdb
+        from xyzrender.parsers import parse_pdb
 
         d = parse_pdb(water_pdb_cryst)
         assert d.pbc_cell is not None
@@ -271,55 +271,55 @@ class TestParsePdb:
 
 class TestLoaders:
     def test_load_mol_nodes(self, caffeine_mol):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, _ = load_molecule(caffeine_mol)
         assert g.number_of_nodes() == _CAFFEINE_ATOMS
 
     def test_load_mol_edges(self, caffeine_mol):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, _ = load_molecule(caffeine_mol)
         assert g.number_of_edges() > 0
 
     def test_load_mol_rebuild(self, caffeine_mol):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, _ = load_molecule(caffeine_mol, rebuild=True)
         assert g.number_of_nodes() == _CAFFEINE_ATOMS
 
     def test_load_sdf_nodes(self, caffeine_sdf):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, _ = load_molecule(caffeine_sdf)
         assert g.number_of_nodes() == _CAFFEINE_ATOMS
 
     def test_load_mol2_nodes(self, water_mol2):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, _ = load_molecule(water_mol2)
         assert g.number_of_nodes() == 3
 
     def test_load_pdb_no_crystal(self, water_pdb):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, crystal = load_molecule(water_pdb)
         assert g.number_of_nodes() == 3
         assert crystal is None
 
     def test_load_pdb_with_crystal(self, water_pdb_cryst):
-        from xyzrender.io import load_molecule
-        from xyzrender.types import CrystalData
+        from xyzrender.readers import load_molecule
+        from xyzrender.types import CellData
 
         g, crystal = load_molecule(water_pdb_cryst)
         assert g.number_of_nodes() == 3
-        assert isinstance(crystal, CrystalData)
+        assert isinstance(crystal, CellData)
         assert crystal.lattice.shape == (3, 3)
-        # Cubic 10 Å cell — diagonal should be ~10 after round-trip through CrystalData
+        # Cubic 10 Å cell — diagonal should be ~10 after round-trip through CellData
         np.testing.assert_allclose(np.diag(crystal.lattice), [10.0, 10.0, 10.0], atol=1e-2)
 
     def test_node_attributes(self, caffeine_mol):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, _ = load_molecule(caffeine_mol)
         for i in g.nodes:
@@ -328,7 +328,7 @@ class TestLoaders:
             assert len(g.nodes[i]["position"]) == 3
 
     def test_edge_attributes(self, caffeine_mol):
-        from xyzrender.io import load_molecule
+        from xyzrender.readers import load_molecule
 
         g, _ = load_molecule(caffeine_mol)
         for _, _, d in g.edges(data=True):
@@ -343,27 +343,27 @@ class TestLoaders:
 
 class TestParseSmiles:
     def test_atom_count(self):
-        from xyzrender.formats import parse_smiles
+        from xyzrender.parsers import parse_smiles
 
         d = parse_smiles("O")  # water
         assert len(d.atoms) == 3  # O + 2H
 
     def test_element_symbols(self):
-        from xyzrender.formats import parse_smiles
+        from xyzrender.parsers import parse_smiles
 
         d = parse_smiles("O")
         symbols = {sym for sym, _ in d.atoms}
         assert symbols == {"O", "H"}
 
     def test_bonds_present(self):
-        from xyzrender.formats import parse_smiles
+        from xyzrender.parsers import parse_smiles
 
         d = parse_smiles("O")
         assert d.bonds is not None
         assert len(d.bonds) == 2
 
     def test_3d_coords(self):
-        from xyzrender.formats import parse_smiles
+        from xyzrender.parsers import parse_smiles
 
         d = parse_smiles("O")
         for _, pos in d.atoms:
@@ -371,13 +371,13 @@ class TestParseSmiles:
             assert all(isinstance(v, float) for v in pos)
 
     def test_no_pbc_cell(self):
-        from xyzrender.formats import parse_smiles
+        from xyzrender.parsers import parse_smiles
 
         d = parse_smiles("O")
         assert d.pbc_cell is None
 
     def test_benzene_heavy_atoms(self):
-        from xyzrender.formats import parse_smiles
+        from xyzrender.parsers import parse_smiles
 
         d = parse_smiles("c1ccccc1")  # benzene, no explicit H in SMILES
         # AddHs gives 12 atoms total (6C + 6H)
@@ -394,23 +394,23 @@ _CIF_FILE = Path(__file__).parent.parent / "examples" / "structures" / "caffeine
 @pytest.mark.filterwarnings("ignore::UserWarning:ase")
 class TestParseCif:
     def test_atoms_present(self):
-        from xyzrender.formats import parse_cif
+        from xyzrender.parsers import parse_cif
 
         d = parse_cif(_CIF_FILE)
         assert len(d.atoms) > 0
 
     def test_has_pbc_cell(self):
-        from xyzrender.formats import parse_cif
+        from xyzrender.parsers import parse_cif
 
         d = parse_cif(_CIF_FILE)
         assert d.pbc_cell is not None
         assert d.pbc_cell.shape == (3, 3)
 
     def test_load_molecule_cif_graph(self):
-        from xyzrender.io import load_molecule
-        from xyzrender.types import CrystalData
+        from xyzrender.readers import load_molecule
+        from xyzrender.types import CellData
 
         g, crystal = load_molecule(_CIF_FILE)
         assert g.number_of_nodes() > 0
-        assert isinstance(crystal, CrystalData)
+        assert isinstance(crystal, CellData)
         assert crystal.lattice.shape == (3, 3)
