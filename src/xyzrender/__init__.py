@@ -1,4 +1,4 @@
-"""Publication-quality molecular graphics from the command line."""
+"""Publication-quality molecular graphics."""
 
 import logging
 
