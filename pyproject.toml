@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xyzrender"
-version = "0.2.0"
+version = "0.2.1"
 description = "Publication-quality molecular graphics."
 authors = [{name = "Dr Alister S. Goodfellow"}]
 readme = "README.md"
