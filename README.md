@@ -770,7 +770,7 @@ Visualise non-covalent interaction (NCI) regions from two NCIPLOT cube files: a 
 xyzrender base-pair-dens.cube --nci-surf base-pair-grad.cube -o base-pair-nci_surf.svg
 xyzrender phenol_di-dens.cube --nci-surf phenol_di-grad.cube -o phenol_di-nci_surf.svg
 
-# per-pixel raster (more detail, less schematic)
+# per-pixel raster (more detail, less schematic, not very aesthetic)
 xyzrender base-pair-dens.cube --nci-surf base-pair-grad.cube --nci-coloring pixel -o base-pair-nci_pixel.svg
 
 # flat color (uniform green)
@@ -1028,7 +1028,9 @@ GitHub Actions runs lint, type-check, and tests on every push to `main` and ever
 
 ## Acknowledgements
 
-The SVG rendering in xyzrender is built on and heavily inspired by [**xyz2svg**](https://github.com/briling/xyz2svg) by [Ksenia Briling **@briling**](https://github.com/briling). The CPK colour scheme, core SVG atom/bond rendering logic, fog, and overall approach originate from that project. The radial gradient (pseudo-3D) rendering was contributed to xyz2svg by [Iñigo Iribarren Aguirre **@iribirii**](https://github.com/iribirii).
+The SVG rendering in xyzrender is built on and heavily inspired by [**xyz2svg**](https://github.com/briling/xyz2svg). The CPK colour scheme, core SVG atom/bond rendering logic, fog, and overall approach originate from that project.  
+- [Ksenia Briling (@briling)](https://github.com/briling) — [**xyz2svg**](https://github.com/briling/xyz2svg) and [**v**](https://github.com/briling/v)
+- [Iñigo Iribarren Aguirre (@iribirii)](https://github.com/iribirii) — radial gradient (pseudo-3D) rendering from [**xyz2svg**](https://github.com/briling/xyz2svg).
 
 Key dependencies:
 
@@ -1044,6 +1046,12 @@ Optional dependencies:
 - [**rdkit**](https://www.rdkit.org/) — SMILES 3D embedding (`pip install 'xyzrender[smiles]'`)
 - [**ase**](https://wiki.fysik.dtu.dk/ase/) — CIF parsing (`pip install 'xyzrender[cif]'`)
 - [**v**](https://github.com/briling/v) — interactive molecule orientation
+
+Contributors:
+
+- [Sander Cohen-Janes (@scohenjanes5)](https://github.com/scohenjanes5) — crystal/periodic structure support (VASP, Quantum ESPRESSO, ghost atoms, crystallographic axes)
+- [Vinicius Port (@caprilesport)](https://github.com/caprilesport) — `v` binary path discovery
+- [Lucas Attia (@lucasattia)](https://github.com/lucasattia) — `--transparent` background flag
 
 Generated from [aligfellow/python-template](https://github.com/aligfellow/python-template).
 
