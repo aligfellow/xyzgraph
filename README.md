@@ -148,6 +148,13 @@ render(mol, nci_bonds=[(2, 8)])                    # manual NCI bond (1-indexed)
 render(mol, idx=True)                              # atom index labels ("C1", "N3", …)
 render(mol, idx="n")                               # index only ("1", "3", …)
 
+# Structural overlay
+mol1 = load("isothio_xtb.xyz", charge=1)
+mol2 = load("isothio_uma.xyz", charge=1)
+render(mol1, overlay=mol2)                         # overlay mol2 onto mol1
+render(mol1, overlay=mol2, overlay_color="green")  # custom overlay color
+render_gif(mol1, overlay=mol2, gif_rot="y")        # spinning overlay GIF
+
 # Annotations
 render(mol, labels=["1 2 d", "1 2 3 a"])           # inline spec strings
 render(mol, label_file="annot.txt")                # bulk annotation file
@@ -313,6 +320,19 @@ xyzrender caffeine.xyz --bo -k -o caffeine_kekule.svg   # Kekule bond orders
 xyzrender asparagine.xyz --hy --vdw -o asparagine_vdw.svg  # vdW spheres on all atoms
 xyzrender asparagine.xyz --hy --vdw "1-6" -o asparagine_vdw_partial.svg  # vdW spheres on some atoms
 xyzrender asparagine.xyz --hy --vdw --config paton -o asparagine_vdw_paton.svg  # vdW spheres on all atoms
+```
+
+### Structural overlay
+
+Overlay two conformers or geometries to compare them. The second structure is RMSD-aligned onto the first via the Kabsch algorithm using index-based atom pairing, and rendered in a contrasting colour. Both molecules must have the same number of atoms in the same order.
+
+| Default | Custom colour | Rotation GIF |
+|---------|---------------|--------------|
+| ![overlay](examples/images/isothio_overlay.svg) | ![overlay custom](examples/images/isothio_overlay_custom.svg) | ![overlay gif](examples/images/isothio_overlay.gif) |
+
+```bash
+xyzrender isothio_xtb.xyz --overlay isothio_uma.xyz -c 1 --hy -o isothio_overlay_rot.svg --gif-rot -go isothio_overlay.gif
+xyzrender isothio_xtb.xyz --overlay isothio_uma.xyz -c 1 --overlay-color green -a 2 --no-orient -o isothio_overlay_custom.svg
 ```
 
 ### Transition states and NCI

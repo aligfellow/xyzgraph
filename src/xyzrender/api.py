@@ -433,6 +433,9 @@ def render(
     nci_color: str | None = None,
     nci_coloring: str | None = None,
     nci_cutoff: float | None = None,
+    # --- Overlay ---
+    overlay: str | os.PathLike | Molecule | None = None,
+    overlay_color: str | None = None,
     # --- Output ---
     output: str | os.PathLike | None = None,
 ) -> SVGResult:
@@ -609,6 +612,53 @@ def render(
         inline = [s.split() for s in labels] if labels else None
         cfg.annotations = parse_annotations(inline_specs=inline, file_path=label_file, graph=rmol.graph)
 
+    # --- Early overlay validation (before ghost atoms are added to g1) ---
+    if overlay is not None and mol.cell_data is not None:
+        msg = "overlay= is mutually exclusive with crystal/cell display"
+        raise ValueError(msg)
+    if overlay is not None and (mo or dens or esp is not None or nci is not None):
+        msg = "overlay= is mutually exclusive with surface rendering (mo/dens/esp/nci)"
+        raise ValueError(msg)
+
+    # --- Overlay alignment ---
+    if overlay is not None:
+        from xyzrender.overlay import align, merge_graphs
+        from xyzrender.utils import pca_orient
+
+        if isinstance(overlay, Molecule):
+            overlay_mol = overlay
+        else:
+            # Inherit charge/multiplicity from the main molecule so bond-order
+            # detection uses the correct electron count for charged species.
+            _ov_charge = mol.graph.graph.get("total_charge", 0)
+            _ov_mult = mol.graph.graph.get("multiplicity")
+            overlay_mol = load(overlay, charge=_ov_charge, multiplicity=_ov_mult)
+        g1 = rmol.graph
+        g2 = copy.deepcopy(overlay_mol.graph)
+
+        # PCA-orient g1 (the already-copied mol graph) to set the viewing frame
+        if cfg.auto_orient and g1.number_of_nodes() > 1:
+            nodes1 = list(g1.nodes())
+            pos1 = np.array([g1.nodes[n]["position"] for n in nodes1], dtype=float)
+            atom_mask = np.array([g1.nodes[n]["symbol"] != "*" for n in nodes1])
+            fit_mask = atom_mask if not atom_mask.all() else None
+            pos1_oriented = pca_orient(pos1, fit_mask=fit_mask)
+            for k, nid in enumerate(nodes1):
+                g1.nodes[nid]["position"] = tuple(float(v) for v in pos1_oriented[k])
+        cfg.auto_orient = False
+
+        if overlay_color is not None:
+            from xyzrender.types import resolve_color
+
+            cfg.overlay_color = resolve_color(overlay_color)
+        aligned2 = align(g1, g2)
+        rmol = Molecule(
+            graph=merge_graphs(g1, g2, aligned2, overlay_color=cfg.overlay_color),
+            cube_data=None,
+            cell_data=None,
+            oriented=True,
+        )
+
     # --- Surface validation ---
     cube_data = rmol.cube_data
     if vdw is not None and (mo or dens or esp is not None or nci is not None):
@@ -730,6 +780,9 @@ def render_gif(
     no_hy: bool = False,
     bo: bool | None = None,
     orient: bool | None = None,
+    # --- Structural overlay (gif_rot only) ---
+    overlay: str | os.PathLike | Molecule | None = None,
+    overlay_color: str | None = None,
     # --- Orientation reference (gif_ts / gif_trj: graph after orient()) ---
     reference_graph=None,
     # --- NCI detection (gif_ts / gif_trj / gif_rot) ---
@@ -810,6 +863,14 @@ def render_gif(
         active_surf = "mo" if mo else "dens"
         active_gif = "gif_ts" if gif_ts else "gif_trj"
         msg = f"render_gif: {active_surf} surface is only supported with gif_rot, not {active_gif}"
+        raise ValueError(msg)
+
+    if overlay is not None and (gif_ts or gif_trj):
+        msg = "render_gif: overlay= is only supported with gif_rot"
+        raise ValueError(msg)
+
+    if overlay is not None and (mo or dens):
+        msg = "render_gif: overlay= is mutually exclusive with surface rendering (mo/dens)"
         raise ValueError(msg)
 
     if gif_rot and gif_rot not in ROTATION_AXES:
@@ -933,6 +994,24 @@ def render_gif(
             # Deep-copy so render_rotation_gif (which mutates positions in-place) doesn't
             # corrupt the caller's Molecule, and so _apply_cell_config can add ghost atoms.
             ref_graph = copy.deepcopy(ref_graph)
+
+        # --- Overlay alignment (gif_rot only) ---
+        if overlay is not None:
+            from xyzrender.overlay import align, merge_graphs
+
+            if isinstance(overlay, Molecule):
+                overlay_mol = overlay
+            else:
+                _ov_charge = ref_graph.graph.get("total_charge", 0)
+                _ov_mult = ref_graph.graph.get("multiplicity")
+                overlay_mol = load(overlay, charge=_ov_charge, multiplicity=_ov_mult)
+            if overlay_color is not None:
+                from xyzrender.types import resolve_color
+
+                cfg.overlay_color = resolve_color(overlay_color)
+            g2 = copy.deepcopy(overlay_mol.graph)
+            aligned2 = align(ref_graph, g2)
+            ref_graph = merge_graphs(ref_graph, g2, aligned2, overlay_color=cfg.overlay_color)
 
         cube_data = molecule.cube_data if isinstance(molecule, Molecule) else None
 

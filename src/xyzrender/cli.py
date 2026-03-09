@@ -158,6 +158,21 @@ def main() -> None:
     surf_g.add_argument("--mo-upsample", type=int, default=None, help="MO upsample factor (default: 3)")
     surf_g.add_argument("--opacity", type=float, default=None, help="Surface opacity (default: 1.0, >1 boosts)")
 
+    # --- Overlay ---
+    ov_g = p.add_argument_group("overlay")
+    ov_g.add_argument(
+        "--overlay",
+        default=None,
+        metavar="FILE",
+        help="Overlay molecule file — aligned onto the main input and drawn in magenta",
+    )
+    ov_g.add_argument(
+        "--overlay-color",
+        default=None,
+        dest="overlay_color",
+        help="Overlay molecule color (hex or named, default: darkmagenta)",
+    )
+
     # --- Orientation ---
     orient_g = p.add_argument_group("orientation")
     orient_g.add_argument(
@@ -442,6 +457,12 @@ def main() -> None:
         except ValueError as e:
             p.error(str(e))
 
+    # Pre-load overlay once so render() + render_gif() don't each load it from disk.
+    if args.overlay and isinstance(args.overlay, str):
+        _ov_charge = mol.graph.graph.get("total_charge", 0)
+        _ov_mult = mol.graph.graph.get("multiplicity")
+        args.overlay = load(args.overlay, charge=_ov_charge, multiplicity=_ov_mult)
+
     # --- Measurements (terminal output only) ---
     if args.measure is not None:
         from xyzrender.measure import print_measurements
@@ -510,6 +531,8 @@ def main() -> None:
             dens_color=args.dens_color,
             nci_color=args.nci_color,
             nci_coloring=args.nci_coloring,
+            overlay=args.overlay,
+            overlay_color=args.overlay_color,
             output=args.output,
         )
     except ValueError as e:
@@ -543,6 +566,8 @@ def main() -> None:
                 gif_fps=args.gif_fps,
                 rot_frames=args.rot_frames,
                 ts_frame=args.ts_frame,
+                overlay=args.overlay,
+                overlay_color=args.overlay_color,
                 reference_graph=_ref_graph,
                 detect_nci=args.nci_detect,
                 mo=args.mo,

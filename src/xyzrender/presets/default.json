@@ -35,5 +35,6 @@
   "cell_line_width": 10.0,
   "periodic_image_opacity": 0.5,
   "axis_colors": ["firebrick", "forestgreen", "royalblue"],
-  "axis_width_scale": 2.0
+  "axis_width_scale": 2.0,
+  "overlay_color": "mediumorchid"
 }
