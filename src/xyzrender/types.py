@@ -254,7 +254,7 @@ class NCIParams:
         ``'pixel'`` maps per-pixel values (raster PNG),
         ``'uniform'`` uses ``color`` for every lobe.
     dens_cutoff:
-        Optional density magnitude cutoff; voxels with |rho| above this are
+        Optional density magnitude cutoff; voxels with density magnitude (abs(rho)) above this are
         excluded (useful for non-NCIPLOT cubes where nuclear contributions
         are not pre-removed).
     """
