@@ -540,7 +540,7 @@ xyzrender --smi "C1CCCCC1" --hy -o cyclohexane_smi.svg  # SMILES — 3D embeddin
 |-----------|---------------|
 | ![PDB](examples/images/ala_phe_ala.svg) | ![smiles](examples/images/cyclohexane_smi.svg) |
 
-- ala_phe_ala.pdb from (here)[https://gist.github.com/cstein/6699200]
+- ala_phe_ala.pdb from [here](https://gist.github.com/cstein/66992000)
 
 **PDB with CRYST1:** if the PDB contains a `CRYST1` record, the unit cell is parsed and the crystal rendering path is used automatically (cell box, same as `--cell`).
 **SMILES (`--smi`):** embeds a SMILES string into 3D using rdkit (ETKDGv3 + MMFF94). An XYZ file of the optimised geometry is written alongside the output image automatically.
