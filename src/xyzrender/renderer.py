@@ -132,8 +132,16 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     else:
         colors = [get_color(a, cfg.color_overrides) for a in a_nums]
 
-    # Bond lookup: (bond_order, style)
-    bonds: dict[tuple[int, int], tuple[float, BondStyle]] = {}
+    # Override atom colors for overlay (mol2) atoms — must happen before gradient defs
+    has_overlay = any(graph.nodes[nid].get("overlay", False) for nid in node_ids)
+    if has_overlay:
+        overlay_atom_color = Color.from_str(cfg.overlay_color)
+        for ai in range(n):
+            if graph.nodes[node_ids[ai]].get("overlay", False):
+                colors[ai] = overlay_atom_color
+
+    # Bond lookup: (bond_order, style, color_override)
+    bonds: dict[tuple[int, int], tuple[float, BondStyle, str | None]] = {}
     for i, j, d in graph.edges(data=True):
         bo = d.get("bond_order", 1.0) if cfg.bond_orders else 1.0
         bt = d.get("bond_type", "")
@@ -143,12 +151,15 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             style = BondStyle.DOTTED
         else:
             style = BondStyle.SOLID
-        bonds[(i, j)] = bonds[(j, i)] = (bo, style)
+        color_ov: str | None = d.get("bond_color_override")
+        bonds[(i, j)] = bonds[(j, i)] = (bo, style, color_ov)
     # Manual overrides (add or restyle)
     for i, j in cfg.ts_bonds:
-        bonds[(i, j)] = bonds[(j, i)] = (bonds.get((i, j), (1.0, BondStyle.SOLID))[0], BondStyle.DASHED)
+        existing = bonds.get((i, j), (1.0, BondStyle.SOLID, None))
+        bonds[(i, j)] = bonds[(j, i)] = (existing[0], BondStyle.DASHED, existing[2])
     for i, j in cfg.nci_bonds:
-        bonds[(i, j)] = bonds[(j, i)] = (bonds.get((i, j), (1.0, BondStyle.SOLID))[0], BondStyle.DOTTED)
+        existing = bonds.get((i, j), (1.0, BondStyle.SOLID, None))
+        bonds[(i, j)] = bonds[(j, i)] = (existing[0], BondStyle.DOTTED, existing[2])
 
     # Only hide C-H hydrogens (not O-H, N-H, free H, etc.)
     hidden = set()
@@ -171,7 +182,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 if (rl[ii], rl[jj]) in bonds or (rl[jj], rl[ii]) in bonds:
                     aromatic_ring_edges.add((min(rl[ii], rl[jj]), max(rl[ii], rl[jj])))
     missing = False
-    for (i, j), (bo, _style) in bonds.items():
+    for (i, j), (bo, _style, _col) in bonds.items():
         if i < j and 1.3 < bo < 1.7 and (i, j) not in aromatic_ring_edges:
             missing = True
             break
@@ -179,7 +190,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         import networkx as nx
 
         arom_g = nx.Graph()
-        for (i, j), (bo, _style) in bonds.items():
+        for (i, j), (bo, _style, _col) in bonds.items():
             if i < j and 1.3 < bo < 1.7:
                 arom_g.add_edge(i, j)
         if arom_g.number_of_edges() > 0:
@@ -204,8 +215,8 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         svg.append(f'  <rect width="100%" height="100%" fill="{cfg.background}"/>')
 
     use_grad = cfg.gradient
-    # Cmap gives each atom a unique color — must use per-atom gradient defs (like fog mode)
-    use_per_atom_grad = cfg.fog or cfg.atom_cmap is not None
+    # Cmap/fog/overlay all require per-atom gradient defs (each atom may have a distinct colour)
+    use_per_atom_grad = cfg.fog or cfg.atom_cmap is not None or has_overlay
     if use_grad:
         svg.append("  <defs>")
         if use_per_atom_grad:
@@ -347,7 +358,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     # Interleaved z-order: for each atom, render it then its bonds to deeper atoms
     gap = cfg.bond_gap * bw  # pixel gap scales with bond width
 
-    def add_bond(ai, aj, bo, style, opacity: float = 1.0):
+    def add_bond(ai, aj, bo, style, opacity: float = 1.0, color_override: str | None = None):
         """Render bond — closure captures shared rendering state."""
         rij = pos[aj] - pos[ai]
         dist = np.linalg.norm(rij)
@@ -368,7 +379,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             return
         px, py = -dy / ln, dx / ln
 
-        color = cfg.bond_color
+        color = color_override if color_override is not None else cfg.bond_color
         if cfg.fog:
             avg_fog = (fog_f[ai] + fog_f[aj]) / 2 * 0.75  # bonds fog less than atoms
             color = blend_fog(color, fog_rgb, avg_fog)
@@ -460,10 +471,10 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         for aj in z_order[idx + 1 :]:
             if aj in hidden or (ai, aj) not in bonds:
                 continue
-            bo, style = bonds[(ai, aj)]
+            bo, style, color_ov = bonds[(ai, aj)]
             # Use periodic_image_opacity if either endpoint is an image atom
             bond_op = cfg.periodic_image_opacity if (is_image or graph.nodes[aj].get("image", False)) else 1.0
-            add_bond(ai, aj, bo, style, opacity=bond_op)
+            add_bond(ai, aj, bo, style, opacity=bond_op, color_override=color_ov)
 
     # NCI patches in front of all atoms (z_depth > frontmost atom)
     while nci_lobe_idx < len(nci_lobes_flat):

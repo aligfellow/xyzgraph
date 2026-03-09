@@ -326,6 +326,8 @@ class RenderConfig:
     nci_isovalue: float = _DEFAULT_NCI_ISOVALUE
     nci_color: str = _DEFAULT_NCI_COLOR
     nci_color_mode: str = _DEFAULT_NCI_COLOR_MODE
+    # Overlay
+    overlay_color: str = "mediumorchic"
     # Crystal / periodic structure
     cell_data: CellData | None = None
     show_cell: bool = True

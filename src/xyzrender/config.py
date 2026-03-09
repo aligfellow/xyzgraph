@@ -104,6 +104,7 @@ def build_render_config(config_data: dict, cli_overrides: dict) -> RenderConfig:
         "mo_neg_color",
         "dens_color",
         "nci_color",
+        "overlay_color",
     )
     for key in _color_fields:
         if key in merged:

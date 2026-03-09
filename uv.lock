@@ -2187,7 +2187,7 @@ wheels = [
 
 [[package]]
 name = "xyzgraph"
-version = "1.6.1"
+version = "1.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2196,14 +2196,14 @@ dependencies = [
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "rdkit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/21/ec/f82fe482987523cb861561f27ce9cee3ae99c0cb8c4fec07440453f80d4b/xyzgraph-1.6.1.tar.gz", hash = "sha256:e005eacf55a73f5208b99c7665ba317709b9274374b511062881f761a3eaeef1", size = 142683, upload-time = "2026-02-23T10:16:28.55Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/01/164dc16da0980f36234bbcb4be2ec5e3d1167d6c1a1b1dfef02a2ac30033/xyzgraph-1.6.2.tar.gz", hash = "sha256:5fa89b218a0d3250149a600fa3bc11f7ff44c7f6db825d74a5ee340fc7fe9295", size = 143757, upload-time = "2026-03-08T12:57:30.562Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/ab/5867ddf13cc6c31286324cfdc4e5899ef6bba6b1eda6e551a1c9c936e7a4/xyzgraph-1.6.1-py3-none-any.whl", hash = "sha256:8d3b1b96eb9410698c3609baa88f9016e37d2586fe8db89e3f35e914ecdf3049", size = 106653, upload-time = "2026-02-23T10:16:26.887Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/37/c95521187d46f6f8188c22e32e8cca200cc226bcc297b5629fcbde87848e/xyzgraph-1.6.2-py3-none-any.whl", hash = "sha256:51e10be06354bb95233562dffaf2db5be33eb44a41337174e19a99903854f43a", size = 107207, upload-time = "2026-03-08T12:57:28.105Z" },
 ]
 
 [[package]]
 name = "xyzrender"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "cairosvg" },
@@ -2258,7 +2258,7 @@ requires-dist = [
     { name = "pillow" },
     { name = "rdkit", marker = "extra == 'all'" },
     { name = "rdkit", marker = "extra == 'smi'" },
-    { name = "xyzgraph", specifier = ">=1.6.1" },
+    { name = "xyzgraph", specifier = ">=1.6.2" },
 ]
 provides-extras = ["crystal", "smi", "cif", "all"]
 
