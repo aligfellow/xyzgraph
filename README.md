@@ -41,6 +41,8 @@ xyzrender ts.out --ts -o figure.png             # TS with dashed bonds as PNG
 xyzrender caffeine.xyz --gif-rot -go movie.gif  # rotation GIF for slides
 ```
 
+See web app by [@BNNLab](https://github.com/bnnlab) [here](xyzrender-web.streamlit.app/).
+
 ## Installation
 
 ### From PyPI:  
