@@ -2,7 +2,7 @@
 
 Publication-quality molecular graphics from XYZ, cube, QM output, and more — as SVG, PNG, PDF, or animated GIF.
 
-```{figure} ../../../examples/images/bimp_nci_ts.gif
+```{figure} ../../examples/images/bimp_nci_ts.gif
 :width: 600
 :alt: xyzrender NCI transition state example
 
