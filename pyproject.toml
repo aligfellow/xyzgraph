@@ -59,6 +59,7 @@ dev = [
 line-length = 120
 target-version = "py310"
 src = ["src", "tests"]
+exclude = ["docs/"]
 
 [tool.ruff.lint]
 select = [

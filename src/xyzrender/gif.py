@@ -322,6 +322,16 @@ def render_rotation_gif(
     # PCA: apply once to initial positions so GIF matches static SVG orientation
     if config.auto_orient:
         _orient_graph(graph, pca_matrix(np.array([graph.nodes[n]["position"] for n in nodes])))
+        # MO surfaces use a -30° x-axis tilt (same as resolve_orientation tilt_degrees=-30.0)
+        # so the GIF starting frame matches the static render orientation.
+        if mo_params is not None:
+            theta = np.radians(-30.0)
+            c, s = np.cos(theta), np.sin(theta)
+            rx = np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+            _pos = np.array([graph.nodes[n]["position"] for n in nodes])
+            _tilted = _pos @ rx.T  # centroid ≈ 0 after _orient_graph, so no translation needed
+            for i, nid in enumerate(nodes):
+                graph.nodes[nid]["position"] = tuple(_tilted[i].tolist())
 
     # Set up the cell origin (0,0,0) so _apply_rot_to_lattice rotates it around
     # the molecular centre of mass, not around the origin.

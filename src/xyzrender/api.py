@@ -115,18 +115,6 @@ class Molecule:
 
     Obtain via :func:`load`.  Pass directly to :func:`render` or
     :func:`render_gif` to avoid re-parsing the file.
-
-    Attributes
-    ----------
-    graph:
-        Molecular graph (nodes: symbol, position; edges: bond_order).
-    cube_data:
-        Parsed cube file data, or ``None`` for non-cube inputs.
-    cell_data:
-        Periodic lattice data (for crystal / extXYZ inputs), or ``None``.
-    oriented:
-        Set to ``True`` by :func:`orient` after interactive rotation.
-        When ``True``, :func:`render` skips PCA auto-orientation.
     """
 
     graph: nx.Graph
@@ -742,6 +730,10 @@ def render_gif(
     no_hy: bool = False,
     bo: bool | None = None,
     orient: bool | None = None,
+    # --- Orientation reference (gif_ts / gif_trj: graph after orient()) ---
+    reference_graph=None,
+    # --- NCI detection (gif_ts / gif_trj / gif_rot) ---
+    detect_nci: bool = False,
     # --- Surfaces (gif_rot only) ---
     mo: bool = False,
     dens: bool = False,
@@ -887,9 +879,6 @@ def render_gif(
 
     # --- Dispatch ---
     if gif_ts and gif_rot:
-        from xyzrender.readers import load_ts_molecule
-
-        graph, _ = load_ts_molecule(str(mol_path), ts_frame=ts_frame)
         render_vibration_rotation_gif(
             str(mol_path),
             cfg,
@@ -898,22 +887,19 @@ def render_gif(
             fps=gif_fps,
             axis=gif_rot,
             n_frames=rot_frames,
-            reference_graph=graph,
-            detect_nci=False,
+            reference_graph=reference_graph,
+            detect_nci=detect_nci,
         )
 
     elif gif_ts:
-        from xyzrender.readers import load_ts_molecule
-
-        graph, _ = load_ts_molecule(str(mol_path), ts_frame=ts_frame)
         render_vibration_gif(
             str(mol_path),
             cfg,
             str(gif_path),
             ts_frame=ts_frame,
             fps=gif_fps,
-            reference_graph=graph,
-            detect_nci=False,
+            reference_graph=reference_graph,
+            detect_nci=detect_nci,
         )
 
     elif gif_trj:
@@ -923,14 +909,17 @@ def render_gif(
         if len(frames) < 2:
             msg = "render_gif(gif_trj=True) requires a multi-frame XYZ file"
             raise ValueError(msg)
-        graph, _ = load_molecule(str(mol_path))
+        _trj_ref = reference_graph
+        if _trj_ref is None:
+            graph, _ = load_molecule(str(mol_path))
+            _trj_ref = graph
         render_trajectory_gif(
             frames,
             cfg,
             str(gif_path),
             fps=gif_fps,
-            reference_graph=graph,
-            detect_nci=False,
+            reference_graph=_trj_ref,
+            detect_nci=detect_nci,
             axis=gif_rot,
         )
 
