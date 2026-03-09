@@ -37,7 +37,7 @@ xyzrender --smi "C1CCCCC1" --hy -o "$IMG/cyclohexane_smi.svg"
 echo "=== TS and NCI options ==="
 xyzrender "$DIR/sn2.out" --ts-bond "1-2" -o "$IMG/sn2_ts_man.svg"
 xyzrender "$DIR/sn2.out" --ts --hy -o "$IMG/sn2_ts.svg" 
-xyzrender "$DIR/bimp.out" --nci -o "$IMG/bimp_nci.svg"  # all NCI bonds
+xyzrender "$DIR/bimp.out" --nci -o "$IMG/bimp_nci.svg"
 xyzrender "$DIR/Hbond.xyz" --hy --nci-bond "8-9" -o "$IMG/nci_man.svg"  # specific NCI bond only
 xyzrender "$DIR/Hbond.xyz" --hy --nci -o "$IMG/nci.svg"  # specific NCI bond only
 
@@ -70,8 +70,8 @@ xyzrender "$DIR/caffeine.xyz" -o "$IMG/caffeine_xy.svg" --gif-rot xy -go "$IMG/c
 xyzrender "$DIR/bimp.out" -o "$IMG/bimp_rot.svg" --gif-rot --gif-ts --vdw 84-169 -go "$IMG/bimp.gif"
 xyzrender "$DIR/bimp.out" -o "$IMG/bimp_trj.svg" --gif-trj --ts -go "$IMG/bimp_trj.gif"
 xyzrender "$DIR/mn-h2.log" -o "$IMG/mn-h2_gif.svg" --gif-ts -go "$IMG/mn-h2.gif"
-xyzrender "$DIR/bimp.out" -o "$IMG/bimp_nci.svg" --ts --gif-trj --vdw 84-169 --nci -go "$IMG/bimp_nci_trj.gif"
-xyzrender "$DIR/bimp.out" -o "$IMG/bimp_nci.svg" --gif-ts --gif-rot --vdw 84-169 --nci -go "$IMG/bimp_nci_ts.gif"
+xyzrender "$DIR/bimp.out" -o "$IMG/bimp_ts_nci.svg" --ts --gif-trj --vdw 84-169 --nci -go "$IMG/bimp_nci_trj.gif"
+xyzrender "$DIR/bimp.out" -o "$IMG/bimp_ts_nci.svg" --gif-ts --gif-rot --vdw 84-169 --nci -go "$IMG/bimp_nci_ts.gif"
 
 echo "=== Crystal / unit cell ==="
 xyzrender "$DIR/caffeine_cell.xyz" --cell -o "$IMG/caffeine_cell.svg" --no-orient --gif-rot -go "$IMG/caffeine_cell.gif" 
