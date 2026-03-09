@@ -9,6 +9,7 @@ Render molecular structures as publication-quality SVG, PNG, PDF, and animated G
 [![Typing: ty](https://img.shields.io/badge/typing-ty-EFC621.svg)](https://github.com/astral-sh/ty)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/aligfellow/xyzrender/ci.yml?branch=main&logo=github-actions)](https://github.com/aligfellow/xyzrender/actions)
 [![Codecov](https://img.shields.io/codecov/c/github/aligfellow/xyzrender)](https://codecov.io/gh/aligfellow/xyzrender)
+[![Documentation](https://readthedocs.org/projects/xyzrender/badge/?version=latest)](https://xyzrender.readthedocs.io/en/latest/)
 
 xyzrender turns XYZ files and quantum chemistry input/output (MOl, MOL2, SDF, PDB, ORCA, Gaussian, Q-Chem, etc.) into clean SVG, PNG, PDF, and animated GIF graphics — ready for papers, presentations, and supporting information. The SVG rendering approach is built on and inspired by [**xyz2svg**](https://github.com/briling/xyz2svg) by [Ksenia Briling **@briling**](https://github.com/briling).
 
