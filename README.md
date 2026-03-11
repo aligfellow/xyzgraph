@@ -899,27 +899,30 @@ Auto-orientation is on by default (largest variance along x-axis). Disabled auto
 ```bash
 xyzrender molecule.xyz                         # auto-oriented
 xyzrender molecule.xyz --no-orient             # raw coordinates
-xyzrender molecule.xyz -I                      # interactive rotation via v viewer
+xyzrender molecule.xyz -I                      # interactive rotation via vmol
 ```
 
 ### Interactive rotation (`-I`)
 
 The `-I` flag opens the molecule in the [**v** molecular viewer](https://github.com/briling/v) by [Ksenia Briling **@briling**](https://github.com/briling)
-for interactive rotation. Rotate the molecule to the desired orientation, press
-`z` to output coordinates, then close the window with `q`. `xyzrender` captures the rotated
-coordinates and renders from those.
+for interactive rotation. Rotate the molecule to the desired orientation
+and close the window with `q` or `esc`.  
+`xyzrender` captures the rotated coordinates and renders from those.
 
-We can also pipe from `v` directly when working with `.xyz` files: 
+We can also pipe from `v` (or `vmol`) directly when working with `.xyz` files:
 
 ```bash
 v molecule.xyz | xyzrender
 ```
 
-Orient the molecule, press `z` to output reoriented coordinates, then `q` to close.
+Orient the molecule, press `z` to output reoriented coordinates, then `q` or `esc` to close.
 
-This must be installed separately if this option is to be used. The executable should be anywhere in `$PATH` or in `~/bin/` for discovery. 
-
-*TODO: Look into cleaning up this integration.*
+This is an *optional* dependency (Linux only) and should be installed by using either:
+```bash
+pip install xyzrender[v]
+# or directly with
+pip install vmol 
+```
 
 ## Styling
 
@@ -1141,10 +1144,11 @@ Optional dependencies:
 - [**phonopy**](https://github.com/phonopy/phonopy) — crystal structure loading (`pip install 'xyzrender[crystal]'`)
 - [**rdkit**](https://www.rdkit.org/) — SMILES 3D embedding (`pip install 'xyzrender[smiles]'`)
 - [**ase**](https://wiki.fysik.dtu.dk/ase/) — CIF parsing (`pip install 'xyzrender[cif]'`)
-- [**v**](https://github.com/briling/v) — interactive molecule orientation
+- [**v**](https://github.com/briling/v) — interactive molecule orientation (`pip install xyzrender[v]`, Linux only, not included into `[all]`)
 
 Contributors:
 
+- [Ksenia Briling (@briling)](https://github.com/briling) — `vmol` integration and the [xyz2svg](https://github.com/briling/xyz2svg) foundation
 - [Sander Cohen-Janes (@scohenjanes5)](https://github.com/scohenjanes5) — crystal/periodic structure support (VASP, Quantum ESPRESSO, ghost atoms, crystallographic axes) and vector annotations
 - [Vinicius Port (@caprilesport)](https://github.com/caprilesport) — `v` binary path discovery
 - [Lucas Attia (@lucasattia)](https://github.com/lucasattia) — `--transparent` background flag
