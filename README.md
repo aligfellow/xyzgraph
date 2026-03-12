@@ -28,6 +28,7 @@ Most molecular visualisation tools require manual setup: loading files into a GU
 - **Electron density surfaces** — depth-graded translucent isosurfaces from density cube files
 - **Electrostatic potential (ESP)** — ESP colormapped onto the density surface from paired cube files
 - **vdW surface overlays** — van der Waals spheres on all or selected atoms
+- **Convex hull** — semi-transparent facets over selected atoms (e.g. aromatic ring carbons, coordination spheres); optional hull-edge lines
 - **Depth fog and gradients** — 3D depth cues without needing a 3D viewer
 - **Cheminformatics formats** — mol, SDF, MOL2, PDB (with CRYST1 unit cell), SMILES (3D embedding via rdkit), and CIF (via ase) — bond connectivity read directly from file
 - **Crystal / periodic structures** — render periodic structures with unit cell box, ghost atoms, and crystallographic axis arrows (a/b/c); extXYZ `Lattice=` auto-detected; VASP/QE via [`phonopy`](https://github.com/phonopy/phonopy)
@@ -176,6 +177,10 @@ dens_cube = load("caffeine_dens.cube")
 render(dens_cube, dens=True)                       # density isosurface
 render(dens_cube, esp="caffeine_esp.cube")         # ESP mapped onto density
 render(dens_cube, nci="caffeine_grad.cube")        # NCI surface
+
+# Convex hull (1-indexed atom indices for subsets, e.g. ring carbons)
+render(mol, hull=[1, 2, 3, 4, 5, 6],
+       hull_color="steelblue", hull_opacity=0.35)
 ```
 
 ### Reusing a style config
@@ -325,6 +330,50 @@ xyzrender asparagine.xyz --hy --vdw -o asparagine_vdw.svg  # vdW spheres on all 
 xyzrender asparagine.xyz --hy --vdw "1-6" -o asparagine_vdw_partial.svg  # vdW spheres on some atoms
 xyzrender asparagine.xyz --hy --vdw --config paton -o asparagine_vdw_paton.svg  # vdW spheres on all atoms
 ```
+
+### Convex hull
+
+Draw the convex hull of selected atoms as semi-transparent facets — useful for aromatic rings, coordination spheres, or any subset of atoms. Facets are depth-sorted for correct occlusion. Hull edges that do not coincide with bonds are drawn as thin lines for better 3D perception; disable with `--no-hull-edge`.
+
+| Benzene ring | Anthracene rings | CoCl₆ octahedron |
+|--------------|------------------|------------------|
+| ![benzene hull](examples/images/benzene_ring_hull.svg) | ![anthracene hull](examples/images/anthracene_hull.svg) | ![CoCl6 hull](examples/images/CoCl6_octahedron_hull.svg) |
+
+| Anthracene ring | Anthracene rot |
+|--------------|------------------|
+| ![anthracene hull](examples/images/anthracene_hull_one.svg) | ![anthracene hull](examples/images/anthracene_hull.gif) |
+
+```bash
+# Single subset (1-indexed atom range):
+xyzrender benzene.xyz --hull 1-6 -o benzene_ring_hull.svg
+
+# All heavy atoms:
+xyzrender anthracene.xyz --hull -o anthracene_hull_one.svg
+
+# Multiple subsets with per-hull colors: 
+xyzrender anthracene.xyz --hull 1-6 4,6-10 8,10-14 -o anthracene_hull.svg
+```
+
+```python
+# Single subset (1-indexed):
+render(mol, hull=[1, 2, 3, 4, 5, 6],
+       hull_color="steelblue", hull_opacity=0.35, output="benzene_ring_hull.svg")
+
+# Multiple subsets with per-subset colors (1-indexed):
+render(mol, hull=[[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]],
+       hull_color=["steelblue", "coral"], hull_opacity=0.35,
+       output="anthracene_hull.svg")
+```
+
+**Options (passed to `render()`):**
+
+| Option | Description |
+|--------|-------------|
+| `hull` | `True` = all heavy atoms; flat list = one subset; list of lists = multiple hulls |
+| `hull_color` | Single string or list of strings for per-subset colours (default palette cycles automatically) |
+| `hull_opacity` | Fill opacity for all hull surfaces |
+| `hull_edge` | Draw non-bond hull edges as thin lines (default: `True`) |
+| `hull_edge_width_ratio` | Edge stroke width as fraction of bond width |
 
 ### Structural overlay
 
@@ -1082,6 +1131,11 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--nci-surf CUBE` | NCI gradient (RDG) cube — render NCI surface lobes |
 | `--nci-coloring MODE` | NCI coloring: `avg` (default), `pixel`, `uniform` |
 | `--nci-color COLOR` | NCI lobe color for `uniform` mode (default: `forestgreen`) |
+| `--hull [INDICES ...]` | Convex hull (no args = all heavy atoms; or 1-indexed subsets e.g. `1-6 7-12`) |
+| `--hull-color COLOR [...]` | Hull fill color(s) (hex or named, one per subset) |
+| `--hull-opacity` | Hull fill opacity (default: 0.2) |
+| `--hull-edge` / `--no-hull-edge` | Draw/hide non-bond hull edges (default: on) |
+| `--hull-edge-width-ratio` | Hull edge stroke width as fraction of bond width (default: 0.4) |
 | `--iso` | Isosurface threshold (MO default: 0.05, density/ESP default: 0.001, NCI default: 0.3) |
 | `--opacity` | Surface opacity multiplier (default: 1.0) |
 | **Annotations** | |
@@ -1159,6 +1213,7 @@ Contributors:
 
 - [Ksenia Briling (@briling)](https://github.com/briling) — `vmol` integration and the [xyz2svg](https://github.com/briling/xyz2svg) foundation
 - [Sander Cohen-Janes (@scohenjanes5)](https://github.com/scohenjanes5) — crystal/periodic structure support (VASP, Quantum ESPRESSO, ghost atoms, crystallographic axes), vector annotations and gif parallelisation
+- [Rubén Laplaza (@rlaplaza)](https://github.com/rlaplaza) — convex hull facets
 - [Vinicius Port (@caprilesport)](https://github.com/caprilesport) — `v` binary path discovery
 - [Lucas Attia (@lucasattia)](https://github.com/lucasattia) — `--transparent` background flag
 

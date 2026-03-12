@@ -437,6 +437,12 @@ def render(
     nci_color: str | None = None,
     nci_coloring: str | None = None,
     nci_cutoff: float | None = None,
+    # --- Convex hull ---
+    hull: bool | list[int] | list[list[int]] | None = None,
+    hull_color: str | list[str] | None = None,
+    hull_opacity: float | None = None,
+    hull_edge: bool | None = None,
+    hull_edge_width_ratio: float | None = None,
     # --- Overlay ---
     overlay: str | os.PathLike | Molecule | None = None,
     overlay_color: str | None = None,
@@ -495,6 +501,17 @@ def render(
         Path to an ESP ``.cube`` file (density iso + ESP colour map).
     nci:
         Path to an NCI reduced-density-gradient ``.cube`` file.
+    hull:
+        ``True`` = hull over all heavy atoms; a flat list of 1-indexed atom
+        indices (one hull, e.g. ``[1,2,3,4,5,6]``); a list of lists (multiple
+        hulls, e.g. ``[[1,2,3,4,5,6], [7,8,9]]``).  ``None`` (default) = off.
+    hull_color:
+        A single color string for all hulls, or a list of colors for per-subset
+        colouring (one per subset).  Hex or named color.
+    hull_opacity:
+        Fill opacity for all hull surfaces.
+    hull_edge, hull_edge_width_ratio:
+        Draw hull edges that are not bonds as thin lines.
 
     Returns
     -------
@@ -547,6 +564,26 @@ def render(
             cfg.cmap_range = cmap_range
         if opacity is not None:
             cfg.surface_opacity = opacity
+        if hull is not None:
+            if isinstance(hull, list):
+                cfg.show_convex_hull = True
+                # 1-indexed user input → 0-indexed internal
+                from xyzrender.hull import hull_indices_to_0indexed
+
+                cfg.hull_atom_indices = hull_indices_to_0indexed(hull)
+            else:
+                cfg.show_convex_hull = hull
+        if hull_color is not None:
+            if isinstance(hull_color, list):
+                cfg.hull_colors = hull_color
+            else:
+                cfg.hull_colors = [hull_color]
+        if hull_opacity is not None:
+            cfg.hull_opacity = hull_opacity
+        if hull_edge is not None:
+            cfg.show_hull_edges = hull_edge
+        if hull_edge_width_ratio is not None:
+            cfg.hull_edge_width_ratio = hull_edge_width_ratio
     else:
         # Build from preset/file
         _ts_0 = [(a - 1, b - 1) for a, b in ts_bonds] if ts_bonds else None
@@ -555,6 +592,14 @@ def render(
         _show = bool(idx)
         _ifmt = idx if isinstance(idx, str) else "sn"
         _cmap_0 = _resolve_cmap(cmap, mol.graph) if cmap is not None else None
+        _hull_flag: bool | None = True if isinstance(hull, list) else hull
+        # 1-indexed user input → 0-indexed for build_config
+        if isinstance(hull, list):
+            from xyzrender.hull import hull_indices_to_0indexed
+
+            _hull_idx: list[int] | list[list[int]] | None = hull_indices_to_0indexed(hull)
+        else:
+            _hull_idx = None
 
         cfg = build_config(
             config,
@@ -585,6 +630,12 @@ def render(
             idx_format=_ifmt,
             atom_cmap=_cmap_0,
             cmap_range=cmap_range,
+            hull=_hull_flag,
+            hull_opacity=hull_opacity,
+            hull_colors=[hull_color] if isinstance(hull_color, str) else hull_color,
+            hull_idx=_hull_idx,
+            hull_edge=hull_edge,
+            hull_edge_width_ratio=hull_edge_width_ratio,
         )
 
     # --- Never mutate mol — work on a render-time copy ---
@@ -691,6 +742,10 @@ def render(
 
     # --- Surface validation ---
     cube_data = rmol.cube_data
+    _hull_active = cfg.show_convex_hull
+    if _hull_active and (mo or dens or esp is not None or nci is not None):
+        msg = "convex hull and surface rendering (mo/dens/esp/nci) are mutually exclusive"
+        raise ValueError(msg)
     if vdw is not None and (mo or dens or esp is not None or nci is not None):
         msg = "vdw spheres and surface rendering (mo/dens/esp/nci) are mutually exclusive"
         raise ValueError(msg)
@@ -831,6 +886,12 @@ def render_gif(
     mo_upsample: int | None = None,
     flat_mo: bool = False,
     dens_color: str | None = None,
+    # --- Convex hull (gif_rot only) ---
+    hull: bool | list[int] | list[list[int]] | None = None,
+    hull_color: str | list[str] | None = None,
+    hull_opacity: float | None = None,
+    hull_edge: bool | None = None,
+    hull_edge_width_ratio: float | None = None,
     # --- Crystal / cell (gif_rot only, when molecule has cell_data) ---
     no_cell: bool = False,
     axes: bool = True,
@@ -919,7 +980,36 @@ def render_gif(
     # Resolve config
     if not isinstance(config, str):
         cfg = copy.copy(config)
+        # Apply hull overrides to pre-built config
+        if hull is not None:
+            if isinstance(hull, list):
+                cfg.show_convex_hull = True
+                # 1-indexed user input → 0-indexed internal
+                from xyzrender.hull import hull_indices_to_0indexed
+
+                cfg.hull_atom_indices = hull_indices_to_0indexed(hull)
+            else:
+                cfg.show_convex_hull = hull
+        if hull_color is not None:
+            if isinstance(hull_color, list):
+                cfg.hull_colors = hull_color
+            else:
+                cfg.hull_colors = [hull_color]
+        if hull_opacity is not None:
+            cfg.hull_opacity = hull_opacity
+        if hull_edge is not None:
+            cfg.show_hull_edges = hull_edge
+        if hull_edge_width_ratio is not None:
+            cfg.hull_edge_width_ratio = hull_edge_width_ratio
     else:
+        _hull_flag: bool | None = True if isinstance(hull, list) else hull
+        # 1-indexed user input → 0-indexed for build_config
+        if isinstance(hull, list):
+            from xyzrender.hull import hull_indices_to_0indexed
+
+            _hull_idx: list[int] | list[list[int]] | None = hull_indices_to_0indexed(hull)
+        else:
+            _hull_idx = None
         cfg = build_config(
             config,
             canvas_size=canvas_size,
@@ -941,7 +1031,18 @@ def render_gif(
             hy=hy,
             no_hy=no_hy,
             orient=orient,
+            hull=_hull_flag,
+            hull_opacity=hull_opacity,
+            hull_colors=[hull_color] if isinstance(hull_color, str) else hull_color,
+            hull_idx=_hull_idx,
+            hull_edge=hull_edge,
+            hull_edge_width_ratio=hull_edge_width_ratio,
         )
+
+    # Surface / hull mutual exclusivity (also catches hull set on pre-built config)
+    if cfg.show_convex_hull and (mo or dens):
+        msg = "render_gif: convex hull and surface rendering (mo/dens) are mutually exclusive"
+        raise ValueError(msg)
 
     # Resolve molecule → path and/or graph
     if isinstance(molecule, Molecule):
