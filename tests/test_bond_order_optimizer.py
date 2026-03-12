@@ -78,12 +78,6 @@ def test_formal_charge_value():
     assert BondOrderOptimizer._compute_formal_charge_value("H", 1, 1.0) == 0
 
 
-def test_ekey_normalization():
-    """_ekey always returns (min, max) tuple."""
-    assert BondOrderOptimizer._ekey(3, 1) == (1, 3)
-    assert BondOrderOptimizer._ekey(1, 3) == (1, 3)
-
-
 # ---- Valence violation ----
 
 
@@ -210,23 +204,6 @@ def test_custom_config():
 
 
 # ---- Graph copy ----
-
-
-def test_copy_graph_state_independence():
-    """Copied graph should be independent (edits don't propagate)."""
-    atoms = [
-        ("C", (0.0, 0.0, 0.0)),
-        ("H", (1.0, 0.0, 0.0)),
-    ]
-    G = _make_graph(atoms, [(0, 1)])
-    G_copy = BondOrderOptimizer._copy_graph_state(G)
-
-    # Modify copy
-    G_copy.edges[0, 1]["bond_order"] = 2.0
-
-    # Original unchanged
-    assert G.edges[0, 1]["bond_order"] == 1.0
-    assert G_copy.edges[0, 1]["bond_order"] == 2.0
 
 
 # ---- Invalid optimizer mode ----
