@@ -91,12 +91,25 @@ def test_mnh():
     assert len(result["graph"]["rings"]) == len(expected["graph"]["rings"])
 
     # Every node
+    # Cp ring carbons are symmetry-equivalent — formal charge can land on
+    # any one of the 5 carbons in each ring, so we compare per-ring totals
+    # rather than per-atom values for those atoms.
+    CP_RINGS = [{7, 8, 9, 11, 13}, {15, 17, 19, 21, 23}]  # 0-indexed
+    cp_atoms = CP_RINGS[0] | CP_RINGS[1]
+
     assert len(result["nodes"]) == len(expected["nodes"])
-    for got, exp in zip(result["nodes"], expected["nodes"]):
+    for i, (got, exp) in enumerate(zip(result["nodes"], expected["nodes"])):
         assert got["symbol"] == exp["symbol"]
-        assert got["formal_charge"] == exp["formal_charge"]
+        if i not in cp_atoms:
+            assert got["formal_charge"] == exp["formal_charge"]
         assert got["valence"] == pytest.approx(exp["valence"])
         assert got["metal_valence"] == pytest.approx(exp["metal_valence"])
+
+    # Cp ring formal charge totals must match (any permutation within ring is OK)
+    for ring in CP_RINGS:
+        got_sum = sum(result["nodes"][i]["formal_charge"] for i in ring)
+        exp_sum = sum(expected["nodes"][i]["formal_charge"] for i in ring)
+        assert got_sum == exp_sum, f"Cp ring {ring}: fc sum {got_sum} != {exp_sum}"
 
     # Every edge
     assert len(result["edges"]) == len(expected["edges"])

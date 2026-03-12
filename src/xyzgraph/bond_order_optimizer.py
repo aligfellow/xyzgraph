@@ -23,6 +23,7 @@ import networkx as nx
 from .data_loader import MolecularData
 from .geometry import GeometryCalculator
 from .parameters import OptimizerConfig, ScoringWeights
+from .scoring_arrays import ScoringArrays
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,6 @@ class BondOrderOptimizer:
 
         # Optimization state (caches)
         self.valence_cache: Dict[int, float] = {}
-        self.edge_scores_cache: Optional[List[Tuple[int, int]]] = None
-        self._edge_score_map: Optional[Dict[Tuple[int, int], float]] = None
 
     def _log(self, msg: str, level: int = 0):
         """Log message with indentation."""
@@ -107,36 +106,6 @@ class BondOrderOptimizer:
         target = 8
         L = max(0, target - B)
         return round(valence_electrons - L - B / 2)
-
-    @staticmethod
-    def _ekey(i: int, j: int) -> Tuple[int, int]:
-        return (i, j) if i < j else (j, i)
-
-    @staticmethod
-    def _copy_graph_state(G: nx.Graph) -> nx.Graph:
-        """Create INDEPENDENT copy of graph for beam exploration."""
-        G_new = nx.Graph()
-
-        # Copy nodes with INDEPENDENT attribute dicts
-        for node, data in G.nodes(data=True):
-            G_new.add_node(
-                node,
-                symbol=data["symbol"],
-                atomic_number=data["atomic_number"],
-                position=data["position"],
-            )
-
-        # Copy edges with INDEPENDENT attribute dicts
-        for i, j, data in G.edges(data=True):
-            G_new.add_edge(
-                i,
-                j,
-                bond_order=float(data["bond_order"]),
-                distance=float(data["distance"]),
-                metal_coord=bool(data.get("metal_coord", False)),
-            )
-
-        return G_new
 
     # =========================================================================
     # Public API
@@ -895,259 +864,6 @@ class BondOrderOptimizer:
 
         return stats
 
-    # =========================================================================
-    # Edge scoring and selection
-    # =========================================================================
-
-    def _edge_score(self, G: nx.Graph, i: int, j: int) -> float:
-        """Check scoring of edge."""
-        if not self._eligible_edge(G, i, j):
-            return float("-inf")
-        si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
-        vmax_i = max(self.data.valences.get(si, [4]))
-        vmax_j = max(self.data.valences.get(sj, [4]))
-        di = vmax_i - self.valence_cache[i]
-        dj = vmax_j - self.valence_cache[j]
-        return di + dj
-
-    @staticmethod
-    def _eligible_edge(G: nx.Graph, i: int, j: int) -> bool:
-        data = G[i][j]
-        if data.get("metal_coord", False):
-            return False
-        if data.get("locked", False):
-            return False
-        if data.get("bond_order", 1.0) >= 3.0:
-            return False
-        return True
-
-    def _edge_likelihood(
-        self, G: nx.Graph, *, init: bool = False, touch_nodes: Optional[set] = None
-    ) -> List[Tuple[int, int]]:
-        """Select candidate edges for bond order optimization.
-
-        - init=True: build score map for all edges once.
-        - touch_nodes={u,v}: update edges belonging to these nodes.
-        - return current top-k edges as a list [(i,j), ...].
-        """
-        # Build / refresh full score map
-        if init or self._edge_score_map is None:
-            self._edge_score_map = {}
-            for i, j in G.edges():
-                e = self._ekey(i, j)
-                self._edge_score_map[e] = self._edge_score(G, *e)
-
-        # Incremental update: only recompute scores for edges touching changed nodes
-        if touch_nodes:
-            for n in touch_nodes:
-                for nbr in G.neighbors(n):
-                    e = self._ekey(n, nbr)
-                    # only update existing edges
-                    if G.has_edge(*e):
-                        self._edge_score_map[e] = self._edge_score(G, *e)
-        # Return top-k edges
-        items = [(s, e) for e, s in self._edge_score_map.items() if s != float("-inf")]
-        items.sort(key=lambda t: (-t[0], t[1][0], t[1][1]))  # sort by score desc, then by edge
-        top = [e for _, e in items[: self.config.edge_per_iter]]
-        self.edge_scores_cache = top
-        return top
-
-    # =========================================================================
-    # Scoring
-    # =========================================================================
-
-    def _ring_conjugation_penalty(self, G: nx.Graph, rings: List[List[int]]) -> float:
-        """Assess conjugation penalties in aromatic rings (5-6 members).
-
-        Returns a numeric penalty (larger = worse).
-        """
-        # Atoms belonging to any ring — fused-ring junction bonds (where the
-        # neighbour is also a ring member) are not true exocyclic substituents.
-        all_ring_atoms: set = set()
-        for c in rings:
-            all_ring_atoms.update(c)
-
-        conjugation_penalty = 0.0
-        for ring in rings:
-            if len(ring) not in (5, 6):
-                continue
-
-            if not all(G.nodes[i]["symbol"] in self.data.scoring_conjugatable_atoms for i in ring):
-                continue
-
-            ring_set = set(ring)
-            elevated_bonds = 0
-            exocyclic_double = 0
-
-            # --- Bonds within the ring ---
-            ring_edges = [(ring[k], ring[(k + 1) % len(ring)]) for k in range(len(ring))]
-            for i, j in ring_edges:
-                bo = G[i][j].get("bond_order", 1.0)
-                if bo > 1.3:
-                    elevated_bonds += 1
-
-            # --- Exocyclic double bonds ---
-            for ring_atom in ring:
-                ring_sym = G.nodes[ring_atom]["symbol"]
-                for nbr, data in G[ring_atom].items():
-                    if nbr not in ring_set:
-                        nbr_sym = G.nodes[nbr]["symbol"]
-
-                        # Skip fused-ring junction bonds
-                        if nbr in all_ring_atoms:
-                            continue
-
-                        # Skip metal bonds
-                        if nbr_sym in self.data.metals:
-                            continue
-
-                        bo = data.get("bond_order", 1.0)
-                        if bo >= 1.8:
-                            if (ring_sym == "C" and nbr_sym != "O") or (ring_sym == "N" and nbr_sym in ("C", "P", "S")):
-                                exocyclic_double += 1
-
-            # --- Scoring logic ---
-            expected_elevated = len(ring) // 2
-            if elevated_bonds >= expected_elevated - 1:
-                if exocyclic_double > 0:
-                    conjugation_penalty += exocyclic_double * self.weights.exocyclic_double_penalty
-            else:
-                deficit = (expected_elevated - 1) - elevated_bonds
-                if deficit > 0:
-                    conjugation_penalty += deficit * self.weights.conjugation_deficit_penalty
-                    if exocyclic_double > 0:
-                        conjugation_penalty += exocyclic_double * self.weights.exocyclic_double_penalty
-
-        return conjugation_penalty
-
-    def _score_assignment(self, G: nx.Graph, rings: Optional[List[List[int]]] = None) -> Tuple[float, List[int]]:
-        """Scoring that uses pre-computed valence cache."""
-        if self.check_valence_violation(G):
-            return 1e9, [0 for _ in G.nodes()]
-
-        # Ring cache
-        if rings is None:
-            rings = G.graph.get("_rings", nx.cycle_basis(G))
-
-        # Neighbor cache
-        neighbor_cache = G.graph.get("_neighbors", {n: list(G.neighbors(n)) for n in G.nodes()})
-
-        # H-neighbor cache
-        has_H = G.graph.get(
-            "_has_H",
-            {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G[n]) for n in G.nodes()},
-        )
-
-        # Penalty accumulators
-        penalties = {
-            "violation": 0.0,
-            "conjugation": 0.0,
-            "protonation": 0.0,
-            "valence": 0.0,
-            "en": 0.0,
-            "fc": 0,
-            "n_charged": 0,
-        }
-
-        # Conjugation penalty
-        penalties["conjugation"] = self._ring_conjugation_penalty(G, rings)
-
-        # Formal charge cache
-        formal_cache: Dict[Tuple[str, float], int] = {}
-
-        def get_formal(sym, vsum):
-            key = (sym, round(vsum, 2))
-            if key not in formal_cache:
-                V = self.data.electrons.get(sym, 0)
-                formal_cache[key] = self._compute_formal_charge_value(sym, V, vsum)
-            return formal_cache[key]
-
-        formal_charges = []
-
-        for node in G.nodes():
-            sym = G.nodes[node]["symbol"]
-
-            vsum = self.valence_cache[node]
-
-            if sym in self.data.metals:
-                formal_charges.append(0)
-                continue
-
-            fc = get_formal(sym, vsum)
-            formal_charges.append(fc)
-
-            if fc != 0:
-                penalties["fc"] += abs(fc)
-                penalties["n_charged"] += 1
-
-            nb = neighbor_cache[node]
-            if has_H[node]:
-                if fc == 0:
-                    for nbr in nb:
-                        if G.nodes[nbr]["symbol"] != "H":
-                            other_fc = get_formal(G.nodes[nbr]["symbol"], self.valence_cache[nbr])
-                            if other_fc > 0:
-                                penalties["protonation"] += 8.0 if sym in ("N", "O") else 3.0
-                elif fc > 0 and sym in ("N", "O", "S"):
-                    penalties["en"] -= 1.5
-
-            # Valence error
-            if sym in self.data.valences:
-                allowed = self.data.valences[sym]
-                min_error = min(abs(vsum - v) for v in allowed)
-                penalties["valence"] += min_error**2
-
-                if sym in SCORING_VALENCE_LIMITS and vsum > SCORING_VALENCE_LIMITS[sym] + SCORING_VALENCE_TOLERANCE:
-                    penalties["violation"] += self.weights.violation_weight
-
-            # Electronegativity penalty
-            en = self.data.electronegativity.get(sym, DEFAULT_ELECTRONEGATIVITY)
-            if fc != 0:
-                penalties["en"] += abs(fc) * ((3.5 - en) if fc < 0 else (en - 2.5)) * 0.5
-
-        # Total score
-        charge_error = abs(sum(formal_charges) - self.charge)
-        score = (
-            self.weights.violation_weight * penalties["violation"]
-            + self.weights.conjugation_weight * penalties["conjugation"]
-            + self.weights.protonation_weight * penalties["protonation"]
-            + self.weights.formal_charge_weight * penalties["fc"]
-            + self.weights.charged_atoms_weight * penalties["n_charged"]
-            + self.weights.charge_error_weight * charge_error
-            + self.weights.electronegativity_weight * penalties["en"]
-            + self.weights.valence_error_weight * penalties["valence"]
-        )
-
-        return score, formal_charges
-
-    # =========================================================================
-    # Valence cache management
-    # =========================================================================
-
-    def _update_valence_cache(self, G: nx.Graph, nodes: Optional[set] = None) -> None:
-        """Update valence cache for specific nodes or all nodes.
-
-        Excludes metal bonds to match behavior in optimization methods.
-        """
-        if nodes is None:
-            # Full rebuild (excluding metal bonds)
-            self.valence_cache = {
-                n: sum(
-                    G[n][nbr].get("bond_order", 1.0)
-                    for nbr in G.neighbors(n)
-                    if G.nodes[nbr]["symbol"] not in self.data.metals
-                )
-                for n in G.nodes()
-            }
-        else:
-            # Incremental update (excluding metal bonds)
-            for n in nodes:
-                self.valence_cache[n] = sum(
-                    G[n][nbr].get("bond_order", 1.0)
-                    for nbr in G.neighbors(n)
-                    if G.nodes[nbr]["symbol"] not in self.data.metals
-                )
-
     @staticmethod
     def _restore_graph_caches(G: nx.Graph) -> None:
         """Rebuild cached graph properties after modifications."""
@@ -1159,7 +875,7 @@ class BondOrderOptimizer:
     # =========================================================================
 
     def _full_valence_optimize(self, G: nx.Graph) -> Dict[str, Any]:
-        """Optimize bond orders with formal charge minimization.
+        """Greedy optimizer using vectorised numpy scoring.
 
         Returns a stats dict containing iterations, improvements,
         initial_score, final_score, and final formal_charges.
@@ -1168,28 +884,13 @@ class BondOrderOptimizer:
         self._log("FULL VALENCE OPTIMIZATION", 1)
         self._log("=" * 80, 0)
 
-        # --- Precompute / cache graph info ---
-        rings = G.graph.get("_rings") or nx.cycle_basis(G)
-        G.graph["_rings"] = rings
+        # Ensure graph caches
+        if "_rings" not in G.graph:
+            G.graph["_rings"] = nx.cycle_basis(G)
+        G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
+        G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
-        neighbor_cache = G.graph.get("_neighbors") or {n: list(G.neighbors(n)) for n in G.nodes()}
-        G.graph["_neighbors"] = neighbor_cache
-
-        has_H = G.graph.get("_has_H") or {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G[n]) for n in G.nodes()}
-        G.graph["_has_H"] = has_H
-
-        # Build valence cache excluding metal bonds
-        valence_cache = {
-            n: sum(
-                G[n][nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(n)
-                if G.nodes[nbr]["symbol"] not in self.data.metals
-            )
-            for n in G.nodes()
-        }
-        self.valence_cache = valence_cache
-
-        # --- Lock metal bonds ---
+        # Lock metal bonds
         metal_count = 0
         for _i, _j, data in G.edges(data=True):
             if data.get("metal_coord", False):
@@ -1198,8 +899,16 @@ class BondOrderOptimizer:
         if metal_count > 0:
             self._log(f"Locked {metal_count} metal bonds", 1)
 
-        # --- Initial scoring ---
-        current_score, formal_charges = self._score_assignment(G, rings)
+        # Build array representation
+        sa = ScoringArrays.from_graph(G, self.data, self.weights)
+        bo = sa.bond_orders.copy()
+        vs = sa.compute_valence_sums(bo)
+
+        # Also keep dict-based cache in sync for downstream code
+        self.valence_cache = {i: float(vs[i]) for i in range(sa.n_atoms)}
+
+        # Initial scoring
+        current_score, formal_charges = sa.score(vs, bo, self.charge, self.weights)
         initial_score = current_score
 
         stats: dict[str, Any] = {
@@ -1207,75 +916,61 @@ class BondOrderOptimizer:
             "improvements": 0,
             "initial_score": initial_score,
             "final_score": initial_score,
-            "final_formal_charges": formal_charges,
+            "final_formal_charges": formal_charges.tolist()
+            if hasattr(formal_charges, "tolist")
+            else list(formal_charges),
         }
 
         self._log(f"Initial score: {initial_score:.2f}", 1)
 
         stagnation = 0
-        self.edge_scores_cache = None
-        last_promoted_edge = None
-        self._edge_score_map = None
 
-        # --- Optimization loop ---
         for iteration in range(self.config.max_iter):
             stats["iterations"] = iteration + 1
             best_delta = 0.0
-            best_edge = None
+            best_move: Optional[Tuple[int, float]] = None  # (edge_idx, change)
 
             self._log(f"\nIteration {iteration + 1}:", 1)
 
-            # --- Precompute top-k candidate edges (with cache) ---
-            if self.edge_scores_cache is None:
-                self.edge_scores_cache = self._edge_likelihood(G, init=True)
-            elif last_promoted_edge is not None:
-                self._log(f"Recalculating candidates (promoted {last_promoted_edge})", 2)
-                i, j = last_promoted_edge
-                self.edge_scores_cache = self._edge_likelihood(G, touch_nodes={i, j})
+            # Get top candidate edges (vectorised)
+            top_eidxs = sa.top_candidate_edges(bo, vs, self.data.valences, self.config.edge_per_iter)
 
-            # --- Evaluate top-k edges using local delta scoring ---
-            for i, j in self.edge_scores_cache:
-                bo = G[i][j]["bond_order"]
+            for raw_eidx in top_eidxs:
+                eidx = int(raw_eidx)
+                old_bo = bo[eidx]
 
-                # Test both directions
-                for change in [+1, -1]:
-                    new_bo = bo + change
-
-                    # Skip invalid bond orders
-                    if new_bo < 1.0 or new_bo > 3.0:
+                for change in (+1.0, -1.0):
+                    new_bo_val = old_bo + change
+                    if new_bo_val < 1.0 or new_bo_val > 3.0:
                         continue
 
-                    # Temporarily apply change
-                    G[i][j]["bond_order"] = new_bo
-                    valence_cache[i] += change
-                    valence_cache[j] += change
+                    # Temporarily apply
+                    bo[eidx] = new_bo_val
+                    sa.update_valence_sums(vs, eidx, old_bo, new_bo_val)
 
-                    # Compute full score
-                    new_score, _ = self._score_assignment(G, rings)
+                    new_score, _ = sa.score(vs, bo, self.charge, self.weights)
                     delta = current_score - new_score
 
                     # Rollback
-                    G[i][j]["bond_order"] = bo
-                    valence_cache[i] -= change
-                    valence_cache[j] -= change
+                    sa.update_valence_sums(vs, eidx, new_bo_val, old_bo)
+                    bo[eidx] = old_bo
 
                     if delta > best_delta:
                         best_delta = delta
-                        best_edge = (i, j, change)
+                        best_move = (eidx, change)
 
-            # --- Apply best improvement ---
-            if best_edge and best_delta > 1e-6:
-                i, j, change = best_edge
-                G[i][j]["bond_order"] += change
-                valence_cache[i] += change
-                valence_cache[j] += change
-                current_score, _ = self._score_assignment(G, rings)
+            if best_move and best_delta > 1e-6:
+                best_eidx, change = best_move
+                old_bo = bo[best_eidx]
+                new_bo_val = old_bo + change
+                bo[best_eidx] = new_bo_val
+                sa.update_valence_sums(vs, best_eidx, old_bo, new_bo_val)
+                current_score, _ = sa.score(vs, bo, self.charge, self.weights)
 
                 stats["improvements"] += 1
                 stagnation = 0
-                last_promoted_edge = (i, j)
-                self._edge_likelihood(G, touch_nodes={i, j})  # update cache
 
+                i, j = int(sa.edge_src[best_eidx]), int(sa.edge_dst[best_eidx])
                 si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
                 edge_label = f"{si}{i}-{sj}{j}"
                 action = "promoted" if change > 0 else "demoted"
@@ -1283,19 +978,20 @@ class BondOrderOptimizer:
                     f"✓ {edge_label:<10}  {action}  Δscore = {best_delta:6.2f}  new_score = {current_score:8.2f}",
                     2,
                 )
-
             else:
                 stagnation += 1
-                last_promoted_edge = None
-                self.edge_scores_cache = None  # force full recompute next time
-
                 if stagnation >= MAX_STAGNATION_ITERATIONS:
-                    break  # stop if no improvement
+                    break
 
-        # --- Final scoring ---
-        final_formal_charges = self._score_assignment(G, rings)[1]
-        stats["final_score"] = current_score
-        stats["final_formal_charges"] = final_formal_charges
+        # Apply to graph
+        sa.write_bond_orders_to_graph(G, bo)
+        self._restore_graph_caches(G)
+        self.valence_cache = {i: float(vs[i]) for i in range(sa.n_atoms)}
+
+        # Final scoring
+        final_score, final_fc = sa.score(vs, bo, self.charge, self.weights)
+        stats["final_score"] = final_score
+        stats["final_formal_charges"] = final_fc.tolist() if hasattr(final_fc, "tolist") else list(final_fc)
 
         self._log("-" * 80, 0)
         self._log(f"Optimized: {stats['improvements']} improvements", 1)
@@ -1309,19 +1005,19 @@ class BondOrderOptimizer:
     # =========================================================================
 
     def _beam_search_optimize(self, G: nx.Graph) -> Dict[str, Any]:
-        """Memory-efficient beam search with incremental valence cache updates.
+        """Beam search using vectorised numpy scoring.
 
-        Strategy:
-        - Maintain valence cache per hypothesis (small dict)
-        - When promoting edge (i,j), update valence for nodes i and j
-        - Score calculation uses cached valences
+        Each beam hypothesis is a (bond_orders, valence_sums) pair of
+        numpy arrays — forking a hypothesis is just two array copies
+        instead of deep-copying an entire nx.Graph.
         """
         self._log(f"\n{'=' * 80}", 0)
         self._log(f"BEAM SEARCH OPTIMIZATION (width={self.config.beam_width})", 0)
         self._log("=" * 80, 0)
 
-        # Use cached graph info (don't recompute - preserves metal-free rings)
-        rings = G.graph.get("_rings", nx.cycle_basis(G))
+        # Ensure graph caches exist (rings, neighbours)
+        if "_rings" not in G.graph:
+            G.graph["_rings"] = nx.cycle_basis(G)
         G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
         G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
@@ -1334,37 +1030,33 @@ class BondOrderOptimizer:
         if metal_count > 0:
             self._log(f"Locked {metal_count} metal bonds", 1)
 
-        # Build initial valence cache excluding metal bonds (shared starting point)
-        base_valence_cache = {
-            n: sum(
-                G[n][nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(n)
-                if G.nodes[nbr]["symbol"] not in self.data.metals
-            )
-            for n in G.nodes()
-        }
+        # Build array representation (topology is immutable after this)
+        sa = ScoringArrays.from_graph(G, self.data, self.weights)
+        base_bo = sa.bond_orders.copy()
+        base_vs = sa.compute_valence_sums(base_bo)
 
         # Initial scoring
-        self.valence_cache = base_valence_cache.copy()
-        current_score, formal_charges = self._score_assignment(G, rings)
+        current_score, formal_charges = sa.score(base_vs, base_bo, self.charge, self.weights)
         initial_score = current_score
-
         self._log(f"Initial score: {initial_score:.2f}", 1)
 
-        beam = [(current_score, G, base_valence_cache.copy(), [])]
+        # Beam: list of (score, bond_orders, valence_sums, history)
+        beam: list = [(current_score, base_bo.copy(), base_vs.copy(), [])]
 
         stats: dict[str, Any] = {
             "iterations": 0,
             "improvements": 0,
             "initial_score": initial_score,
             "final_score": initial_score,
-            "final_formal_charges": formal_charges,
+            "final_formal_charges": formal_charges.tolist()
+            if hasattr(formal_charges, "tolist")
+            else list(formal_charges),
             "beam_explored": 0,
         }
 
         best_ever_score = current_score
-        best_ever_graph = self._copy_graph_state(G)
-        best_ever_cache = base_valence_cache.copy()
+        best_ever_bo = base_bo.copy()
+        best_ever_vs = base_vs.copy()
 
         for iteration in range(self.config.max_iter):
             stats["iterations"] = iteration + 1
@@ -1372,64 +1064,34 @@ class BondOrderOptimizer:
 
             candidates = []
 
-            # Expand each hypothesis in beam
-            for _beam_idx, (
-                parent_score,
-                parent_graph,
-                parent_cache,
-                parent_history,
-            ) in enumerate(beam):
-                self.valence_cache = parent_cache
+            for _beam_idx, (parent_score, parent_bo, parent_vs, parent_history) in enumerate(beam):
+                # Get top candidate edges (vectorised)
+                top_eidxs = sa.top_candidate_edges(parent_bo, parent_vs, self.data.valences, self.config.edge_per_iter)
 
-                # Get top candidate edges
-                self._edge_score_map = None
-                top_edges = self._edge_likelihood(parent_graph, init=True)
+                for raw_eidx in top_eidxs:
+                    eidx = int(raw_eidx)
+                    old_bo = parent_bo[eidx]
+                    i = int(sa.edge_src[eidx])
+                    j = int(sa.edge_dst[eidx])
 
-                changes_tried = 0
-                for i, j in top_edges:
-                    if not self._eligible_edge(parent_graph, i, j):
-                        continue
-
-                    # Test both promotion (+1) and demotion (-1)
-                    for change in [+1, -1]:
-                        old_bo = parent_graph[i][j]["bond_order"]
+                    for change in (+1.0, -1.0):
                         new_bo = old_bo + change
-
-                        # Skip invalid bond orders
                         if new_bo < 1.0 or new_bo > 3.0:
                             continue
 
-                        changes_tried += 1
+                        # Fork: copy arrays (fast — just memcpy)
+                        cand_bo = parent_bo.copy()
+                        cand_vs = parent_vs.copy()
+                        cand_bo[eidx] = new_bo
+                        sa.update_valence_sums(cand_vs, eidx, old_bo, new_bo)
 
-                        G_new = self._copy_graph_state(parent_graph)
-
-                        # Apply change
-                        G_new[i][j]["bond_order"] = new_bo
-
-                        # Update the two affected nodes
-                        new_cache = parent_cache.copy()
-                        new_cache[i] = parent_cache[i] + change
-                        new_cache[j] = parent_cache[j] + change
-
-                        # Use new cache for scoring
-                        self.valence_cache = new_cache
-                        new_score, _ = self._score_assignment(G_new, rings)
-
+                        new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
                         stats["beam_explored"] += 1
 
-                        # Keep if improvement
                         delta = parent_score - new_score
                         if delta > 0:
                             new_history = [*parent_history, (i, j, change)]
-                            candidates.append(
-                                (
-                                    new_score,
-                                    G_new,
-                                    new_cache,
-                                    (i, j, change),
-                                    new_history,
-                                )
-                            )
+                            candidates.append((new_score, cand_bo, cand_vs, (i, j, change), new_history))
 
             if not candidates:
                 self._log("  No improvements found in any beam, stopping", 2)
@@ -1437,27 +1099,22 @@ class BondOrderOptimizer:
 
             # Sort and keep top beam_width
             candidates.sort(key=lambda x: x[0])
-
             self._log(
                 f"  Generated {len(candidates)} candidates, keeping top {min(self.config.beam_width, len(candidates))}",
                 2,
             )
 
-            beam = [
-                (score, graph, cache, history)
-                for score, graph, cache, edge, history in candidates[: self.config.beam_width]
-            ]
+            beam = [(score, bo, vs, history) for score, bo, vs, _edge, history in candidates[: self.config.beam_width]]
 
             # Track best ever
             best_in_beam = beam[0]
             if best_in_beam[0] < best_ever_score:
                 improvement = best_ever_score - best_in_beam[0]
                 best_ever_score = best_in_beam[0]
-                best_ever_graph = self._copy_graph_state(best_in_beam[1])
-                best_ever_cache = best_in_beam[2].copy()
+                best_ever_bo = best_in_beam[1].copy()
+                best_ever_vs = best_in_beam[2].copy()
                 stats["improvements"] += 1
 
-                # Log improvement
                 last_edge = best_in_beam[3][-1]
                 si = G.nodes[last_edge[0]]["symbol"]
                 sj = G.nodes[last_edge[1]]["symbol"]
@@ -1467,19 +1124,18 @@ class BondOrderOptimizer:
                     2,
                 )
 
-        # Apply best solution
+        # Apply best solution back to nx.Graph
         self._log("\nApplying best solution to graph...", 1)
-        for i, j, data in best_ever_graph.edges(data=True):
-            G[i][j]["bond_order"] = data["bond_order"]
+        sa.write_bond_orders_to_graph(G, best_ever_bo)
 
-        # Restore caches
+        # Restore graph caches and dict-based valence cache (for downstream code)
         self._restore_graph_caches(G)
-        self.valence_cache = best_ever_cache
+        self.valence_cache = {i: float(best_ever_vs[i]) for i in range(sa.n_atoms)}
 
-        # Final scoring
-        final_score, final_formal_charges = self._score_assignment(G, rings)
+        # Final scoring (use array scorer for consistency)
+        final_score, final_fc = sa.score(best_ever_vs, best_ever_bo, self.charge, self.weights)
         stats["final_score"] = final_score
-        stats["final_formal_charges"] = final_formal_charges
+        stats["final_formal_charges"] = final_fc.tolist() if hasattr(final_fc, "tolist") else list(final_fc)
 
         self._log("-" * 80, 0)
         self._log(
