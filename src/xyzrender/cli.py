@@ -7,8 +7,15 @@ import logging
 import sys
 from pathlib import Path
 
-from xyzrender.api import Molecule, load, orient, render, render_gif
+from xyzrender.api import (
+    Molecule,
+    load,
+    orient,
+    render,
+    render_gif,
+)
 from xyzrender.config import build_config
+from xyzrender.hull import apply_hull_to_config
 from xyzrender.readers import load_stdin
 
 logger = logging.getLogger(__name__)
@@ -29,8 +36,17 @@ def _parse_pairs(s: str) -> list[tuple[int, int]]:
         return []
     pairs = []
     for part in s.split(","):
-        a, b = part.split("-")
-        pairs.append((int(a) - 1, int(b) - 1))
+        segment = part.strip()
+        if not segment:
+            continue
+        tokens = segment.split("-")
+        if len(tokens) != 2:
+            raise ValueError(f"Invalid pair {segment!r}: expected exactly one '-' per segment (e.g. 1-6,3-4)")
+        try:
+            a, b = int(tokens[0].strip()), int(tokens[1].strip())
+        except ValueError as e:
+            raise ValueError(f"Invalid pair {segment!r}: atom indices must be integers (e.g. 1-6,3-4)") from e
+        pairs.append((a - 1, b - 1))
     return pairs
 
 
@@ -416,12 +432,6 @@ def main() -> None:
         show_indices=args.idx is not None,
         idx_format=args.idx or "sn",
         cmap_range=tuple(args.cmap_range) if args.cmap_range else None,
-        hull=True if args.hull is not None and args.hull != ["rings"] else None,
-        hull_idx=([_parse_indices(g) for g in args.hull] if args.hull and args.hull != ["rings"] else None),
-        hull_colors=args.hull_color,
-        hull_opacity=args.hull_opacity,
-        hull_edge=args.hull_edge,
-        hull_edge_width_ratio=args.hull_edge_width_ratio,
     )
 
     if args.skeletal_label_color is not None:
@@ -516,14 +526,24 @@ def main() -> None:
         except ValueError as e:
             p.error(str(e))
 
-    # Resolve hull="rings" now that mol is loaded
-    if args.hull == ["rings"]:
-        from xyzrender.api import _resolve_hull_rings
-
-        ring_indices = _resolve_hull_rings(mol.graph)
-        if ring_indices:
-            cfg.show_convex_hull = True
-            cfg.hull_atom_indices = ring_indices
+    # Resolve hull now that mol is loaded (needs graph for ring detection / index conversion)
+    if args.hull is not None:
+        if args.hull == ["rings"]:
+            _hull_arg: bool | str | list[int] | list[list[int]] = "rings"
+        elif not args.hull:
+            # --hull with no args → all heavy atoms
+            _hull_arg = True
+        else:
+            _hull_arg = [_parse_indices(g) for g in args.hull]
+        apply_hull_to_config(
+            cfg,
+            _hull_arg,
+            hull_color=args.hull_color,
+            hull_opacity=args.hull_opacity,
+            hull_edge=args.hull_edge,
+            hull_edge_width_ratio=args.hull_edge_width_ratio,
+            graph=mol.graph,
+        )
 
     # Pre-load overlay once so render() + render_gif() don't each load it from disk.
     if args.overlay and isinstance(args.overlay, str):

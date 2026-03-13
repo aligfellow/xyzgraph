@@ -18,11 +18,16 @@ from xyzrender.types import (
 logger = logging.getLogger(__name__)
 
 _PRESET_DIR = Path(__file__).parent / "presets"
+_DEFAULT_CONFIG: dict | None = None
 
 
 def _load_default() -> dict:
     """Return the built-in default preset."""
-    return json.loads((_PRESET_DIR / "default.json").read_text())
+    global _DEFAULT_CONFIG  # noqa: PLW0603
+    if _DEFAULT_CONFIG is None:
+        _DEFAULT_CONFIG = json.loads((_PRESET_DIR / "default.json").read_text())
+    # Always return a fresh copy so callers can mutate safely.
+    return dict(_DEFAULT_CONFIG)
 
 
 def _merge_onto_default(overrides: dict) -> dict:
@@ -171,12 +176,6 @@ def build_config(
     idx_format: str = "sn",
     atom_cmap: dict[int, float] | None = None,
     cmap_range: tuple[float, float] | None = None,
-    hull: bool | None = None,
-    hull_opacity: float | None = None,
-    hull_colors: list[str] | None = None,
-    hull_idx: list[int] | list[list[int]] | None = None,
-    hull_edge: bool | None = None,
-    hull_edge_width_ratio: float | None = None,
 ) -> RenderConfig:
     """Build a :class:`~xyzrender.types.RenderConfig` from a preset and style kwargs.
 
@@ -236,11 +235,6 @@ def build_config(
         ("vdw_opacity", vdw_opacity),
         ("vdw_scale", vdw_scale),
         ("vdw_gradient_strength", vdw_gradient_strength),
-        ("show_convex_hull", hull),
-        ("hull_opacity", hull_opacity),
-        ("hull_colors", hull_colors),
-        ("show_hull_edges", hull_edge),
-        ("hull_edge_width_ratio", hull_edge_width_ratio),
     ]:
         if val is not None:
             overrides[key] = val
@@ -259,8 +253,6 @@ def build_config(
         cfg.nci_bonds = list(nci_bonds)
     if vdw_indices is not None:
         cfg.vdw_indices = vdw_indices
-    if hull_idx is not None:
-        cfg.hull_atom_indices = hull_idx
     if show_indices:
         cfg.show_indices = True
         cfg.idx_format = idx_format
