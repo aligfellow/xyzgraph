@@ -44,12 +44,16 @@ Full flag reference for `xyzrender`. See also `xyzrender --help`.
 | `--vdw-scale` | vdW sphere radius scale |
 | `--vdw-gradient` | vdW sphere gradient strength |
 
-## Structural overlay
+## Structural overlay / ensemble
 
 | Flag | Description |
 |------|-------------|
 | `--overlay FILE` | Second structure to overlay (RMSD-aligned onto the primary) |
 | `--overlay-color COLOR` | Color for the overlay structure (hex or named) |
+| `--ensemble` | Ensemble overlay for multi-frame XYZ trajectories; conformers default to CPK atom colours |
+| `--ensemble-color VALUE` | Palette name (`viridis`, `spectral`, `coolwarm`), a single colour, or comma-separated colours |
+| `--opacity FLOAT` | Opacity for non-reference conformers (0–1) |
+| `--align-atoms INDICES` | 1-indexed atom subset for Kabsch alignment (min 3), e.g. `1,2,3` or `1-6`. Works with `--overlay` and `--ensemble` |
 
 ## Orientation
 

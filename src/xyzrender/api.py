@@ -114,17 +114,57 @@ class GIFResult:
 
 
 @dataclass
+class EnsembleFrames:
+    """Per-conformer data for an ensemble loaded with ``load(ensemble=True)``.
+
+    Kept separate from ``Molecule.graph`` (which holds only the reference frame)
+    so the graph always represents a single n_atoms structure regardless of
+    ensemble size.  Consumers (render, render_gif) build the merged multi-
+    conformer graph lazily from these arrays.
+
+    Attributes
+    ----------
+    positions:
+        Stacked conformer positions, shape ``(n_conformers, n_atoms, 3)``.
+        All frames are RMSD-aligned onto the reference frame.
+        Contiguous memory allows vectorised rotation across all conformers
+        simultaneously (single matmul for GIF frames).
+    colors:
+        Resolved hex color string per conformer (``None`` = use CPK).
+    opacities:
+        Per-conformer opacity override (``None`` = fully opaque).
+    conformer_graphs:
+        Optional per-frame graphs for ``rebuild=True`` ensembles (topology
+        can differ per frame).  ``None`` means all frames share the reference
+        topology.
+    reference_idx:
+        Index into *positions* / *colors* / *opacities* that is the reference.
+    """
+
+    positions: np.ndarray  # shape (n_conformers, n_atoms, 3)
+    colors: list[str | None]  # per-conformer hex color
+    opacities: list[float | None]  # per-conformer opacity
+    conformer_graphs: list[nx.Graph] | None = None
+    reference_idx: int = 0
+
+
+@dataclass
 class Molecule:
     """Container for a loaded molecular structure.
 
     Obtain via :func:`load`.  Pass directly to :func:`render` or
     :func:`render_gif` to avoid re-parsing the file.
+
+    For ensemble molecules (``load(ensemble=True)``), ``graph`` holds only the
+    reference conformer (n_atoms nodes).  The full per-conformer data lives in
+    ``ensemble``; the merged multi-conformer graph is built lazily at render time.
     """
 
     graph: nx.Graph
     cube_data: CubeData | None = None
     cell_data: CellData | None = None
     oriented: bool = False
+    ensemble: EnsembleFrames | None = None
 
     def to_xyz(self, path: str | os.PathLike, title: str = "") -> None:
         """Write the molecule to an XYZ file.
@@ -188,6 +228,15 @@ def load(
     crystal: bool | str = False,
     cell: bool = False,
     quick: bool = False,
+    # --- Ensemble (multi-frame trajectory) ---
+    ensemble: bool = False,
+    reference_frame: int = 0,
+    max_frames: int | None = None,
+    align_atoms: list[int] | None = None,
+    ensemble_color: str | list[str] | None = None,
+    ensemble_palette: str | None = None,
+    ensemble_opacity: float | None = None,
+    reference_mol: Molecule | None = None,
 ) -> Molecule:
     """Load a molecule from file (or SMILES string) and return a :class:`Molecule`.
 
@@ -208,7 +257,9 @@ def load(
         Convert aromatic bonds to alternating single/double (Kekulé form).
     rebuild:
         Force xyzgraph distance-based bond detection even when the file
-        provides explicit connectivity.
+        provides explicit connectivity.  When used with ``ensemble=True``,
+        each frame's graph is rebuilt independently (for trajectories where
+        bonding changes between frames).
     mol_frame:
         Zero-based frame index for multi-record SDF files.
     ts_detect:
@@ -217,6 +268,8 @@ def load(
         Reference frame index for TS detection in multi-frame files.
     nci_detect:
         Detect non-covalent interactions with xyzgraph after loading.
+        When used with ``ensemble=True``, NCI detection is run on
+        each frame independently.
     crystal:
         Load as a periodic crystal structure via phonopy.  Pass ``True``
         to auto-detect the interface from the filename, or a string such
@@ -229,11 +282,57 @@ def load(
         when you know bond orders will be suppressed at render time (e.g.
         ``render(mol, bo=False)``).  CIF and PDB-with-cell always use
         ``quick=True`` automatically regardless of this flag.
+    ensemble:
+        Load as a multi-frame trajectory ensemble.  All frames are
+        RMSD-aligned onto *reference_frame* and merged into a single graph.
+    reference_frame:
+        Index of the reference frame for ensemble alignment (default: 0).
+    max_frames:
+        Maximum number of frames to include (default: all).
+    align_atoms:
+        0-indexed atom indices for Kabsch alignment subset (min 3).
+        When given, the rotation is computed from this subset only
+        but applied to all atoms.
+    ensemble_color:
+        Single color string or list of hex/named colors for conformers.
+    ensemble_palette:
+        Named continuous colormap (``"viridis"``, ``"spectral"``,
+        ``"coolwarm"``).  Overrides *ensemble_color*.
+    ensemble_opacity:
+        Opacity for non-reference conformer atoms (0-1).
+    reference_mol:
+        Optional pre-loaded (and possibly oriented) :class:`Molecule` for the
+        reference frame.  When given, its graph and positions are used directly
+        instead of loading the reference frame from *molecule*.  This lets
+        interactive orientation be applied before ensemble alignment.
 
     Returns
     -------
     Molecule
     """
+    # --- Ensemble: load multi-frame trajectory as merged molecule ---
+    if ensemble:
+        return _build_ensemble_molecule(
+            molecule,
+            reference_frame=reference_frame,
+            max_frames=max_frames,
+            align_atoms=align_atoms,
+            conformer_colors=_resolve_ensemble_colors(
+                ensemble_color=ensemble_color,
+                ensemble_palette=None,
+                n_conformers=None,
+            ),
+            ensemble_opacity=ensemble_opacity,
+            ensemble_palette=ensemble_palette,
+            charge=charge,
+            multiplicity=multiplicity,
+            kekule=kekule,
+            rebuild=rebuild,
+            quick=quick,
+            nci_detect=nci_detect,
+            reference_mol=reference_mol,
+        )
+
     import xyzrender.parsers as fmt
     from xyzrender.readers import graph_from_moldata
 
@@ -455,6 +554,8 @@ def render(
     # --- Overlay ---
     overlay: str | os.PathLike | Molecule | None = None,
     overlay_color: str | None = None,
+    # --- Alignment (overlay subset alignment) ---
+    align_atoms: list[int] | None = None,
     # --- Output ---
     output: str | os.PathLike | None = None,
 ) -> SVGResult:
@@ -545,6 +646,21 @@ def render(
     else:
         mol = load(molecule)
 
+    # Detect ensemble (mol.ensemble is populated by load(ensemble=True))
+    _is_ensemble = mol.ensemble is not None
+    if _is_ensemble:
+        if overlay is not None:
+            msg = "ensemble cannot be combined with overlay="
+            raise ValueError(msg)
+        if mo or dens or esp is not None or nci is not None:
+            msg = "ensemble: surface rendering (mo/dens/esp/nci) is not supported"
+            raise ValueError(msg)
+        # Ensemble defaults: show all H, hide bond orders (unless explicitly set)
+        if hy is None and not no_hy:
+            hy = True
+        if bo is None:
+            bo = False
+
     # --- Orient resolution ---
     # orient=None: auto-orient, but skip if mol was manually oriented
     _orient: bool | None = orient
@@ -615,6 +731,36 @@ def render(
         cell_data=copy.deepcopy(mol.cell_data) if mol.cell_data is not None else None,
         oriented=mol.oriented,
     )
+
+    # --- Ensemble: build merged graph lazily (z_nudge=True for static renders) ---
+    # mol.graph holds only the reference frame; conformer data lives in mol.ensemble.
+    # We merge here so the renderer sees the full n_conformers x n_atoms graph, while
+    # mol.graph stays clean for repeated render() calls.
+    if _is_ensemble:
+        from xyzrender.ensemble import merge_graphs as _ensemble_merge_graphs
+
+        ens = mol.ensemble
+        assert ens is not None  # narrowing: _is_ensemble = mol.ensemble is not None
+        merged_graph = _ensemble_merge_graphs(
+            rmol.graph,
+            ens.positions,
+            conformer_colors=ens.colors,
+            conformer_graphs=ens.conformer_graphs,
+            z_nudge=True,
+        )
+        # Apply per-conformer opacity stored in EnsembleFrames
+        for nid in merged_graph.nodes():
+            conf_idx = merged_graph.nodes[nid].get("molecule_index", 0)
+            if conf_idx > 0:
+                op = ens.opacities[conf_idx]
+                if op is not None:
+                    merged_graph.nodes[nid]["ensemble_opacity"] = op
+        rmol = Molecule(
+            graph=merged_graph,
+            cube_data=rmol.cube_data,
+            cell_data=rmol.cell_data,
+            oriented=rmol.oriented,
+        )
 
     # --- Vectors (user-supplied + crystal axes) ---
     _combine_vector_sources(
@@ -689,7 +835,9 @@ def render(
 
         if overlay_color is not None:
             cfg.overlay_color = resolve_color(overlay_color)
-        aligned2 = align(g1, g2)
+        # Convert 1-indexed align_atoms to 0-indexed for overlay
+        _ov_align = [i - 1 for i in align_atoms] if align_atoms is not None else None
+        aligned2 = align(g1, g2, align_atoms=_ov_align)
         rmol = Molecule(
             graph=merge_graphs(g1, g2, aligned2, overlay_color=cfg.overlay_color),
             cube_data=None,
@@ -1077,6 +1225,25 @@ def render_gif(
             # corrupt the caller's Molecule, and so _apply_cell_config can add ghost atoms.
             ref_graph = copy.deepcopy(ref_graph)
 
+        # --- Ensemble: build scratch merged graph (z_nudge=False — meaningless for rotation) ---
+        if isinstance(molecule, Molecule) and molecule.ensemble is not None:
+            from xyzrender.ensemble import merge_graphs as _ensemble_merge_graphs
+
+            ens = molecule.ensemble
+            ref_graph = _ensemble_merge_graphs(
+                ref_graph,
+                ens.positions,
+                conformer_colors=ens.colors,
+                conformer_graphs=ens.conformer_graphs,
+                z_nudge=False,
+            )
+            for nid in ref_graph.nodes():
+                conf_idx = ref_graph.nodes[nid].get("molecule_index", 0)
+                if conf_idx > 0:
+                    op = ens.opacities[conf_idx]
+                    if op is not None:
+                        ref_graph.nodes[nid]["ensemble_opacity"] = op
+
         # --- Overlay alignment (gif_rot only) ---
         if overlay is not None:
             from xyzrender.overlay import align, merge_graphs
@@ -1164,6 +1331,200 @@ def render_gif(
 
     logger.info("GIF written to %s", gif_path)
     return GIFResult(gif_path)
+
+
+# ---------------------------------------------------------------------------
+# Ensemble overlay
+# ---------------------------------------------------------------------------
+
+
+def _resolve_ensemble_colors(
+    *,
+    ensemble_color: str | list[str] | None,
+    ensemble_palette: str | None,
+    n_conformers: int | None,
+) -> list[str] | None:
+    """Resolve ensemble colour specification to a list of hex strings (one per conformer).
+
+    Returns ``None`` when no colouring is requested (CPK default).
+    When *n_conformers* is ``None`` (not yet known), returns a sentinel
+    that ``_build_ensemble_molecule`` will expand after counting frames.
+    """
+    if ensemble_palette is not None:
+        from xyzrender.colors import sample_palette
+
+        if n_conformers is None:
+            # Return palette name as sentinel — _build_ensemble_molecule resolves later
+            return None  # handled below in _build_ensemble_molecule
+        return sample_palette(ensemble_palette, n_conformers)
+
+    if ensemble_color is None:
+        return None
+
+    if isinstance(ensemble_color, str):
+        # Single colour → all non-ref conformers get this colour
+        hex_c = resolve_color(ensemble_color)
+        if n_conformers is None:
+            return [hex_c]  # single-element sentinel
+        return [hex_c] * n_conformers
+
+    # List of colours
+    return [resolve_color(c) for c in ensemble_color]
+
+
+def _build_ensemble_molecule(
+    trajectory: str | os.PathLike,
+    *,
+    reference_frame: int = 0,
+    max_frames: int | None = None,
+    align_atoms: list[int] | None = None,
+    conformer_colors: list[str] | None = None,
+    ensemble_opacity: float | None = None,
+    ensemble_palette: str | None = None,
+    charge: int = 0,
+    multiplicity: int | None = None,
+    kekule: bool = False,
+    rebuild: bool = False,
+    quick: bool = False,
+    nci_detect: bool = False,
+    reference_mol: Molecule | None = None,
+) -> Molecule:
+    """Build a :class:`Molecule` representing an ensemble of conformers.
+
+    Frames from *trajectory* are RMSD-aligned onto *reference_frame* using
+    index-based pairing (atom *i* in each frame corresponds to atom *i* in
+    the reference frame).
+
+    When *rebuild* is ``True``, each frame's graph is built independently
+    so that bonding can differ between conformers — analogous to ``--gif-trj``
+    but rendered on one image.  NCI detection is run on each rebuilt frame too
+    when *nci_detect* is also ``True``.
+
+    When *reference_mol* is given, its graph (and positions) are used as the
+    reference frame instead of loading from *trajectory*.  This lets
+    interactive orientation be applied before ensemble alignment.
+    """
+    from xyzrender.ensemble import align as ensemble_align
+    from xyzrender.readers import load_molecule, load_trajectory_frames
+
+    traj_path = Path(str(trajectory))
+    frames = load_trajectory_frames(traj_path)
+    if len(frames) < 2:
+        msg = "ensemble: trajectory must contain at least two frames"
+        raise ValueError(msg)
+    if not (0 <= reference_frame < len(frames)):
+        msg = f"ensemble: reference_frame {reference_frame} out of range for {len(frames)} frames"
+        raise ValueError(msg)
+
+    # Optional frame cap: first max_frames frames, always including reference_frame.
+    if max_frames is not None:
+        if max_frames < 2:
+            msg = "ensemble: max_frames must be at least 2 when set"
+            raise ValueError(msg)
+        max_frames = min(max_frames, len(frames))
+        # Ensure the reference frame is included: if it lies beyond the window,
+        # fall back to using frame 0 as the reference.
+        if reference_frame >= max_frames:
+            reference_frame = 0
+        frames = frames[:max_frames]
+
+    # Sanity-check that all frames share the same symbols and atom counts.
+    ref_symbols = frames[reference_frame]["symbols"]
+    for idx, fr in enumerate(frames):
+        if fr["symbols"] != ref_symbols:
+            msg = f"ensemble: frame {idx} atom symbols do not match reference frame"
+            raise ValueError(msg)
+
+    # Use pre-loaded reference Molecule when provided (e.g. after interactive orient),
+    # otherwise load from the trajectory file.
+    if reference_mol is not None:
+        ref_graph = copy.deepcopy(reference_mol.graph)
+        cell_data = copy.deepcopy(reference_mol.cell_data)
+        oriented = reference_mol.oriented
+    else:
+        ref_graph, cell_data = load_molecule(
+            traj_path,
+            frame=reference_frame,
+            charge=charge,
+            multiplicity=multiplicity,
+            kekule=kekule,
+            rebuild=rebuild,
+            quick=quick,
+        )
+        oriented = False
+
+    # For ensemble overlays we ignore bond orders in the rendering.  Flatten any
+    # existing bond_order values to 1 so everything is drawn as single bonds.
+    for _i, _j, data in ref_graph.edges(data=True):
+        if "bond_order" in data:
+            data["bond_order"] = 1
+
+    # When using a pre-oriented reference, update the reference frame's positions
+    # in the trajectory data so alignment targets the oriented coordinates.
+    # Only extract real atom positions (exclude NCI centroid dummy nodes with symbol="*").
+    if reference_mol is not None:
+        from xyzrender.overlay import _node_list
+
+        real_nodes = [n for n in _node_list(ref_graph) if ref_graph.nodes[n].get("symbol") != "*"]
+        frames[reference_frame]["positions"] = [list(ref_graph.nodes[n]["position"]) for n in real_nodes]
+
+    aligned_positions = ensemble_align(frames, reference_frame=reference_frame, align_atoms=align_atoms)
+
+    # NCI detection and per-frame graph building happen *after* alignment so that
+    # centroid dummy nodes don't interfere with position array sizes.
+    if nci_detect:
+        from xyzrender.readers import detect_nci as _detect_nci
+
+        if reference_mol is None:
+            ref_graph = _detect_nci(ref_graph)
+
+    conformer_graphs: list[nx.Graph] | None = None
+    if rebuild:
+        from xyzgraph import build_graph
+
+        conformer_graphs = []
+        for fi, frame in enumerate(frames):
+            if fi == reference_frame:
+                conformer_graphs.append(ref_graph)
+                continue
+            atoms = list(zip(frame["symbols"], [tuple(p) for p in frame["positions"]], strict=True))
+            fg = build_graph(atoms, charge=charge, multiplicity=multiplicity, kekule=kekule, quick=quick)
+            for _i, _j, d in fg.edges(data=True):
+                if "bond_order" in d:
+                    d["bond_order"] = 1
+            if nci_detect:
+                fg = _detect_nci(fg)
+            conformer_graphs.append(fg)
+
+    # Resolve palette colours now that we know n_conformers.
+    # Default: None (CPK atom colours). Palette/explicit colour opt-in only.
+    n_conf = len(frames)
+    if ensemble_palette is not None:
+        from xyzrender.colors import sample_palette
+
+        conformer_colors = sample_palette(ensemble_palette, n_conf)
+    elif conformer_colors is not None and len(conformer_colors) == 1:
+        # Single-colour sentinel → expand to all conformers
+        conformer_colors = conformer_colors * n_conf
+    # else: conformer_colors is None → CPK default, leave as-is
+
+    # Build per-conformer opacities list (None = fully opaque / use default)
+    opacities: list[float | None] = [None] * n_conf
+    if ensemble_opacity is not None:
+        for i in range(n_conf):
+            if i != reference_frame:
+                opacities[i] = ensemble_opacity
+
+    colors: list[str | None] = list(conformer_colors) if conformer_colors is not None else [None] * n_conf
+    ens = EnsembleFrames(
+        positions=np.stack(aligned_positions, axis=0),  # (n_conformers, n_atoms, 3)
+        colors=colors,
+        opacities=opacities,
+        conformer_graphs=conformer_graphs,
+        reference_idx=reference_frame,
+    )
+
+    return Molecule(graph=ref_graph, cube_data=None, cell_data=cell_data, oriented=oriented, ensemble=ens)
 
 
 # ---------------------------------------------------------------------------

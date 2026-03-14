@@ -38,7 +38,7 @@ _H_ATOM_SCALE = 0.6  # display-radius shrink factor for H atoms (ball-and-stick)
 _H_VDW_SCALE = 0.65  # VdW-sphere shrink factor for H atoms
 
 
-def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) -> str:
+def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True, _unique_ids: bool = True) -> str:
     """Render molecular graph to SVG string."""
     cfg = config or RenderConfig()
     node_ids = list(graph.nodes())
@@ -191,6 +191,17 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             if graph.nodes[node_ids[ai]].get("overlay", False):
                 colors[ai] = overlay_atom_color
 
+    # Override atom colors for ensemble conformers with per-conformer colours.
+    # Single pass: extract and apply in one loop (avoids any() scan + second pass).
+    ens_colors: list[str | None] = [graph.nodes[nid].get("ensemble_color") for nid in node_ids]
+    for ai in range(n):
+        ec = ens_colors[ai]
+        if ec:
+            colors[ai] = Color.from_str(ec)
+
+    # Pre-extract ensemble_opacity per atom — avoids two dict lookups per atom inside the main loop.
+    ens_opacities: list[float | None] = [graph.nodes[nid].get("ensemble_opacity") for nid in node_ids]
+
     # Bond lookup: (bond_order, style, color_override)
     bonds: dict[tuple[int, int], tuple[float, BondStyle, str | None]] = {}
     if not cfg.hide_bonds:
@@ -246,52 +257,55 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     use_grad = cfg.gradient and not cfg.skeletal_style
     if cfg.skeletal_style:
         from xyzrender.skeletal import skeletal_atom_svg, skeletal_bond_svg
-    # Cmap/fog/overlay all require per-atom gradient defs (each atom may have a distinct colour)
-    use_per_atom_grad = cfg.fog or cfg.atom_cmap is not None or has_overlay
+    # Fog requires per-atom gradient defs: each atom has a unique depth-blended fill
+    # AND stroke colour.  Everything else (overlay, ensemble, cmap) just sets colors[ai]
+    # to a per-atom value that can be shared by (element, colour_hex) — same def count
+    # as default CPK for normal molecules, O(elements x colours) for overlay/ensemble.
+    use_per_atom_grad = cfg.fog
+    # Per-atom fog stroke colours (only populated when fog is on).
+    atom_fog_stroke: list[str] = []
     if use_grad:
         svg.append("  <defs>")
         if use_per_atom_grad:
-            # Per-atom gradient defs
+            # Fog: per-atom radialGradient + per-atom blended stroke colour.
+            # Inline <circle> in the render loop references these by id.
+            atom_fog_stroke = [cfg.atom_stroke_color] * n
             for ai in range(n):
                 if ai in hidden:
                     continue
                 hi, me, lo = get_gradient_colors(colors[ai], cfg)
-                if cfg.fog:
-                    t = min(fog_f[ai] ** 2 * 0.7, 0.70)
-                    hi, me, lo = hi.blend(WHITE, t), me.blend(WHITE, t), lo.blend(WHITE, t)
-                    fs = blend_fog(cfg.atom_stroke_color, fog_rgb, fog_f[ai])
-                else:
-                    fs = cfg.atom_stroke_color
-                r = radii[ai] * scale
-                sa = f' stroke="{fs}" stroke-width="{sw:.1f}"'
+                t = min(fog_f[ai] ** 2 * 0.7, 0.70)
+                hi, me, lo = hi.blend(WHITE, t), me.blend(WHITE, t), lo.blend(WHITE, t)
+                atom_fog_stroke[ai] = blend_fog(cfg.atom_stroke_color, fog_rgb, fog_f[ai])
                 svg.append(
-                    f'    <g id="a{ai}">'
-                    f'<radialGradient id="g{ai}" cx=".5" cy=".5" fx=".33" fy=".33" r=".66">'
+                    f'    <radialGradient id="g{ai}" cx=".5" cy=".5" fx=".33" fy=".33" r=".66">'
                     f'<stop offset="0%" stop-color="{hi.hex}"/>'
                     f'<stop offset="40%" stop-color="{me.hex}"/>'
                     f'<stop offset="100%" stop-color="{lo.hex}"/>'
                     f"</radialGradient>"
-                    f'<circle cx="0" cy="0" r="{r:.1f}" fill="url(#g{ai})"{sa}/></g>'
                 )
         else:
-            # Shared gradient defs keyed by atomic number (no fog, no cmap)
-            seen = set()
+            # Shared gradient defs keyed by (atomic_number, colour_hex).
+            # Default CPK: one def per element. Overlay/ensemble/cmap: one per
+            # (element, colour) pair — O(elements x colours), not O(atoms).
+            # Inline <circle fill="url(#g...)"> in the render loop: avoids the
+            # O(N²) cairosvg <use href> ID-lookup cost for large/ensemble molecules.
+            seen: dict[tuple[int, str], str] = {}
             for ai in range(n):
                 an = a_nums[ai]
-                if an in seen or ai in hidden:
+                chex = colors[ai].hex
+                key = (an, chex)
+                if key in seen or ai in hidden:
                     continue
-                seen.add(an)
+                gid = f"{an}_{chex[1:]}"
+                seen[key] = gid
                 hi, me, lo = get_gradient_colors(colors[ai], cfg)
-                r = radii[ai] * scale
-                sa = f' stroke="{cfg.atom_stroke_color}" stroke-width="{sw:.1f}"'
                 svg.append(
-                    f'    <g id="a{an}">'
-                    f'<radialGradient id="g{an}" cx=".5" cy=".5" fx=".33" fy=".33" r=".66">'
+                    f'    <radialGradient id="g{gid}" cx=".5" cy=".5" fx=".33" fy=".33" r=".66">'
                     f'<stop offset="0%" stop-color="{hi.hex}"/>'
                     f'<stop offset="40%" stop-color="{me.hex}"/>'
                     f'<stop offset="100%" stop-color="{lo.hex}"/>'
                     f"</radialGradient>"
-                    f'<circle cx="0" cy="0" r="{r:.1f}" fill="url(#g{an})"{sa}/></g>'
                 )
         svg.append("  </defs>")
 
@@ -668,7 +682,12 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
         xi, yi = _proj(pos[ai], scale, cx, cy, canvas_w, canvas_h)
         is_image = graph.nodes[ai].get("image", False)
-        atom_op = cfg.periodic_image_opacity if is_image else 1.0
+        if is_image:
+            atom_op = cfg.periodic_image_opacity
+        elif ens_opacities[ai] is not None:
+            atom_op = ens_opacities[ai]
+        else:
+            atom_op = 1.0
         op_attr_atom = f' opacity="{atom_op:.2f}"' if atom_op < 1.0 else ""
 
         # Atom graphics / labels
@@ -690,8 +709,16 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         else:
             # Atom circle (gradient or flat fill)
             if use_grad:
-                ref = f"#a{ai}" if use_per_atom_grad else f"#a{a_nums[ai]}"
-                svg.append(f'  <use x="{xi:.1f}" y="{yi:.1f}" xlink:href="{ref}"{op_attr_atom}/>')
+                if use_per_atom_grad:
+                    grad_id = f"g{ai}"
+                    fs_atom = atom_fog_stroke[ai]
+                else:
+                    grad_id = f"g{a_nums[ai]}_{colors[ai].hex[1:]}"
+                    fs_atom = cfg.atom_stroke_color
+                svg.append(
+                    f'  <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{radii[ai] * scale:.1f}" '
+                    f'fill="url(#{grad_id})" stroke="{fs_atom}" stroke-width="{sw:.1f}"{op_attr_atom}/>'
+                )
             else:
                 fill, stroke = colors[ai].hex, cfg.atom_stroke_color
                 if cfg.fog:
@@ -723,7 +750,15 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                     continue
                 bo, style, color_ov = bonds[(ai, aj_int)]
                 # Use periodic_image_opacity if either endpoint is an image atom
-                bond_op = cfg.periodic_image_opacity if (is_image or graph.nodes[aj_int].get("image", False)) else 1.0
+                _aj_image = graph.nodes[aj_int].get("image", False)
+                _aj_ens_op = ens_opacities[aj_int] if not _aj_image else None
+                _ai_ens_op = ens_opacities[ai]
+                if is_image or _aj_image:
+                    bond_op = cfg.periodic_image_opacity
+                elif _ai_ens_op is not None or _aj_ens_op is not None:
+                    bond_op = min(v for v in (_ai_ens_op, _aj_ens_op) if v is not None)
+                else:
+                    bond_op = 1.0
                 add_bond(ai, aj_int, bo, style, opacity=bond_op, color_override=color_ov)
 
     # NCI patches in front of all atoms (z_depth > frontmost atom)
@@ -835,10 +870,12 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     # Jupyter notebook page collide, causing atoms/gradients from the first render to
     # appear in all subsequent ones.  Prefix every id, href, and url() reference with
     # a unique token so each SVG is self-contained regardless of embedding context.
-    p = f"x{next(_render_counter)}"
-    raw = raw.replace('id="', f'id="{p}')
-    raw = raw.replace('href="#', f'href="#{p}')
-    raw = raw.replace("url(#", f"url(#{p}")
+    # Skip when _unique_ids=False (GIF frames: converted to PNG immediately, never shown as SVG).
+    if _unique_ids:
+        p = f"x{next(_render_counter)}"
+        raw = raw.replace('id="', f'id="{p}')
+        raw = raw.replace('href="#', f'href="#{p}')
+        raw = raw.replace("url(#", f"url(#{p}")
     return raw
 
 

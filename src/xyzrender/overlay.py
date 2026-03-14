@@ -7,6 +7,9 @@ always on top when depths are equal (drawn last in SVG order).
 
 Atom pairing is index-based: atom *i* in mol1 corresponds to atom *i* in mol2.
 Both molecules must have the same number of atoms.
+
+This module also exposes :func:`kabsch_align`, the shared Kabsch helper used by
+both overlay and ensemble alignment.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from xyzrender.types import Color
+from xyzrender.utils import kabsch_align
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -40,25 +44,20 @@ def _positions(graph: nx.Graph) -> tuple[np.ndarray, list]:
     return pos, nodes
 
 
-def _kabsch_rotation(p_centered: np.ndarray, q_centered: np.ndarray) -> np.ndarray:
-    """Kabsch rotation matrix rot s.t. q_centered @ rot.T ≈ p_centered.
-
-    Both arrays must already be mean-centred.  Ensures det(rot) = +1 (proper
-    rotation, no reflection).
-    """
-    h = q_centered.T @ p_centered
-    u, _, vt = np.linalg.svd(h)
-    det = np.linalg.det(vt.T @ u.T)
-    d_mat = np.diag([1.0, 1.0, det])
-    return vt.T @ d_mat @ u.T
+# kabsch_align is implemented in utils and re-exported here for backward compat.
+__all__ = ["align", "kabsch_align", "merge_graphs"]
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Public API — overlay
 # ---------------------------------------------------------------------------
 
 
-def align(mol1_graph: nx.Graph, mol2_graph: nx.Graph) -> np.ndarray:
+def align(
+    mol1_graph: nx.Graph,
+    mol2_graph: nx.Graph,
+    align_atoms: list[int] | None = None,
+) -> np.ndarray:
     """Align mol2 onto mol1 by index; return aligned positions for mol2 nodes.
 
     Atom *i* in mol1 is paired with atom *i* in mol2 — both molecules must
@@ -68,6 +67,10 @@ def align(mol1_graph: nx.Graph, mol2_graph: nx.Graph) -> np.ndarray:
     ----------
     mol1_graph, mol2_graph:
         NetworkX graphs.  This function does not mutate them.
+    align_atoms:
+        Optional 0-indexed atom indices to fit on (min 3).  When given, only
+        these atoms contribute to the Kabsch fit; the rotation is applied to
+        all atoms.
 
     Returns
     -------
@@ -82,10 +85,7 @@ def align(mol1_graph: nx.Graph, mol2_graph: nx.Graph) -> np.ndarray:
         msg = f"overlay: mol1 has {n1} atoms, mol2 has {n2} — counts must match."
         raise ValueError(msg)
 
-    c1 = pos1.mean(axis=0)
-    c2 = pos2.mean(axis=0)
-    rot = _kabsch_rotation(pos1 - c1, pos2 - c2)
-    return (pos2 - c2) @ rot.T + c1
+    return kabsch_align(pos1, pos2, align_atoms=align_atoms)
 
 
 def merge_graphs(
