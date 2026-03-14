@@ -158,6 +158,7 @@ mol1 = load("isothio_xtb.xyz", charge=1)
 mol2 = load("isothio_uma.xyz", charge=1)
 render(mol1, overlay=mol2)                         # overlay mol2 onto mol1
 render(mol1, overlay=mol2, overlay_color="green")  # custom overlay color
+render(mol1, overlay=mol2, align_atoms=[1, 2, 3])  # align on atom subset
 render_gif(mol1, overlay=mol2, gif_rot="y")        # spinning overlay GIF
 
 # Annotations
@@ -166,7 +167,7 @@ render(mol, label_file="annot.txt")                # bulk annotation file
 
 # Atom property colormap (1-indexed dict, or path to a two-column file)
 render(mol, cmap={1: 0.5, 2: -0.3}, cmap_range=(-1.0, 1.0))
-render(mol, cmap="charges.txt", cmap_range=(-1.0, 1.0))
+render(mol, cmap="charges.txt", cmap_symm=True)              # symmetric range about 0
 
 # Surfaces (cube files)
 mol_cube = load("caffeine_homo.cube")
@@ -385,7 +386,7 @@ render(mol, hull="rings", hull_color="teal")
 
 ### Structural overlay
 
-Overlay two conformers or geometries to compare them. The second structure is RMSD-aligned onto the first via the Kabsch algorithm using index-based atom pairing, and rendered in a contrasting colour. Both molecules must have the same number of atoms in the same order.
+Overlay two conformers or geometries to compare them. The second structure is RMSD-aligned onto the first via the Kabsch algorithm using index-based atom pairing, and rendered in a contrasting colour. Both molecules must have the same number of atoms in the same order. Use `--align-atoms` to restrict the Kabsch fit to a subset of atoms (minimum 3).
 
 | Default | Custom colour | Rotation GIF |
 |---------|---------------|--------------|
@@ -394,6 +395,7 @@ Overlay two conformers or geometries to compare them. The second structure is RM
 ```bash
 xyzrender isothio_xtb.xyz --overlay isothio_uma.xyz -c 1 --hy -o isothio_overlay_rot.svg --gif-rot -go isothio_overlay.gif
 xyzrender isothio_xtb.xyz --overlay isothio_uma.xyz -c 1 --overlay-color green -a 2 --no-orient -o isothio_overlay_custom.svg
+xyzrender mol1.xyz --overlay mol2.xyz --align-atoms 1,2,3   # align on atoms 1, 2, 3 only
 ```
 
 ### Ensemble overlay
@@ -556,12 +558,14 @@ The colormap file has two columns - **1-indexed atom number** and value. Any ext
 ```bash
 xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --gif-rot
 xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-range -0.5 0.5
-xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-colorbar
+xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-symm          # symmetric range about 0
+xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cbar
 ```
 
 - Atoms **in the file**: colored by Viridis-like colormap (dark purple → blue → green → yellow-green → bright yellow). This colormap never passes through white.
 - Atoms **not in the file**: white (`#ffffff`). White is never a Viridis output, so is unambiguously *not mapped*. The unlabeled color can be overridden via `"cmap_unlabeled"` in a custom preset JSON.
-- Range defaults to the min/max of provided values; override with `--cmap-range vmin vmax`. Use this for a symmetric colour scale.
+- Range defaults to the min/max of provided values; override with `--cmap-range vmin vmax` or use `--cmap-symm` for a symmetric range about zero (`[-max(|v|), +max(|v|)]`).
+- Colorbar tick label font size is controlled by `--label-size`.
 
 ### GIF animations
 
@@ -1167,6 +1171,7 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 | `--label-size PT` | Label font size (overrides preset) |
 | `--cmap FILE` | Per-atom property colormap (Viridis, 1-indexed) |
 | `--cmap-range VMIN VMAX` | Explicit colormap range (default: auto from file) |
+| `--cmap-symm` | Symmetric colormap range about zero: `[-max(\|v\|), +max(\|v\|)]` |
 | `--vector FILE` | JSON file of vector arrows to overlay (see Vector arrows section) |
 | `--vector-scale FACTOR` | Global length scale for all vector arrows (default: 1.0) |
 | **Crystal** | |
@@ -1235,7 +1240,7 @@ Contributors:
 - [Ksenia Briling (@briling)](https://github.com/briling) — `vmol` integration and the [xyz2svg](https://github.com/briling/xyz2svg) foundation
 - [Sander Cohen-Janes (@scohenjanes5)](https://github.com/scohenjanes5) — crystal/periodic structure support (VASP, Quantum ESPRESSO, ghost atoms, crystallographic axes), vector annotations and gif parallelisation
 - [Rubén Laplaza (@rlaplaza)](https://github.com/rlaplaza) — convex hull facets
-- [Iñigo Iribarren Aguirre (@iribirii)](https://github.com/iribirii) — radial gradients respecting colour space (pseudo-3D), skeletal rendering
+- [Iñigo Iribarren Aguirre (@iribirii)](https://github.com/iribirii) — radial gradients respecting colour space (pseudo-3D), skeletal rendering, ensemble display
 - [Vinicius Port (@caprilesport)](https://github.com/caprilesport) — `v` binary path discovery
 - [Lucas Attia (@lucasattia)](https://github.com/lucasattia) — `--transparent` background flag
 

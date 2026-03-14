@@ -338,10 +338,16 @@ def main() -> None:
         help="Colormap palette name (default: viridis)",
     )
     annot_g.add_argument(
-        "--cmap-colorbar",
+        "--cbar",
         action="store_true",
         default=False,
         help="Add a vertical colorbar on the right showing the data range",
+    )
+    annot_g.add_argument(
+        "--cmap-symm",
+        action="store_true",
+        default=False,
+        help="Symmetric colormap range about zero: [-max(|v|), +max(|v|)]",
     )
     annot_g.add_argument(
         "--vector",
@@ -467,7 +473,8 @@ def main() -> None:
         idx_format=args.idx or "sn",
         cmap_range=tuple(args.cmap_range) if args.cmap_range else None,
         cmap_palette=args.cmap_palette,
-        cmap_colorbar=args.cmap_colorbar,
+        cbar=args.cbar,
+        cmap_symm=args.cmap_symm,
     )
 
     if args.skeletal_label_color is not None:

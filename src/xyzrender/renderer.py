@@ -168,8 +168,14 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True, 
     # Atom base colors — CPK by default, palette cmap when --cmap is active
     if cfg.atom_cmap is not None:
         cmap_vals = cfg.atom_cmap
+        if cfg.cmap_range is not None and cfg.cmap_symm:
+            msg = "--cmap-range and --cmap-symm are mutually exclusive"
+            raise ValueError(msg)
         if cfg.cmap_range is not None:
             vmin, vmax = cfg.cmap_range
+        elif cfg.cmap_symm:
+            vmax = max(abs(v) for v in cmap_vals.values())
+            vmin = -vmax
         else:
             vmin = min(cmap_vals.values())
             vmax = max(cmap_vals.values())
@@ -180,7 +186,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True, 
     # Reserve space on the right for the cmap colorbar.
     # canvas_w stays at the molecule width so _proj() keeps the molecule centred there.
     # _cb_svg_w is the full SVG width used only in the viewBox / width attribute.
-    cb_extra_w = colorbar_extra_width(vmin, vmax, fs_label) if (cfg.cmap_colorbar and cfg.atom_cmap is not None) else 0
+    cb_extra_w = colorbar_extra_width(vmin, vmax, fs_label) if (cfg.cbar and cfg.atom_cmap is not None) else 0
     _cb_svg_w = canvas_w + cb_extra_w
 
     # Override atom colors for overlay (mol2) atoms — must happen before gradient defs
@@ -861,7 +867,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True, 
                 )
 
     # --- Colorbar (right side, only when --cmap-colorbar is active) ---
-    if cfg.cmap_colorbar and cfg.atom_cmap is not None:
+    if cfg.cbar and cfg.atom_cmap is not None:
         svg.extend(colorbar_svg(vmin, vmax, cfg.cmap_palette, canvas_w, canvas_h, fs_label, cfg.label_color))
 
     svg.append("</svg>")

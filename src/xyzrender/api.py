@@ -521,6 +521,8 @@ def render(
     idx: bool | str = False,
     cmap: str | os.PathLike | dict[int, float] | None = None,
     cmap_range: tuple[float, float] | None = None,
+    cmap_symm: bool = False,
+    cbar: bool = False,
     # --- Annotations ---
     labels: list[str] | None = None,
     label_file: str | None = None,
@@ -711,6 +713,8 @@ def render(
         idx=idx,
         cmap=cmap,
         cmap_range=cmap_range,
+        cmap_symm=cmap_symm,
+        cbar=cbar,
         opacity=opacity,
     )
 
@@ -1542,6 +1546,8 @@ def _apply_render_overlays(
     idx: bool | str = False,
     cmap: str | os.PathLike | dict[int, float] | None = None,
     cmap_range: tuple[float, float] | None = None,
+    cmap_symm: bool = False,
+    cbar: bool = False,
     opacity: float | None = None,
 ) -> None:
     """Apply render()-specific overlays to cfg (mutates in place).
@@ -1561,6 +1567,12 @@ def _apply_render_overlays(
         cfg.atom_cmap = _resolve_cmap(cmap, graph)
     if cmap_range is not None:
         cfg.cmap_range = cmap_range
+    if cmap_symm:
+        cfg.cmap_symm = True
+    if cbar:
+        if cmap is None and cfg.atom_cmap is None:
+            logger.warning("cbar=True has no effect without cmap data")
+        cfg.cbar = True
     if opacity is not None:
         cfg.surface_opacity = opacity
 

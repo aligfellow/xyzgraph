@@ -101,8 +101,9 @@ Full flag reference for `xyzrender`. See also `xyzrender --help`.
 | `--label-size PT` | Label font size (overrides preset) |
 | `--cmap FILE` | Per-atom property colormap (1-indexed atom index, value) |
 | `--cmap-range VMIN VMAX` | Explicit colormap range (default: auto from file) |
+| `--cmap-symm` | Symmetric colormap range about zero: `[-max(|v|), +max(|v|)]` |
 | `--cmap-palette NAME` | Colormap palette (default: `viridis`) |
-| `--cmap-colorbar` | Add a vertical colorbar on the right showing the data range |
+| `--cbar` | Add a vertical colorbar on the right showing the data range |
 
 ## Vector arrows
 
