@@ -527,10 +527,9 @@ xyzrender sn2.out --ts --label sn2_label.txt --label-size 40
 
 Color atoms by a per-atom scalar value using a Viridis-like colormap. Useful for partial charges, and any other atomic property.
 
-| Mulliken charges | Symmetric range |
-|------------------|------------------| 
-| ![cmap](examples/images/caffeine_cmap.gif) | ![cmap](examples/images/caffeine_cmap.svg) | 
-
+| Mulliken charges (rotation) | Symmetric range | With colorbar |
+|----------------------------|----------------|---------------|
+| ![Mulliken charges (rotation)](examples/images/caffeine_cmap.gif) | ![Symmetric range](examples/images/caffeine_cmap.svg) | ![With colorbar](examples/images/caffeine_cmap_colorbar.svg) |
 
 The colormap file has two columns - **1-indexed atom number** and value. Any extension works (*e.g.* `.txt`, `.csv`) as long as this file is comma or whitespace separated. Header lines (any line whose first token is not an integer) are silently skipped. Comment and blank lines (`#`) are also skipped.
 
@@ -544,6 +543,7 @@ The colormap file has two columns - **1-indexed atom number** and value. Any ext
 ```bash
 xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --gif-rot
 xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-range -0.5 0.5
+xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-colorbar
 ```
 
 - Atoms **in the file**: colored by Viridis-like colormap (dark purple → blue → green → yellow-green → bright yellow). This colormap never passes through white.
