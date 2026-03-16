@@ -13,8 +13,8 @@ import numpy as np
 
 if TYPE_CHECKING:
     from xyzrender.annotations import Annotation
+    from xyzrender.contours import SurfaceContours
     from xyzrender.esp import ESPSurface
-    from xyzrender.mo import SurfaceContours
     from xyzrender.nci import NCIContours
 
 

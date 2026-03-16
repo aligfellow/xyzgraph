@@ -16,17 +16,17 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from xyzrender.mo import (
-    _MIN_LOOP_PERIMETER,
+from xyzrender.contours import (
+    MIN_LOOP_PERIMETER,
     LobeContour2D,
-    _gaussian_blur_2d,
-    _loop_perimeter,
-    _mo_combined_path_d,
-    _resample_loop,
-    _upsample_2d,
     chain_segments,
+    combined_path_d,
     compute_grid_positions,
+    gaussian_blur_2d,
+    loop_perimeter,
     marching_squares,
+    resample_loop,
+    upsample_2d,
 )
 
 if TYPE_CHECKING:
@@ -291,14 +291,14 @@ def build_esp_surface(
     c1 = min(proj_res, int(nz_cols.max()) + blur_pad + 1)
 
     _up = max(1, upsample // _PROJ_MULT)
-    blurred_dens = np.maximum(_gaussian_blur_2d(grid_2d[r0:r1, c0:c1], _PROJ_BLUR), 0.0)
-    blurred_esp = _gaussian_blur_2d(grid_2d_esp[r0:r1, c0:c1], _PROJ_BLUR * 1.5)
-    blurred_light = _gaussian_blur_2d(grid_2d_light[r0:r1, c0:c1], _PROJ_BLUR * 0.5)
-    blurred_z = _gaussian_blur_2d(grid_2d_z[r0:r1, c0:c1], _PROJ_BLUR * 0.8)
-    up_dens = _upsample_2d(blurred_dens, _up)
-    up_esp = _upsample_2d(blurred_esp, _up)
-    up_light = _upsample_2d(blurred_light, _up)
-    up_z = _upsample_2d(blurred_z, _up)
+    blurred_dens = np.maximum(gaussian_blur_2d(grid_2d[r0:r1, c0:c1], _PROJ_BLUR), 0.0)
+    blurred_esp = gaussian_blur_2d(grid_2d_esp[r0:r1, c0:c1], _PROJ_BLUR * 1.5)
+    blurred_light = gaussian_blur_2d(grid_2d_light[r0:r1, c0:c1], _PROJ_BLUR * 0.5)
+    blurred_z = gaussian_blur_2d(grid_2d_z[r0:r1, c0:c1], _PROJ_BLUR * 0.8)
+    up_dens = upsample_2d(blurred_dens, _up)
+    up_esp = upsample_2d(blurred_esp, _up)
+    up_light = upsample_2d(blurred_light, _up)
+    up_z = upsample_2d(blurred_z, _up)
 
     h, w = up_dens.shape
     # Resolution and offsets for coordinate mapping (contour loops → screen)
@@ -385,7 +385,7 @@ def build_esp_surface(
         )
     # Post-upsample smooth: remove residual grid structure (checkerboard)
     for ch in range(3):
-        rgb_f[:, :, ch] = _gaussian_blur_2d(rgb_f[:, :, ch], 0.8)
+        rgb_f[:, :, ch] = gaussian_blur_2d(rgb_f[:, :, ch], 0.8)
     rgb = np.clip(rgb_f, 0, 255).astype(np.uint8)
 
     # --- Alpha: fully opaque within surface, soft edge at boundary ---
@@ -412,7 +412,7 @@ def build_esp_surface(
         z_01 = np.ones((h, w))
     contour_field = up_dens + isovalue * 0.5 * z_01
     # Extra smoothing prevents checkerboard artifacts from grid structure
-    contour_field = _gaussian_blur_2d(contour_field, _PROJ_BLUR * 0.25)
+    contour_field = gaussian_blur_2d(contour_field, _PROJ_BLUR * 0.25)
 
     above = contour_field[surface_mask]
     layers: list[LobeContour2D] = []
@@ -424,7 +424,7 @@ def build_esp_surface(
         for threshold in thresholds:
             raw_loops = chain_segments(marching_squares(contour_field, float(threshold)))
             offset_loops = [loop + crop_offset for loop in raw_loops]
-            loops = [_resample_loop(lp) for lp in offset_loops if _loop_perimeter(lp) >= _MIN_LOOP_PERIMETER]
+            loops = [resample_loop(lp) for lp in offset_loops if loop_perimeter(lp) >= MIN_LOOP_PERIMETER]
             if loops:
                 layers.append(LobeContour2D(loops=loops, phase="pos", z_depth=0.0))
 
@@ -516,7 +516,7 @@ def esp_surface_svg(
     # the same .resolution/.x_min/.x_max/.y_min/.y_max as MOContours)
     clip_ids: list[str] = []
     for i, lobe in enumerate(esp.layers):
-        d = _mo_combined_path_d(lobe.loops, esp, scale, cx, cy, canvas_w, canvas_h)
+        d = combined_path_d(lobe.loops, esp, scale, cx, cy, canvas_w, canvas_h)
         if d:
             clip_id = f"esp_clip_{i}"
             clip_ids.append(clip_id)

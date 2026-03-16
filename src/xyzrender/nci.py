@@ -21,22 +21,22 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from xyzrender.esp import _build_lut
-from xyzrender.mo import (
-    _MIN_LOOP_PERIMETER,
-    _UPSAMPLE_FACTOR,
+from xyzrender.contours import (
+    MIN_LOOP_PERIMETER,
+    UPSAMPLE_FACTOR,
     Lobe3D,
     LobeContour2D,
-    _gaussian_blur_2d,
-    _loop_perimeter,
-    _mo_combined_path_d,
-    _resample_loop,
-    _upsample_2d,
     chain_segments,
+    combined_path_d,
     compute_grid_positions,
     cube_corners_ang,
+    gaussian_blur_2d,
+    loop_perimeter,
     marching_squares,
+    resample_loop,
+    upsample_2d,
 )
+from xyzrender.esp import _build_lut
 
 # Blur is kept tight so the rendered patch faithfully represents the RDG
 # isosurface without over-inflation.
@@ -123,7 +123,7 @@ class NCIContours:
     """Pre-computed NCI contour data ready for SVG rendering.
 
     Structurally compatible with :class:`~xyzrender.mo.ContourGrid` so that
-    :func:`~xyzrender.mo._mo_combined_path_d` accepts it directly.
+    :func:`~xyzrender.mo.combined_path_d` accepts it directly.
     """
 
     lobes: list[LobeContour2D] = field(default_factory=list)  # sorted by z_depth
@@ -292,13 +292,13 @@ def _project_nci_region_2d(
         if (n_unique < _MIN_PIXELS_FOR_BLUR or fill_fraction < _FILL_FRACTION_THRESHOLD)
         else cropped
     )
-    blurred = np.maximum(_gaussian_blur_2d(to_blur, _NCI_BLUR_SIGMA), 0.0)
-    upsampled = _upsample_2d(blurred, _UPSAMPLE_FACTOR)
+    blurred = np.maximum(gaussian_blur_2d(to_blur, _NCI_BLUR_SIGMA), 0.0)
+    upsampled = upsample_2d(blurred, UPSAMPLE_FACTOR)
 
     raw_loops = chain_segments(marching_squares(upsampled, _MEMBERSHIP_THRESHOLD))
-    offset = np.array([r0 * _UPSAMPLE_FACTOR, c0 * _UPSAMPLE_FACTOR])
+    offset = np.array([r0 * UPSAMPLE_FACTOR, c0 * UPSAMPLE_FACTOR])
     offset_loops = [loop + offset for loop in raw_loops]
-    loops = [_resample_loop(lp) for lp in offset_loops if _loop_perimeter(lp) >= _MIN_LOOP_PERIMETER]
+    loops = [resample_loop(lp) for lp in offset_loops if loop_perimeter(lp) >= MIN_LOOP_PERIMETER]
 
     if not loops:
         return None
@@ -353,12 +353,12 @@ def _build_nci_color_raster(
         return None
 
     raster_blur = 1.5
-    dens_blurred = _gaussian_blur_2d(dens_sum, raster_blur)
-    count_blurred = _gaussian_blur_2d(count, raster_blur)
+    dens_blurred = gaussian_blur_2d(dens_sum, raster_blur)
+    count_blurred = gaussian_blur_2d(count, raster_blur)
 
     # Per-pixel average density; smooth alpha with solid interior
     dens_avg = np.where(count_blurred > 1e-4, dens_blurred / np.maximum(count_blurred, 1e-10), 0.0)
-    alpha_raw = _gaussian_blur_2d((count > 0).astype(float), raster_blur)
+    alpha_raw = gaussian_blur_2d((count > 0).astype(float), raster_blur)
     alpha_peak = float(alpha_raw.max())
     alpha_norm = np.clip(alpha_raw / (alpha_peak + 1e-10), 0.0, 1.0)
     # Steepen: interior (≥50% of peak) → fully opaque; edge pixels keep smooth falloff
@@ -560,7 +560,7 @@ def build_nci_contours(
         lobe_y_min = y_min
         lobe_y_max = y_max
 
-    res = base_res * _UPSAMPLE_FACTOR
+    res = base_res * UPSAMPLE_FACTOR
     return NCIContours(
         lobes=lobe_contours,
         resolution=res,
@@ -611,7 +611,7 @@ def nci_static_svg_defs(
         f'preserveAspectRatio="none" image-rendering="optimizeQuality"/>'
     )
     for i, lobe in enumerate(nci.lobes):
-        d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
+        d = combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
         if d:
             lines.append(f'    <clipPath id="nci_clip_{i}">')
             lines.append(f'      <path d="{d}" fill-rule="evenodd"/>')
@@ -653,7 +653,7 @@ def nci_lobe_svg_items(
     else:
         for lobe in nci.lobes:
             color = lobe.lobe_color if lobe.lobe_color is not None else nci.color
-            d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
+            d = combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
             if d:
                 path_str = f'  <path d="{d}" fill="{color}" fill-rule="evenodd" stroke="none" opacity="{opacity:.3f}"/>'
                 items.append((lobe.z_depth, [path_str]))
@@ -685,7 +685,7 @@ def nci_loops_svg(
 
     for lobe in nci.lobes:
         color = lobe.lobe_color if lobe.lobe_color is not None else nci.color
-        d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
+        d = combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
         if d:
             lines.append(f'  <path d="{d}" fill="{color}" fill-rule="evenodd" stroke="none" opacity="{opacity:.3f}"/>')
 
@@ -727,7 +727,7 @@ def nci_static_svg(
 
     clip_ids: list[str] = []
     for i, lobe in enumerate(nci.lobes):
-        d = _mo_combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
+        d = combined_path_d(lobe.loops, nci, scale, cx, cy, canvas_w, canvas_h)
         if d:
             clip_id = f"nci_clip_{i}"
             clip_ids.append(clip_id)

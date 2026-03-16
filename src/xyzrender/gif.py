@@ -383,7 +383,7 @@ def render_rotation_gif(
 
     # Expand viewport if density surface extends beyond atoms
     if dens_params is not None and dens_cube is not None:
-        from xyzrender.mo import compute_grid_positions
+        from xyzrender.contours import compute_grid_positions
 
         pos_flat = compute_grid_positions(dens_cube)
         mask = dens_cube.grid_data >= dens_params.isovalue
