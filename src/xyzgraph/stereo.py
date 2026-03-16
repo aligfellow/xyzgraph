@@ -92,6 +92,24 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
     return ez
 
 
+def annotate_stereo(graph) -> tuple[dict[int, str], dict[tuple[int, int], str]]:
+    """Assign stereochemistry and store labels on node/edge attributes.
+
+    Node labels are stored under ``stereo`` (R/S), and bond labels are stored
+    under ``stereo`` (E/Z) on the corresponding edge.
+    """
+    rs = assign_rs(graph)
+    for idx, label in rs.items():
+        graph.nodes[idx]["stereo"] = label
+
+    ez = assign_ez(graph)
+    for (i, j), label in ez.items():
+        if graph.has_edge(i, j):
+            graph.edges[i, j]["stereo"] = label
+
+    return rs, ez
+
+
 def _atomic_number(graph, idx: int) -> int:
     sym = graph.nodes[idx].get("symbol", "")
     return DATA.s2n.get(sym, 0)
