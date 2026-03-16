@@ -43,7 +43,7 @@ class MolecularData:
 
         # Load VDW radii
         vdw_file = data_path / "vdw_radii.json"
-        with vdw_file.open("r") as f:
+        with vdw_file.open("r", encoding="utf-8") as f:
             vdw_data = json.load(f)
         vdw_radii = {
             element: vdw_data[element]["vdw_radius"] * BOHR_TO_ANGSTROM
@@ -54,7 +54,7 @@ class MolecularData:
         # Load expected valences
         try:
             valence_file = data_path / "expected_valences.json"
-            with valence_file.open("r") as f:
+            with valence_file.open("r", encoding="utf-8") as f:
                 valence_data = json.load(f)
             expected_valences = {
                 element: valence_data[element] for element in valence_data if not element.startswith("_")
@@ -87,7 +87,7 @@ class MolecularData:
         # Load valence electrons
         try:
             ve_file = data_path / "valence_electrons.json"
-            with ve_file.open("r") as f:
+            with ve_file.open("r", encoding="utf-8") as f:
                 ve_data = json.load(f)
             valence_electrons = {el: ve_data[el] for el in ve_data if not el.startswith("_")}
         except Exception as e:
@@ -164,7 +164,7 @@ class MolecularData:
 
         # Load element mappings
         element_file = data_path / "atom_symbols.json"
-        with element_file.open("r") as f:
+        with element_file.open("r", encoding="utf-8") as f:
             s2n = json.load(f)
         n2s = {v: k for k, v in s2n.items()}
 
