@@ -124,7 +124,7 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
 def assign_helical(graph) -> list[tuple[int, int, str]]:
     """Assign helical chirality (P/M) for polycyclic helices (heuristic)."""
     rings = graph.graph.get("aromatic_rings") or []
-    if len(rings) < 4:
+    if len(rings) < 5:
         # fallback: medium-sized non-planar rings (e.g., trans-cyclooctene)
         return _assign_helical_rings(graph)
 
@@ -141,12 +141,30 @@ def assign_helical(graph) -> list[tuple[int, int, str]]:
     order = np.argsort(proj)
     ordered = centroid_arr[order]
 
-    handed = 0.0
-    for i in range(len(ordered) - 2):
-        v1 = ordered[i + 1] - ordered[i]
-        v2 = ordered[i + 2] - ordered[i + 1]
-        handed += float(np.sign(np.dot(np.cross(v1, v2), axis)))
+    # Build orthonormal basis around axis
+    a = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(axis, a)
+    if np.linalg.norm(u) < 1e-8:
+        return []
+    u /= np.linalg.norm(u)
+    v = np.cross(axis, u)
 
+    proj_pts = ordered - ordered.mean(axis=0)
+    x = proj_pts @ u
+    y = proj_pts @ v
+    angles = np.arctan2(y, x)
+    dtheta = np.diff(angles)
+    dtheta = (dtheta + np.pi) % (2 * np.pi) - np.pi
+
+    span = float(proj.max() - proj.min())
+    if span < 1.5:
+        return []
+    if np.count_nonzero(np.sign(dtheta)) < len(dtheta):
+        return []
+    if np.mean(np.abs(dtheta)) < 0.35:
+        return []
+
+    handed = float(np.sum(dtheta))
     if abs(handed) < 1e-6:
         return []
 
@@ -371,54 +389,90 @@ def _plane_normal(coords: np.ndarray) -> np.ndarray | None:
 
 def _assign_axial_biaryl(graph) -> dict[tuple[int, int], str]:
     axial: dict[tuple[int, int], str] = {}
-    rings = graph.graph.get("aromatic_rings") or graph.graph.get("rings") or []
+    rings = graph.graph.get("aromatic_rings") or []
     if not rings:
         return axial
+
+    # Build aromatic domains (fused ring groups)
     ring_sets = [set(r) for r in rings]
-    atom_rings: dict[int, list[int]] = {}
-    for r_idx, rset in enumerate(ring_sets):
-        for atom in rset:
-            atom_rings.setdefault(atom, []).append(r_idx)
+    parent = list(range(len(ring_sets)))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: int, b: int) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for i in range(len(ring_sets)):
+        for j in range(i + 1, len(ring_sets)):
+            if ring_sets[i] & ring_sets[j]:
+                _union(i, j)
+
+    domains: dict[int, set[int]] = {}
+    for idx, rset in enumerate(ring_sets):
+        root = _find(idx)
+        domains.setdefault(root, set()).update(rset)
+
+    atom_domain: dict[int, int] = {}
+    for d_idx, atoms in enumerate(domains.values()):
+        for atom in atoms:
+            atom_domain[atom] = d_idx
 
     pos = np.array([graph.nodes[n]["position"] for n in graph.nodes()], dtype=float)
 
-    for i, j, _data in graph.edges(data=True):
-        if i not in atom_rings or j not in atom_rings:
+    for i, j, data in graph.edges(data=True):
+        if atom_domain.get(i) is None or atom_domain.get(j) is None:
             continue
-        for ri in atom_rings[i]:
-            for rj in atom_rings[j]:
-                if ri == rj:
-                    continue
-                ring_i = ring_sets[ri]
-                ring_j = ring_sets[rj]
-                nbr_i = [n for n in graph.neighbors(i) if n in ring_i and n != j]
-                nbr_j = [n for n in graph.neighbors(j) if n in ring_j and n != i]
-                if len(nbr_i) != 2 or len(nbr_j) != 2:
-                    continue
-                ranks_i = _rank_neighbors(graph, i, nbr_i)
-                ranks_j = _rank_neighbors(graph, j, nbr_j)
-                if ranks_i[0][0] == ranks_i[1][0] or ranks_j[0][0] == ranks_j[1][0]:
-                    continue
-                sig_i = ranks_i[0][0]
-                sig_j = ranks_j[0][0]
-                if sig_i == sig_j:
-                    continue
+        if atom_domain[i] == atom_domain[j]:
+            continue
+        if data.get("bond_order", 1.0) > 1.3:
+            continue
 
-                if sig_i > sig_j:
-                    front, back = i, j
-                    v_front = pos[ranks_i[0][1]] - pos[i]
-                    v_back = pos[ranks_j[0][1]] - pos[j]
-                else:
-                    front, back = j, i
-                    v_front = pos[ranks_j[0][1]] - pos[j]
-                    v_back = pos[ranks_i[0][1]] - pos[i]
+        n_i = [n for n in graph.neighbors(i) if n != j]
+        n_j = [n for n in graph.neighbors(j) if n != i]
+        if len(n_i) < 2 or len(n_j) < 2:
+            continue
 
-                axis = pos[back] - pos[front]
-                label = _axis_label(axis, v_front, v_back)
-                if label is None:
-                    continue
-                key = (i, j) if i < j else (j, i)
-                axial[key] = label
+        ranks_i = _rank_neighbors(graph, i, n_i)
+        ranks_j = _rank_neighbors(graph, j, n_j)
+        if ranks_i[0][0] == ranks_i[1][0] or ranks_j[0][0] == ranks_j[1][0]:
+            continue
+
+        sig_i = ranks_i[0][0]
+        sig_j = ranks_j[0][0]
+
+        if sig_i > sig_j:
+            front, back = i, j
+            v_front = pos[ranks_i[0][1]] - pos[i]
+            v_back = pos[ranks_j[0][1]] - pos[j]
+        elif sig_j > sig_i:
+            front, back = j, i
+            v_front = pos[ranks_j[0][1]] - pos[j]
+            v_back = pos[ranks_i[0][1]] - pos[i]
+        else:
+            # symmetric ends: fall back to index order for deterministic label
+            if i < j:
+                front, back = i, j
+                v_front = pos[ranks_i[0][1]] - pos[i]
+                v_back = pos[ranks_j[0][1]] - pos[j]
+            else:
+                front, back = j, i
+                v_front = pos[ranks_j[0][1]] - pos[j]
+                v_back = pos[ranks_i[0][1]] - pos[i]
+
+        axis = pos[back] - pos[front]
+        label = _axis_label(axis, v_front, v_back)
+        if label is None:
+            continue
+
+        key = (i, j) if i < j else (j, i)
+        axial[key] = label
+
     return axial
 
 
@@ -449,17 +503,25 @@ def _assign_axial_allene(graph) -> tuple[dict[tuple[int, int], str], list[tuple[
 
         sig_a = rank_a[0][0]
         sig_b = rank_b[0][0]
-        if sig_a == sig_b:
-            continue
 
         if sig_a > sig_b:
             front, back = end_a, end_b
             v_front = pos[rank_a[0][1]] - pos[end_a]
             v_back = pos[rank_b[0][1]] - pos[end_b]
-        else:
+        elif sig_b > sig_a:
             front, back = end_b, end_a
             v_front = pos[rank_b[0][1]] - pos[end_b]
             v_back = pos[rank_a[0][1]] - pos[end_a]
+        else:
+            # symmetric ends: fall back to index order for deterministic label
+            if end_a < end_b:
+                front, back = end_a, end_b
+                v_front = pos[rank_a[0][1]] - pos[end_a]
+                v_back = pos[rank_b[0][1]] - pos[end_b]
+            else:
+                front, back = end_b, end_a
+                v_front = pos[rank_b[0][1]] - pos[end_b]
+                v_back = pos[rank_a[0][1]] - pos[end_a]
 
         axis = pos[back] - pos[front]
         label = _axis_label(axis, v_front, v_back)
@@ -478,20 +540,42 @@ def _assign_axial_allene(graph) -> tuple[dict[tuple[int, int], str], list[tuple[
 def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, int, str]]]:
     planar: dict[tuple[int, int], str] = {}
     axes: list[tuple[int, int, str]] = []
-    rings = graph.graph.get("rings") or []
-    if not rings:
-        return planar, axes
-
     pos = np.array([graph.nodes[n]["position"] for n in graph.nodes()], dtype=float)
+    rings = graph.graph.get("rings") or []
     ring_sets = [set(r) for r in rings]
+
+    # If no rings were detected, attempt Cp-like rings around metals by geometry.
+    ring_candidates: list[tuple[list[int], int]] = []
+    metals = [idx for idx in graph.nodes() if graph.nodes[idx].get("symbol", "") in DATA.metals]
+    if not rings and metals:
+        for metal in metals:
+            carbon_idx = [
+                i
+                for i in graph.nodes()
+                if graph.nodes[i].get("symbol", "") == "C"
+                and np.linalg.norm(pos[i] - pos[metal]) < 2.6
+            ]
+            if len(carbon_idx) < 8:
+                continue
+            coords = pos[carbon_idx] - pos[metal]
+            _, _, vh = np.linalg.svd(coords, full_matrices=False)
+            axis = vh[0]
+            proj = coords @ axis
+            top = [i for i, p in zip(carbon_idx, proj) if p >= 0]
+            bottom = [i for i, p in zip(carbon_idx, proj) if p < 0]
+            for ring in (top, bottom):
+                if len(ring) < 5:
+                    continue
+                ccoords = pos[ring]
+                centroid = ccoords.mean(axis=0)
+                ring = sorted(ring, key=lambda i: np.linalg.norm(pos[i] - centroid))[:5]
+                ring_candidates.append((ring, metal))
 
     for ring_idx, ring in enumerate(rings):
         if len(ring) != 5:
             continue
         if not all(graph.nodes[a].get("symbol", "") == "C" for a in ring):
             continue
-
-        ring_set = ring_sets[ring_idx]
         metals = {
             nb
             for a in ring
@@ -499,55 +583,59 @@ def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[
             if graph.nodes[nb].get("symbol", "") in DATA.metals
         }
         if not metals:
-            continue
+            metals = {
+                idx
+                for idx in graph.nodes()
+                if graph.nodes[idx].get("symbol", "") in DATA.metals
+                and np.min(np.linalg.norm(pos[ring] - pos[idx], axis=1)) < 2.6
+            }
+        for metal in metals:
+            ring_candidates.append((ring, metal))
 
+    for ring, metal in ring_candidates:
+        ring_set = set(ring)
         coords = np.array([graph.nodes[a]["position"] for a in ring], dtype=float)
         normal = _plane_normal(coords)
         if normal is None:
             continue
         centroid = coords.mean(axis=0)
 
-        for metal in metals:
-            bonded = [a for a in ring if graph.has_edge(a, metal)]
-            if len(bonded) < 3:
+        to_metal = pos[metal] - centroid
+        if np.dot(normal, to_metal) < 0:
+            normal = -normal
+
+        candidates: list[tuple[tuple[tuple[int, ...], ...], int]] = []
+        for atom in ring:
+            externals = [n for n in graph.neighbors(atom) if n not in ring_set and n != metal]
+            if not externals:
                 continue
+            ranks = _rank_neighbors(graph, atom, externals)
+            candidates.append((ranks[0][0], atom))
 
-            to_metal = pos[metal] - centroid
-            if np.dot(normal, to_metal) < 0:
-                normal = -normal
+        if len(candidates) < 2:
+            continue
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        if candidates[0][0] == candidates[1][0]:
+            continue
 
-            candidates: list[tuple[tuple[tuple[int, ...], ...], int]] = []
-            for atom in ring:
-                externals = [n for n in graph.neighbors(atom) if n not in ring_set and n != metal]
-                if not externals:
-                    continue
-                ranks = _rank_neighbors(graph, atom, externals)
-                candidates.append((ranks[0][0], atom))
+        a1 = candidates[0][1]
+        a2 = candidates[1][1]
+        v1 = pos[a1] - centroid
+        v2 = pos[a2] - centroid
+        v1 = v1 - normal * np.dot(v1, normal)
+        v2 = v2 - normal * np.dot(v2, normal)
+        if np.linalg.norm(v1) < 1e-8 or np.linalg.norm(v2) < 1e-8:
+            continue
 
-            if len(candidates) < 2:
-                continue
-            candidates.sort(key=lambda x: x[0], reverse=True)
-            if candidates[0][0] == candidates[1][0]:
-                continue
+        orient = float(np.dot(normal, np.cross(v1, v2)))
+        if abs(orient) < 1e-8:
+            continue
+        label = "Rₚ" if orient > 0 else "Sₚ"
 
-            a1 = candidates[0][1]
-            a2 = candidates[1][1]
-            v1 = pos[a1] - centroid
-            v2 = pos[a2] - centroid
-            v1 = v1 - normal * np.dot(v1, normal)
-            v2 = v2 - normal * np.dot(v2, normal)
-            if np.linalg.norm(v1) < 1e-8 or np.linalg.norm(v2) < 1e-8:
-                continue
-
-            orient = float(np.dot(normal, np.cross(v1, v2)))
-            if abs(orient) < 1e-8:
-                continue
-            label = "Rₚ" if orient > 0 else "Sₚ"
-
-            key = (metal, a1) if metal < a1 else (a1, metal)
-            if graph.has_edge(metal, a1):
-                planar[key] = label
-            else:
-                axes.append((metal, a1, label))
+        key = (metal, a1) if metal < a1 else (a1, metal)
+        if graph.has_edge(metal, a1):
+            planar[key] = label
+        else:
+            axes.append((metal, a1, label))
 
     return planar, axes
