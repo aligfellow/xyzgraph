@@ -121,6 +121,42 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
     return planar, axes
 
 
+def assign_helical(graph) -> list[tuple[int, int, str]]:
+    """Assign helical chirality (P/M) for polycyclic helices (heuristic)."""
+    rings = graph.graph.get("aromatic_rings") or []
+    if len(rings) < 4:
+        return []
+
+    centroids: list[np.ndarray] = []
+    for ring in rings:
+        coords = np.array([graph.nodes[a]["position"] for a in ring], dtype=float)
+        centroids.append(coords.mean(axis=0))
+    centroid_arr = np.vstack(centroids)
+
+    centered = centroid_arr - centroid_arr.mean(axis=0)
+    _, _, vh = np.linalg.svd(centered, full_matrices=False)
+    axis = vh[0]
+    proj = centered @ axis
+    order = np.argsort(proj)
+    ordered = centroid_arr[order]
+
+    handed = 0.0
+    for i in range(len(ordered) - 2):
+        v1 = ordered[i + 1] - ordered[i]
+        v2 = ordered[i + 2] - ordered[i + 1]
+        handed += float(np.sign(np.dot(np.cross(v1, v2), axis)))
+
+    if abs(handed) < 1e-6:
+        return []
+
+    label = "P" if handed > 0 else "M"
+    first_ring = rings[int(order[0])]
+    last_ring = rings[int(order[-1])]
+    i = min(first_ring)
+    j = min(last_ring)
+    return [(i, j, label)]
+
+
 def annotate_stereo(graph) -> dict[str, dict]:
     """Assign stereochemistry and store labels on node/edge attributes.
 
@@ -158,10 +194,14 @@ def annotate_stereo(graph) -> dict[str, dict]:
         axes.append({"i": i, "j": j, "label": label, "kind": "axial"})
     for i, j, label in planar_axes:
         axes.append({"i": i, "j": j, "label": label, "kind": "planar"})
+
+    helical_axes = assign_helical(graph)
+    for i, j, label in helical_axes:
+        axes.append({"i": i, "j": j, "label": label, "kind": "helical"})
     if axes:
         graph.graph["stereo_axes"] = axes
 
-    return {"rs": rs, "ez": ez, "axial": axial, "planar": planar}
+    return {"rs": rs, "ez": ez, "axial": axial, "planar": planar, "helical": helical_axes}
 
 
 def _atomic_number(graph, idx: int) -> int:
