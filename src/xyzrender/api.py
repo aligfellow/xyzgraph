@@ -462,6 +462,8 @@ def render(
     # --- Annotations ---
     labels: list[str] | None = None,
     label_file: str | None = None,
+    stereo: bool = False,
+    stereo_rs: str = "label",
     # --- Vector arrows ---
     vector: str | Path | dict | list[VectorArrow] | None = None,
     vector_scale: float | None = None,
@@ -532,6 +534,10 @@ def render(
         Inline annotation spec strings (e.g. ``["1 2 d", "3 a", "1 NBO"]``).
     label_file:
         Path to an annotation file (same format as ``--label``).
+    stereo:
+        If True, add stereochemistry labels (R/S and E/Z) derived from 3D geometry.
+    stereo_rs:
+        Placement for R/S labels: ``"label"`` (offset near atom) or ``"atom"`` (centered on atom).
     vectors:
         Vector arrows to overlay.  Pass a path/dict to a JSON file, or a list
         of :class:`xyzrender.types.VectorArrow` objects.  Each arrow is drawn
@@ -610,6 +616,7 @@ def render(
         # Pre-built RenderConfig — shallow copy so we don't mutate the caller's object
         cfg = copy.copy(config)
         cfg.vectors = list(cfg.vectors)
+        cfg.annotations = list(cfg.annotations)
         if _orient is not None:
             cfg.auto_orient = _orient
         elif mol.oriented:
@@ -737,6 +744,10 @@ def render(
 
         inline = [s.split() for s in labels] if labels else None
         cfg.annotations = parse_annotations(inline_specs=inline, file_path=label_file, graph=rmol.graph)
+    if stereo:
+        from xyzrender.stereo import build_stereo_annotations
+
+        cfg.annotations.extend(build_stereo_annotations(rmol.graph, rs_style=stereo_rs))
 
     # --- Early overlay validation (before ghost atoms are added to g1) ---
     if overlay is not None and mol.cell_data is not None:
@@ -1043,6 +1054,7 @@ def render_gif(
     if not isinstance(config, str):
         cfg = copy.copy(config)
         cfg.vectors = list(cfg.vectors)
+        cfg.annotations = list(cfg.annotations)
     else:
         cfg = build_config(
             config,
@@ -1068,6 +1080,11 @@ def render_gif(
             no_hy=no_hy,
             orient=orient,
         )
+
+    if stereo:
+        from xyzrender.stereo import build_stereo_annotations
+
+        cfg.annotations.extend(build_stereo_annotations(_gif_graph, rs_style=stereo_rs))
 
     # --- Convex hull (both config paths) ---
     from xyzrender.hull import apply_hull_to_config
