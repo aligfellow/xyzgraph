@@ -125,7 +125,8 @@ def assign_helical(graph) -> list[tuple[int, int, str]]:
     """Assign helical chirality (P/M) for polycyclic helices (heuristic)."""
     rings = graph.graph.get("aromatic_rings") or []
     if len(rings) < 4:
-        return []
+        # fallback: medium-sized non-planar rings (e.g., trans-cyclooctene)
+        return _assign_helical_rings(graph)
 
     centroids: list[np.ndarray] = []
     for ring in rings:
@@ -155,6 +156,51 @@ def assign_helical(graph) -> list[tuple[int, int, str]]:
     i = min(first_ring)
     j = min(last_ring)
     return [(i, j, label)]
+
+
+def _assign_helical_rings(graph) -> list[tuple[int, int, str]]:
+    rings = graph.graph.get("rings") or []
+    pos = np.array([graph.nodes[n]["position"] for n in graph.nodes()], dtype=float)
+    axes: list[tuple[int, int, str]] = []
+
+    for ring in rings:
+        if len(ring) < 8:
+            continue
+        coords = np.array([graph.nodes[a]["position"] for a in ring], dtype=float)
+        normal = _plane_normal(coords)
+        if normal is not None:
+            centered = coords - coords.mean(axis=0)
+            dist = np.abs(centered @ normal)
+            if dist.max() < 0.2:
+                continue
+
+        label = _ring_helicity(pos, ring)
+        if label is None:
+            continue
+        i = ring[0]
+        j = ring[len(ring) // 2]
+        axes.append((i, j, label))
+
+    return axes
+
+
+def _ring_helicity(pos: np.ndarray, ring: list[int]) -> str | None:
+    if len(ring) < 4:
+        return None
+    score = 0.0
+    n = len(ring)
+    for k in range(n):
+        a = pos[ring[k]]
+        b = pos[ring[(k + 1) % n]]
+        c = pos[ring[(k + 2) % n]]
+        d = pos[ring[(k + 3) % n]]
+        v1 = b - a
+        v2 = c - b
+        v3 = d - c
+        score += float(np.dot(np.cross(v1, v2), v3))
+    if abs(score) < 1e-6:
+        return None
+    return "P" if score > 0 else "M"
 
 
 def annotate_stereo(graph) -> dict[str, dict]:
