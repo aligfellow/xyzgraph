@@ -23,6 +23,7 @@ xyzrender bimp.out --gif-ts --gif-rot --nci --vdw 84-169
 installation
 quickstart_cli
 quickstart_python
+python_api
 ```
 
 ```{toctree}
