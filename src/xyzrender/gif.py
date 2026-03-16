@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from dataclasses import dataclass
 from functools import partial
 from io import BytesIO
 from typing import TYPE_CHECKING
@@ -420,6 +421,24 @@ def render_rotation_gif(
 
         recompute_dens(graph, _copy.copy(rot_cfg), dens_params, dens_cube, rot_cfg.surface_opacity, _dens_cache)
 
+    ctx = RotationFrameContext(
+        axis_vec=axis_vec,
+        axis_sign=axis_sign,
+        step=step,
+        rot_cfg=rot_cfg,
+        vec_origins=_gif_vec_origins,
+        vec_dirs=_gif_vec_dirs,
+        vec_centroid=_gif_vec_centroid,
+        orig_lattice=_orig_lattice,
+        orig_cell_origin=_orig_cell_origin,
+        atom_centroid=_atom_centroid,
+        mo_params=mo_params,
+        mo_cube=mo_cube,
+        dens_params=dens_params,
+        dens_cube=dens_cube,
+        mo_cache=_mo_cache,
+        dens_cache=_dens_cache,
+    )
     worker = partial(
         _render_rot_frame,
         graph=graph,
@@ -428,22 +447,7 @@ def render_rotation_gif(
         original_pos_array=original_pos_array,
         original_lattice=original_lattice,
         original_lattice_origin=original_lattice_origin,
-        axis_vec=axis_vec,
-        axis_sign=axis_sign,
-        step=step,
-        rot_cfg=rot_cfg,
-        _gif_vec_origins=_gif_vec_origins,
-        _gif_vec_dirs=_gif_vec_dirs,
-        _gif_vec_centroid=_gif_vec_centroid,
-        _orig_lattice=_orig_lattice,
-        _orig_cell_origin=_orig_cell_origin,
-        _atom_centroid=_atom_centroid,
-        mo_params=mo_params,
-        mo_cube=mo_cube,
-        dens_params=dens_params,
-        dens_cube=dens_cube,
-        _mo_cache=_mo_cache,
-        _dens_cache=_dens_cache,
+        ctx=ctx,
     )
     pngs = _parallel_render(worker, range(n_frames), n_frames)
 
@@ -637,30 +641,37 @@ def _rotate_frames(frames: list[dict], rot: np.ndarray) -> list[dict]:
     return rotated
 
 
+@dataclass
+class RotationFrameContext:
+    """Bundled parameters for rotation GIF frame rendering."""
+
+    axis_vec: np.ndarray
+    axis_sign: float
+    step: float
+    rot_cfg: "RenderConfig"
+    vec_origins: np.ndarray
+    vec_dirs: np.ndarray
+    vec_centroid: np.ndarray
+    orig_lattice: np.ndarray | None
+    orig_cell_origin: np.ndarray | None
+    atom_centroid: np.ndarray | None
+    mo_params: "MOParams | None"
+    mo_cube: "CubeData | None"
+    dens_params: "DensParams | None"
+    dens_cube: "CubeData | None"
+    mo_cache: dict
+    dens_cache: dict
+
+
 def _render_rot_frame(
     frame_idx: int,
     graph: "nx.Graph",
     config: "RenderConfig",
     nodes: list,
-    original_pos_array: np.ndarray,  # shape (n_nodes, 3)
+    original_pos_array: np.ndarray,
     original_lattice: np.ndarray | None,
     original_lattice_origin: np.ndarray | None,
-    axis_vec: np.ndarray,
-    axis_sign: float,
-    step: float,
-    rot_cfg: "RenderConfig",
-    _gif_vec_origins: np.ndarray,
-    _gif_vec_dirs: np.ndarray,
-    _gif_vec_centroid: np.ndarray,
-    _orig_lattice: np.ndarray | None,
-    _orig_cell_origin: np.ndarray | None,
-    _atom_centroid: np.ndarray | None,
-    mo_params: "MOParams | None",
-    mo_cube: "CubeData | None",
-    dens_params: "DensParams | None",
-    dens_cube: "CubeData | None",
-    _mo_cache: dict,
-    _dens_cache: dict,
+    ctx: RotationFrameContext,
 ) -> tuple[int, bytes]:
     """Worker: render one rotation GIF frame to PNG. Surfaces recomputed via Kabsch per frame."""
     import copy
@@ -670,38 +681,35 @@ def _render_rot_frame(
     if original_lattice_origin is not None:
         graph.graph["lattice_origin"] = original_lattice_origin.copy()
 
-    total_angle = axis_sign * step * frame_idx
-    # Compute rotation matrix once; reused for positions, vectors, and cell_data.
-    rot_mat = _axis_angle_matrix(axis_vec, total_angle)
+    total_angle = ctx.axis_sign * ctx.step * frame_idx
+    rot_mat = _axis_angle_matrix(ctx.axis_vec, total_angle)
 
-    # Vectorized position update: one matmul over all nodes, one write-back loop.
-    # Replaces: (1) reset dict loop, (2) read loop inside apply_axis_angle_rotation.
     centroid = original_pos_array.mean(axis=0)
     rotated = (rot_mat @ (original_pos_array - centroid).T).T + centroid
     for i, n in enumerate(nodes):
         graph.nodes[n]["position"] = tuple(rotated[i].tolist())
 
-    frame_cfg = copy.copy(rot_cfg)
+    frame_cfg = copy.copy(ctx.rot_cfg)
 
-    if rot_cfg.vectors:
-        frame_cfg = _rotate_vectors_in_cfg(rot_cfg, rot_mat, _gif_vec_centroid, _gif_vec_origins, _gif_vec_dirs)
+    if ctx.rot_cfg.vectors:
+        frame_cfg = _rotate_vectors_in_cfg(ctx.rot_cfg, rot_mat, ctx.vec_centroid, ctx.vec_origins, ctx.vec_dirs)
 
-    if rot_cfg.cell_data is not None and _orig_lattice is not None:
-        assert _orig_cell_origin is not None
-        assert _atom_centroid is not None
-        frame_cfg.cell_data = copy.deepcopy(rot_cfg.cell_data)
-        frame_cfg.cell_data.lattice = _orig_lattice @ rot_mat.T
-        frame_cfg.cell_data.cell_origin = rot_mat @ (_orig_cell_origin - _atom_centroid) + _atom_centroid
+    if ctx.rot_cfg.cell_data is not None and ctx.orig_lattice is not None:
+        assert ctx.orig_cell_origin is not None
+        assert ctx.atom_centroid is not None
+        frame_cfg.cell_data = copy.deepcopy(ctx.rot_cfg.cell_data)
+        frame_cfg.cell_data.lattice = ctx.orig_lattice @ rot_mat.T
+        frame_cfg.cell_data.cell_origin = rot_mat @ (ctx.orig_cell_origin - ctx.atom_centroid) + ctx.atom_centroid
 
-    if mo_params is not None and mo_cube is not None:
+    if ctx.mo_params is not None and ctx.mo_cube is not None:
         from xyzrender.mo import recompute_mo
 
-        recompute_mo(graph, frame_cfg, mo_params, mo_cube, frame_cfg.surface_opacity, _mo_cache)
+        recompute_mo(graph, frame_cfg, ctx.mo_params, ctx.mo_cube, frame_cfg.surface_opacity, ctx.mo_cache)
 
-    if dens_params is not None and dens_cube is not None:
+    if ctx.dens_params is not None and ctx.dens_cube is not None:
         from xyzrender.dens import recompute_dens
 
-        recompute_dens(graph, frame_cfg, dens_params, dens_cube, frame_cfg.surface_opacity, _dens_cache)
+        recompute_dens(graph, frame_cfg, ctx.dens_params, ctx.dens_cube, frame_cfg.surface_opacity, ctx.dens_cache)
 
     svg = render_svg(graph, frame_cfg, _log=False, _unique_ids=False)
     return frame_idx, _svg_to_png(svg, config.canvas_size)
