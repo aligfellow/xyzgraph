@@ -49,12 +49,22 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
     ez: dict[tuple[int, int], str] = {}
     nodes = list(graph.nodes())
     pos = np.array([graph.nodes[n]["position"] for n in nodes], dtype=float)
-    ring_bonds: set[tuple[int, int]] = set()
-    rings = graph.graph.get("rings") or []
-    for ring in rings:
+    aromatic_bonds: set[tuple[int, int]] = set()
+    aromatic_rings = graph.graph.get("aromatic_rings") or []
+    for ring in aromatic_rings:
         for k in range(len(ring)):
             a, b = ring[k], ring[(k + 1) % len(ring)]
-            ring_bonds.add((a, b) if a < b else (b, a))
+            aromatic_bonds.add((a, b) if a < b else (b, a))
+
+    ring_bond_min_size: dict[tuple[int, int], int] = {}
+    rings = graph.graph.get("rings") or []
+    for ring in rings:
+        size = len(ring)
+        for k in range(size):
+            a, b = ring[k], ring[(k + 1) % size]
+            key = (a, b) if a < b else (b, a)
+            prev = ring_bond_min_size.get(key)
+            ring_bond_min_size[key] = size if prev is None else min(prev, size)
 
     for i, j, data in graph.edges(data=True):
         bo = data.get("bond_order", 1.0)
@@ -65,7 +75,10 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
         if graph.nodes[i].get("symbol", "") in DATA.metals or graph.nodes[j].get("symbol", "") in DATA.metals:
             continue
         key = (i, j) if i < j else (j, i)
-        if key in ring_bonds:
+        if key in aromatic_bonds:
+            continue
+        min_ring = ring_bond_min_size.get(key)
+        if min_ring is not None and min_ring < 8:
             continue
 
         i_nbrs = [n for n in graph.neighbors(i) if n != j]
