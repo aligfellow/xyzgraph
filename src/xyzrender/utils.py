@@ -166,7 +166,7 @@ def resolve_orientation(
             rot = rx @ rot
             oriented = oriented @ rx.T
 
-        centroid_before = curr_pos.mean(axis=0)
+        centroid_before = curr_centroid  # pre-PCA centroid, already computed
         curr_centroid = oriented.mean(axis=0)
 
         for idx, nid in enumerate(node_ids):
@@ -193,9 +193,6 @@ def resolve_orientation(
         curr = np.array([graph.nodes[i]["position"] for i in node_ids], dtype=float)
         if not np.allclose(orig, curr, atol=1e-6):
             rot = kabsch_rotation(orig, curr)
-
-    # Recompute curr_centroid after potential in-place updates above
-    curr_centroid = np.array([graph.nodes[i]["position"] for i in node_ids], dtype=float).mean(axis=0)
 
     return rot, atom_centroid, curr_centroid
 

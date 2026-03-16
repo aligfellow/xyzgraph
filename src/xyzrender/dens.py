@@ -7,19 +7,19 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from xyzrender.mo import (
-    _MIN_LOOP_PERIMETER,
-    _UPSAMPLE_FACTOR,
+from xyzrender.contours import (
+    MIN_LOOP_PERIMETER,
+    UPSAMPLE_FACTOR,
     LobeContour2D,
     SurfaceContours,
-    _gaussian_blur_2d,
-    _loop_perimeter,
-    _mo_combined_path_d,
-    _resample_loop,
     chain_segments,
+    combined_path_d,
     compute_grid_positions,
     cube_corners_ang,
+    gaussian_blur_2d,
+    loop_perimeter,
     marching_squares,
+    resample_loop,
 )
 
 if TYPE_CHECKING:
@@ -124,12 +124,12 @@ def build_density_contours(
     cropped = grid_2d[r0:r1, c0:c1]
 
     # Blur (on cropped grid — much smaller than full projection)
-    blurred = np.maximum(_gaussian_blur_2d(cropped, _DENS_BLUR), 0.0)
+    blurred = np.maximum(gaussian_blur_2d(cropped, _DENS_BLUR), 0.0)
 
     # Multi-level contour extraction on the blurred grid (before upsample).
     # Running marching squares on the smaller grid is much faster;
     # coordinates are scaled by _up to match the final resolution.
-    _up = max(1, _UPSAMPLE_FACTOR // _PROJ_MULT + 1)
+    _up = max(1, UPSAMPLE_FACTOR // _PROJ_MULT + 1)
     above = blurred[blurred > isovalue]
     if above.size == 0:
         return SurfaceContours(x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max, pos_color=color, neg_color=color)
@@ -147,7 +147,7 @@ def build_density_contours(
         raw_loops = chain_segments(marching_squares(blurred, float(threshold)))
         # Scale from blurred-grid coords to upsampled-grid coords + crop offset
         offset_loops = [loop * _up + scale_offset for loop in raw_loops]
-        loops = [_resample_loop(lp) for lp in offset_loops if _loop_perimeter(lp) >= _MIN_LOOP_PERIMETER]
+        loops = [resample_loop(lp) for lp in offset_loops if loop_perimeter(lp) >= MIN_LOOP_PERIMETER]
         if loops:
             layers.append(LobeContour2D(loops=loops, phase="pos", z_depth=z_depth))
 
@@ -281,7 +281,7 @@ def dens_layers_svg(
     color = dens.pos_color
     lines: list[str] = []
     for lobe in dens.lobes:
-        d_all = _mo_combined_path_d(lobe.loops, dens, scale, cx, cy, canvas_w, canvas_h)
+        d_all = combined_path_d(lobe.loops, dens, scale, cx, cy, canvas_w, canvas_h)
         if d_all:
             lines.append(f'  <g opacity="{per_layer:.3f}">')
             lines.append(f'    <path d="{d_all}" fill="{color}" fill-rule="evenodd" stroke="none"/>')

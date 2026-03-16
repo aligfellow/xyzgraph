@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from xyzrender.contours import chain_segments, cube_corners_ang, marching_squares
 from xyzrender.cube import BOHR_TO_ANG, CubeData, parse_cube
-from xyzrender.mo import chain_segments, cube_corners_ang, find_3d_lobes, marching_squares
+from xyzrender.mo import find_3d_lobes
 
 # ---------------------------------------------------------------------------
 # marching_squares

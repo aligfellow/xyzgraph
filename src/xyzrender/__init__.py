@@ -3,9 +3,9 @@
 import logging
 
 from xyzrender.annotations import load_cmap
-from xyzrender.api import GIFResult, Molecule, SVGResult, load, measure, orient, render, render_gif
+from xyzrender.api import Molecule, load, measure, orient, render, render_gif
 from xyzrender.config import build_config
-from xyzrender.types import RenderConfig
+from xyzrender.types import GIFResult, RenderConfig, SVGResult
 
 __all__ = [
     "GIFResult",
