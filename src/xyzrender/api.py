@@ -28,10 +28,8 @@ For GIFs use :func:`render_gif`::
 
 from __future__ import annotations
 
-import base64
 import copy
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -46,71 +44,9 @@ if TYPE_CHECKING:
     from xyzrender.cube import CubeData
     from xyzrender.types import CellData, RenderConfig, VectorArrow
 
-from xyzrender.types import resolve_color
+from xyzrender.types import GIFResult, SVGResult, resolve_color
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Core types
-# ---------------------------------------------------------------------------
-
-
-class SVGResult:
-    """Wraps a rendered SVG string with Jupyter display and file-save support."""
-
-    def __init__(self, svg: str) -> None:
-        self._svg = svg
-
-    def __str__(self) -> str:
-        """Return the raw SVG string."""
-        return self._svg
-
-    def _repr_svg_(self) -> str:
-        """Return the SVG string for Jupyter inline display, scaled to max 500 px wide."""
-        return re.sub(
-            r'(<svg\b[^>]*?)\s+width="[^"]*"\s+height="[^"]*"',
-            r'\1 width="500" height="auto"',
-            self._svg,
-            count=1,
-        )
-
-    def save(self, path: str | os.PathLike) -> None:
-        """Write the SVG to *path* (must end with ``.svg``)."""
-        Path(path).write_text(self._svg)
-
-
-class GIFResult:
-    """Wraps a rendered GIF path with Jupyter inline display support."""
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-        self._bytes: bytes | None = None
-
-    @property
-    def path(self) -> Path:
-        """Path to the GIF file on disk."""
-        return self._path
-
-    def __repr__(self) -> str:
-        """Return a string representation of the GIFResult."""
-        return f"GIFResult(path={self._path!r})"
-
-    def __bytes__(self) -> bytes:
-        """Return the raw GIF bytes."""
-        if self._bytes is None:
-            self._bytes = self._path.read_bytes()
-        return self._bytes
-
-    def save(self, path: str | os.PathLike) -> None:
-        """Write the GIF to *path*."""
-        data = bytes(self)
-        Path(path).write_bytes(data)
-
-    def _repr_html_(self) -> str:
-        """Embed the GIF inline in Jupyter, capped to 500 px wide."""
-        data = base64.b64encode(bytes(self)).decode("ascii")
-        return f'<img src="data:image/gif;base64,{data}" width="500" style="height:auto"/>'
 
 
 @dataclass
