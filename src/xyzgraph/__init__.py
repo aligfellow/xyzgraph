@@ -26,6 +26,7 @@ from .graph_builders_xtb import build_graph_xtb
 
 # NCI detection
 from .nci import NCIAnalyzer, NCIThresholds, detect_ncis
+from .stereo import assign_ez, assign_rs
 
 # ORCA support
 from .orca_parser import OrcaParseError, parse_orca_output
@@ -57,4 +58,6 @@ __all__ = [
     "graph_to_dict",
     "parse_orca_output",
     "read_xyz_file",
+    "assign_rs",
+    "assign_ez",
 ]

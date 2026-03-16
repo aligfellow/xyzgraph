@@ -46,6 +46,7 @@
     - **greedy**: iterative valence adjustment
 - **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings (optional `--kekule` to keep Kekulé bond orders)
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
+- **Stereochemistry assignment**: R/S stereocenters and E/Z alkenes from 3D geometry
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
 - **Non-covalent interaction (NCI) detection**: 17 interaction types including hydrogen bonds, pi-stacking, halogen/chalcogen/pnictogen bonds, cation-pi, and more
 - **ASCII 2D depiction** with layout alignment for method comparison (see also [[5]](https://github.com/whitead/moltext))
@@ -582,6 +583,15 @@ G_full = build_graph(
 G_kekule = build_graph('molecule.xyz', kekule=True)
 # Aromatic rings are still detected and stored in G_kekule.graph["aromatic_rings"]
 # Bond orders remain as optimised Kekule values (1.0/2.0)
+```
+
+Stereochemistry assignment (R/S and E/Z):
+
+```python
+from xyzgraph import assign_rs, assign_ez
+
+rs_labels = assign_rs(G_full)  # {atom_index: "R"|"S"}
+ez_labels = assign_ez(G_full)  # {(i,j): "E"|"Z"} (i<j)
 ```
 
 ---
