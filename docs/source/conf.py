@@ -24,7 +24,7 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = []
 
-suppress_warnings = ["image.not_readable"]
+suppress_warnings = ["image.not_readable", "ref.python"]
 
 source_suffix = {
     ".rst": "restructuredtext",

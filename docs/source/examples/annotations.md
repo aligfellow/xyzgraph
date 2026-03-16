@@ -140,18 +140,14 @@ The label is suppressed for these compact symbols.  Once the viewing angle chang
 |-------------|-------------|  
 | ![forces](examples/images/ethanol_forces_efield.svg) | ![forces rot](examples/images/ethanol_forces_efield.gif) |  
 
-```json
+```text
 {
   "anchor": "center",
   "units": "eV/Angstrom",
   "vectors": [
     {
       "origin": 1,
-      "vector": [
-        -0.318122066384213,
-        -0.437907743038215,
-        0.3679005313657949
-      ],
+      "vector": [-0.318, -0.438, 0.368],
       "color": "red"
     },
     ...

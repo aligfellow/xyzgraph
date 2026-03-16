@@ -48,11 +48,13 @@ xyzrender multi.sdf --mol-frame 1
 
 ## SMILES
 
-Requires `pip install 'xyzrender[smi]'` (rdkit). Embeds a SMILES string into 3D using ETKDGv3 + MMFF94. An XYZ file of the optimised geometry is written alongside the output automatically.
+Requires `pip install 'xyzrender[smi]'` (rdkit). Embeds a SMILES string into 3D using ETKDGv3 + MMFF94.
 
 ```bash
 xyzrender --smi "C1CCCCC1" --hy -o cyclohexane.svg
 ```
+
+An XYZ file of the optimised 3D geometry is automatically saved alongside the rendered image (e.g. `cyclohexane.xyz`).
 
 ## CIF
 

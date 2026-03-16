@@ -2,18 +2,20 @@
 
 ## Built-in presets
 
-Use `--config` to load a styling preset. Built-in options: `default`, `flat`, `paton`, `bubble`.
+Use `--config` to load a styling preset. Built-in options: `default`, `flat`, `paton`, `skeletal`, `bubble`.
 
 | Preset | Description |
 |--------|-------------|
 | `default` | Radial gradients, depth fog, CPK colors |
 | `flat` | No gradients, no fog — clean flat look |
 | `paton` | PyMOL-inspired style (see [Rob Paton](https://github.com/patonlab)) |
+| `skeletal` | Skeletal formula diagram — thin bonds, minimal atoms |
 | `bubble` | Space-filling (CPK) — large atoms, no bonds |
 
 ```bash
 xyzrender caffeine.xyz --config flat
 xyzrender caffeine.xyz --config paton
+xyzrender caffeine.xyz --config skeletal
 xyzrender caffeine.xyz --config bubble --hy
 ```
 
