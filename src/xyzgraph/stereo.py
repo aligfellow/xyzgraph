@@ -15,12 +15,14 @@ def assign_rs(graph) -> dict[int, str]:
 
     for center in nodes:
         sym = graph.nodes[center].get("symbol", "")
-        if sym == "*":
+        if sym == "*" or sym in DATA.metals:
             continue
         nbrs = list(graph.neighbors(center))
         if len(nbrs) != 4:
             continue
         if any(graph.nodes[n].get("symbol", "") == "*" for n in nbrs):
+            continue
+        if any(graph.nodes[n].get("symbol", "") in DATA.metals for n in nbrs):
             continue
 
         ranks = _rank_neighbors(graph, center, nbrs)
@@ -47,12 +49,23 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
     ez: dict[tuple[int, int], str] = {}
     nodes = list(graph.nodes())
     pos = np.array([graph.nodes[n]["position"] for n in nodes], dtype=float)
+    ring_bonds: set[tuple[int, int]] = set()
+    rings = graph.graph.get("rings") or []
+    for ring in rings:
+        for k in range(len(ring)):
+            a, b = ring[k], ring[(k + 1) % len(ring)]
+            ring_bonds.add((a, b) if a < b else (b, a))
 
     for i, j, data in graph.edges(data=True):
         bo = data.get("bond_order", 1.0)
         if bo < 1.9:
             continue
         if graph.nodes[i].get("symbol", "") == "*" or graph.nodes[j].get("symbol", "") == "*":
+            continue
+        if graph.nodes[i].get("symbol", "") in DATA.metals or graph.nodes[j].get("symbol", "") in DATA.metals:
+            continue
+        key = (i, j) if i < j else (j, i)
+        if key in ring_bonds:
             continue
 
         i_nbrs = [n for n in graph.neighbors(i) if n != j]
@@ -86,7 +99,6 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
             continue
 
         label = "Z" if dot > 0 else "E"
-        key = (i, j) if i < j else (j, i)
         ez[key] = label
 
     return ez
