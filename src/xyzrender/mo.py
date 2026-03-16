@@ -27,6 +27,9 @@ _UPSAMPLE_FACTOR = 3  # 80x80 -> 400x400 -- smooth enough for publication
 _BLUR_SIGMA = 0.8  # Gaussian sigma in 2D grid cells before upsampling
 _MIN_LOOP_PERIMETER = 15.0  # upsampled grid units — discard tiny contour fragments
 
+# Lobe classification (physical units)
+_COPLANARITY_THRESHOLD_ANG = 0.3  # Å — below this z-depth difference, lobes are coplanar
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -731,7 +734,7 @@ def classify_mo_lobes(lobes: list[LobeContour2D], mol_z: float) -> list[bool]:
         # Within pair: higher z = front — but if z-depths are nearly equal
         # (in-plane orbital) both lobes are visible, so render both as front
         dz = abs(lobes[pi].z_depth - lobes[ni].z_depth)
-        if dz < 0.3:  # Angstrom — lobes coplanar with viewer
+        if dz < _COPLANARITY_THRESHOLD_ANG:
             is_front[pi] = True
             is_front[ni] = True
         elif lobes[pi].z_depth >= lobes[ni].z_depth:

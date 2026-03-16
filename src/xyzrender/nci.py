@@ -43,6 +43,10 @@ from xyzrender.mo import (
 _NCI_BLUR_SIGMA = 1.0
 _NCI_MIN_REGION_VOLUME_BOHR3 = 0.1  # discard 3D NCI regions smaller than this (Bohr^3)
 
+# 2D region shape thresholds — decide whether to dilate before blurring
+_MIN_PIXELS_FOR_BLUR = 20  # regions with fewer non-zero pixels are dilated
+_FILL_FRACTION_THRESHOLD = 0.4  # bbox fill below this triggers dilation
+
 # ---------------------------------------------------------------------------
 # NCI colormap — CSS4 named colors, same pattern as ESP_COLORMAP in esp.py
 # ---------------------------------------------------------------------------
@@ -275,7 +279,11 @@ def _project_nci_region_2d(
     row_span = int(nz_rows.max()) - int(nz_rows.min()) + 1
     col_span = int(nz_cols.max()) - int(nz_cols.min()) + 1
     fill_fraction = n_unique / max(1, row_span * col_span)
-    to_blur = _dilate_binary_2d(cropped) if (n_unique < 20 or fill_fraction < 0.4) else cropped
+    to_blur = (
+        _dilate_binary_2d(cropped)
+        if (n_unique < _MIN_PIXELS_FOR_BLUR or fill_fraction < _FILL_FRACTION_THRESHOLD)
+        else cropped
+    )
     blurred = np.maximum(_gaussian_blur_2d(to_blur, _NCI_BLUR_SIGMA), 0.0)
     upsampled = _upsample_2d(blurred, _UPSAMPLE_FACTOR)
 
