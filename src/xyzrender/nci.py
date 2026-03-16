@@ -219,32 +219,40 @@ def find_nci_regions(
 # ---------------------------------------------------------------------------
 
 
-def _project_nci_region_2d(
+def _transform_region_positions(
     region: Lobe3D,
     pos_flat_ang: np.ndarray,
-    x_min: float,
-    x_max: float,
-    y_min: float,
-    y_max: float,
-    resolution: int,
     rot: np.ndarray | None,
     atom_centroid: np.ndarray | None,
     target_centroid: np.ndarray | None,
-) -> LobeContour2D | None:
-    """Project a 3D NCI region to a 2D contour loop.
+) -> np.ndarray:
+    """Apply rotation/centroid transform to a region's voxel positions.
 
-    Uses binary membership projection (1.0 for member voxels) then
-    Gaussian blur + upsampling + marching squares at 0.5.
+    Returns the transformed (N, 3) array in Angstrom.
     """
     lobe_pos = pos_flat_ang[region.flat_indices].copy()
-
     if rot is not None:
         if atom_centroid is not None:
             lobe_pos -= atom_centroid
         lobe_pos = lobe_pos @ rot.T
         if target_centroid is not None:
             lobe_pos += target_centroid
+    return lobe_pos
 
+
+def _project_nci_region_2d(
+    lobe_pos: np.ndarray,
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+    resolution: int,
+) -> LobeContour2D | None:
+    """Project pre-transformed 3D positions to a 2D contour loop.
+
+    Uses binary membership projection (1.0 for member voxels) then
+    Gaussian blur + upsampling + marching squares at 0.5.
+    """
     z_depth = float(lobe_pos[:, 2].mean())
 
     lx, ly = lobe_pos[:, 0], lobe_pos[:, 1]
@@ -306,16 +314,13 @@ def _project_nci_region_2d(
 
 def _build_nci_color_raster(
     regions_3d: list[Lobe3D],
-    pos_flat_ang: np.ndarray,
+    transformed_positions: list[np.ndarray],
     dens_cube: "CubeData",
     x_min: float,
     x_max: float,
     y_min: float,
     y_max: float,
     resolution: int,
-    rot: np.ndarray | None,
-    atom_centroid: np.ndarray | None,
-    target_centroid: np.ndarray | None,
     *,
     vmin: float = _NCI_VMIN,
     vmax: float = _NCI_VMAX,
@@ -336,15 +341,7 @@ def _build_nci_color_raster(
     count = np.zeros((resolution, resolution), dtype=np.float64)
     dens_flat = dens_cube.grid_data.ravel()
 
-    for region in regions_3d:
-        lobe_pos = pos_flat_ang[region.flat_indices].copy()
-        if rot is not None:
-            if atom_centroid is not None:
-                lobe_pos -= atom_centroid
-            lobe_pos = lobe_pos @ rot.T
-            if target_centroid is not None:
-                lobe_pos += target_centroid
-
+    for region, lobe_pos in zip(regions_3d, transformed_positions, strict=False):
         lx, ly = lobe_pos[:, 0], lobe_pos[:, 1]
         xi = np.clip(((lx - x_min) / (x_max - x_min) * (resolution - 1)).astype(int), 0, resolution - 1)
         yi = np.clip(((ly - y_min) / (y_max - y_min) * (resolution - 1)).astype(int), 0, resolution - 1)
@@ -491,19 +488,20 @@ def build_nci_contours(
     else:
         vmin, vmax = _NCI_VMIN, _NCI_VMAX
 
-    paired: list[tuple[Lobe3D, LobeContour2D]] = []
-    for region in regions_3d:
+    # Pre-compute transformed positions once per region (shared by contouring and raster)
+    transformed_positions = [
+        _transform_region_positions(region, pos_flat_ang, rot, atom_centroid, target_centroid) for region in regions_3d
+    ]
+
+    paired: list[tuple[Lobe3D, LobeContour2D, np.ndarray]] = []
+    for region, lobe_pos in zip(regions_3d, transformed_positions, strict=False):
         lc = _project_nci_region_2d(
-            region,
-            pos_flat_ang,
+            lobe_pos,
             x_min,
             x_max,
             y_min,
             y_max,
             base_res,
-            rot,
-            atom_centroid,
-            target_centroid,
         )
         if lc is not None:
             if use_dens_color:
@@ -511,9 +509,11 @@ def build_nci_contours(
                 assert dens_flat is not None
                 mean_dens = float(dens_flat[region.flat_indices].mean())
                 lc.lobe_color = _nci_colormap_hex(mean_dens, vmin, vmax)
-            paired.append((region, lc))
+            paired.append((region, lc, lobe_pos))
 
-    lobe_contours = [lc for _, lc in paired]
+    paired_regions = [r for r, _, _ in paired]
+    paired_transformed = [tp for _, _, tp in paired]
+    lobe_contours = [lc for _, lc, _ in paired]
 
     # Sort back-to-front by z_depth for proper SVG layering
     lobe_contours.sort(key=lambda lc: lc.z_depth)
@@ -537,17 +537,14 @@ def build_nci_contours(
     nci_raster_png: str | None = None
     if color_mode == "pixel":
         nci_raster_png = _build_nci_color_raster(
-            regions_3d,
-            pos_flat_ang,
+            paired_regions,
+            paired_transformed,
             dens_cube,
             x_min,
             x_max,
             y_min,
             y_max,
             base_res,
-            rot,
-            atom_centroid,
-            target_centroid,
             vmin=vmin,
             vmax=vmax,
         )
