@@ -111,9 +111,11 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
 def assign_axial(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, int, str]]]:
     """Assign axial chirality (Rₐ/Sₐ) on suitable axes.
 
-    Returns:
-      - labels on existing graph edges (axis bond present)
-      - labels on non-edge axes (as i, j, label)
+    Returns
+    -------
+    tuple
+        Labels on existing graph edges (axis bond present), plus labels on non-edge axes
+        (as i, j, label).
     """
     axial: dict[tuple[int, int], str] = {}
     axes: list[tuple[int, int, str]] = []
@@ -424,16 +426,15 @@ def _assign_axial_biaryl(graph) -> dict[tuple[int, int], str]:
             front, back = j, i
             v_front = pos[ranks_j[0][1]] - pos[j]
             v_back = pos[ranks_i[0][1]] - pos[i]
-        else:
+        elif i < j:
             # symmetric ends: fall back to index order for deterministic label
-            if i < j:
-                front, back = i, j
-                v_front = pos[ranks_i[0][1]] - pos[i]
-                v_back = pos[ranks_j[0][1]] - pos[j]
-            else:
-                front, back = j, i
-                v_front = pos[ranks_j[0][1]] - pos[j]
-                v_back = pos[ranks_i[0][1]] - pos[i]
+            front, back = i, j
+            v_front = pos[ranks_i[0][1]] - pos[i]
+            v_back = pos[ranks_j[0][1]] - pos[j]
+        else:
+            front, back = j, i
+            v_front = pos[ranks_j[0][1]] - pos[j]
+            v_back = pos[ranks_i[0][1]] - pos[i]
 
         axis = pos[back] - pos[front]
         label = _axis_label(axis, v_front, v_back)
@@ -482,16 +483,15 @@ def _assign_axial_allene(graph) -> tuple[dict[tuple[int, int], str], list[tuple[
             front, back = end_b, end_a
             v_front = pos[rank_b[0][1]] - pos[end_b]
             v_back = pos[rank_a[0][1]] - pos[end_a]
-        else:
+        elif end_a < end_b:
             # symmetric ends: fall back to index order for deterministic label
-            if end_a < end_b:
-                front, back = end_a, end_b
-                v_front = pos[rank_a[0][1]] - pos[end_a]
-                v_back = pos[rank_b[0][1]] - pos[end_b]
-            else:
-                front, back = end_b, end_a
-                v_front = pos[rank_b[0][1]] - pos[end_b]
-                v_back = pos[rank_a[0][1]] - pos[end_a]
+            front, back = end_a, end_b
+            v_front = pos[rank_a[0][1]] - pos[end_a]
+            v_back = pos[rank_b[0][1]] - pos[end_b]
+        else:
+            front, back = end_b, end_a
+            v_front = pos[rank_b[0][1]] - pos[end_b]
+            v_back = pos[rank_a[0][1]] - pos[end_a]
 
         axis = pos[back] - pos[front]
         label = _axis_label(axis, v_front, v_back)
@@ -513,7 +513,7 @@ def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[
     pos = np.array([graph.nodes[n]["position"] for n in graph.nodes()], dtype=float)
     rings = graph.graph.get("rings") or []
     ring_candidates: list[tuple[list[int], int]] = []
-    for ring_idx, ring in enumerate(rings):
+    for _ring_idx, ring in enumerate(rings):
         if len(ring) != 5:
             continue
         if not all(graph.nodes[a].get("symbol", "") == "C" for a in ring):
