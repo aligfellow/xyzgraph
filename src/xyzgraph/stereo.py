@@ -56,16 +56,6 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
             a, b = ring[k], ring[(k + 1) % len(ring)]
             aromatic_bonds.add((a, b) if a < b else (b, a))
 
-    ring_bond_min_size: dict[tuple[int, int], int] = {}
-    rings = graph.graph.get("rings") or []
-    for ring in rings:
-        size = len(ring)
-        for k in range(size):
-            a, b = ring[k], ring[(k + 1) % size]
-            key = (a, b) if a < b else (b, a)
-            prev = ring_bond_min_size.get(key)
-            ring_bond_min_size[key] = size if prev is None else min(prev, size)
-
     for i, j, data in graph.edges(data=True):
         bo = data.get("bond_order", 1.0)
         if bo < 1.9:
@@ -77,8 +67,9 @@ def assign_ez(graph) -> dict[tuple[int, int], str]:
         key = (i, j) if i < j else (j, i)
         if key in aromatic_bonds:
             continue
-        min_ring = ring_bond_min_size.get(key)
-        if min_ring is not None and min_ring < 8:
+        if any(graph.nodes[n].get("symbol", "") in DATA.metals for n in graph.neighbors(i)):
+            continue
+        if any(graph.nodes[n].get("symbol", "") in DATA.metals for n in graph.neighbors(j)):
             continue
 
         i_nbrs = [n for n in graph.neighbors(i) if n != j]
@@ -521,35 +512,7 @@ def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[
     axes: list[tuple[int, int, str]] = []
     pos = np.array([graph.nodes[n]["position"] for n in graph.nodes()], dtype=float)
     rings = graph.graph.get("rings") or []
-    ring_sets = [set(r) for r in rings]
-
-    # If no rings were detected, attempt Cp-like rings around metals by geometry.
     ring_candidates: list[tuple[list[int], int]] = []
-    metals = [idx for idx in graph.nodes() if graph.nodes[idx].get("symbol", "") in DATA.metals]
-    if not rings and metals:
-        for metal in metals:
-            carbon_idx = [
-                i
-                for i in graph.nodes()
-                if graph.nodes[i].get("symbol", "") == "C"
-                and np.linalg.norm(pos[i] - pos[metal]) < 2.6
-            ]
-            if len(carbon_idx) < 8:
-                continue
-            coords = pos[carbon_idx] - pos[metal]
-            _, _, vh = np.linalg.svd(coords, full_matrices=False)
-            axis = vh[0]
-            proj = coords @ axis
-            top = [i for i, p in zip(carbon_idx, proj) if p >= 0]
-            bottom = [i for i, p in zip(carbon_idx, proj) if p < 0]
-            for ring in (top, bottom):
-                if len(ring) < 5:
-                    continue
-                ccoords = pos[ring]
-                centroid = ccoords.mean(axis=0)
-                ring = sorted(ring, key=lambda i: np.linalg.norm(pos[i] - centroid))[:5]
-                ring_candidates.append((ring, metal))
-
     for ring_idx, ring in enumerate(rings):
         if len(ring) != 5:
             continue
@@ -561,13 +524,6 @@ def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[
             for nb in graph.neighbors(a)
             if graph.nodes[nb].get("symbol", "") in DATA.metals
         }
-        if not metals:
-            metals = {
-                idx
-                for idx in graph.nodes()
-                if graph.nodes[idx].get("symbol", "") in DATA.metals
-                and np.min(np.linalg.norm(pos[ring] - pos[idx], axis=1)) < 2.6
-            }
         for metal in metals:
             ring_candidates.append((ring, metal))
 
