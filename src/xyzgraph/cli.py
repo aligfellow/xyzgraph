@@ -87,6 +87,57 @@ def display_graph(G, args, show_h_indices, label=""):
     return show_ascii
 
 
+def display_stereo(G):
+    """Run stereo detection and print summary."""
+    from .stereo import StereoSummary, annotate_stereo
+
+    summary: StereoSummary = annotate_stereo(G)
+    print(f"\n{'=' * 80}")
+    print("# Stereochemistry")
+    print("=" * 80)
+
+    if not any(summary.values()):
+        print("#   No stereochemistry detected.")
+        return
+
+    rs = summary["rs"]
+    ez = summary["ez"]
+    axial = summary["axial"]
+    planar = summary["planar"]
+    helical = summary["helical"]
+
+    if rs:
+        print("# R/S Centers:")
+        for idx, label in sorted(rs.items()):
+            sym = G.nodes[idx]["symbol"]
+            print(f"#   {sym}{idx}: {label}")
+    if ez:
+        print("# E/Z Bonds:")
+        for (i, j), label in sorted(ez.items()):
+            si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
+            print(f"#   {si}{i}={sj}{j}: {label}")
+    if axial:
+        print("# Axial Chirality:")
+        for (i, j), label in sorted(axial.items()):
+            si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
+            print(f"#   {si}{i}-{sj}{j}: {label}")
+    if planar:
+        print("# Planar Chirality:")
+        for (i, j), label in sorted(planar.items()):
+            si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
+            print(f"#   {si}{i}-{sj}{j}: {label}")
+    if helical:
+        print("# Helical Chirality:")
+        for i, j, label in helical:
+            print(f"#   {i}...{j}: {label}")
+
+    axes = G.graph.get("stereo_axes", [])
+    if axes:
+        print("# Non-edge Axes:")
+        for ax in axes:
+            print(f"#   {ax['i']}...{ax['j']}: {ax['label']} ({ax['kind']})")
+
+
 def display_ncis(G, args, show_h_indices):
     """Run NCI detection, print summary, and render ASCII with NCI dotted lines."""
     from .nci import detect_ncis
@@ -224,6 +275,11 @@ def main():
         "--nci",
         action="store_true",
         help="Detect and report non-covalent interactions",
+    )
+    output.add_argument(
+        "--stereo",
+        action="store_true",
+        help="Assign and display stereochemistry labels",
     )
     output.add_argument(
         "-H",
@@ -502,6 +558,10 @@ def main():
                 from .nci import detect_ncis
 
                 detect_ncis(G_primary)
+            if args.stereo:
+                from .stereo import annotate_stereo
+
+                annotate_stereo(G_primary)
             print(json.dumps(graph_to_dict(G_primary), indent=2))
             continue  # Skip to next frame or exit
 
@@ -533,6 +593,10 @@ def main():
 
         # Display primary graph
         show_ascii = display_graph(G_primary, args, show_h_indices, label=args.method)
+
+        # Stereochemistry detection
+        if args.stereo:
+            display_stereo(G_primary)
 
         # NCI detection
         if args.nci:
