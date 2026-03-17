@@ -193,7 +193,7 @@ def assign_helical(graph) -> list[tuple[int, int, str]]:
     return [(i, j, label)]
 
 
-def annotate_stereo(graph) -> dict[str, dict]:
+def annotate_stereo(graph) -> dict[str, dict | list[tuple[int, int, str]]]:
     """Assign stereochemistry and store labels on node/edge attributes.
 
     Keys:
