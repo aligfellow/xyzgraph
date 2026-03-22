@@ -10,13 +10,23 @@ from .data_loader import DATA
 
 
 class StereoSummary(TypedDict):
-    """Return type for :func:`annotate_stereo`."""
+    """Return type for :func:`annotate_stereo`.
 
-    rs: dict[int, str]
+    Stored as ``graph.graph["stereo"]``.
+
+    Keys:
+      - ``point``:   R/S centres — ``{atom_idx: "R"|"S"}``
+      - ``ez``:      E/Z bonds — ``{(i, j): "E"|"Z"}``
+      - ``axial``:   axial chirality — ``{(i, j): "Rₐ"|"Sₐ"}``
+      - ``planar``:  planar chirality — ``{(i, j): "Rₚ"|"Sₚ"}``
+      - ``helical``: helical chirality — ``{(i, j): "P"|"M"}``
+    """
+
+    point: dict[int, str]
     ez: dict[tuple[int, int], str]
     axial: dict[tuple[int, int], str]
     planar: dict[tuple[int, int], str]
-    helical: list[tuple[int, int, str]]
+    helical: dict[tuple[int, int], str]
 
 
 _EPS = 1e-8
@@ -866,45 +876,35 @@ def _helical_from_fused_rings(pos: dict[int, np.ndarray], rings: list[list[int]]
 
 
 def annotate_stereo(graph) -> StereoSummary:
-    """Assign stereochemistry and store labels on node/edge attributes.
+    """Assign stereochemistry and store as ``graph.graph["stereo"]``.
 
-    Keys:
-      - Nodes: ``stereo_rs`` (R/S)
-      - Edges: ``stereo_ez`` (E/Z), ``stereo_axial`` (Rₐ/Sₐ), ``stereo_planar`` (Rₚ/Sₚ)
-
-    For axes that are not graph edges (e.g., allenes, metallocenes),
-    entries are added to ``graph.graph["stereo_axes"]`` as
-    ``{"i": i, "j": j, "label": label, "kind": "axial"|"planar"}``.
+    The summary dict has five keys (see :class:`StereoSummary`):
+    ``point``, ``ez``, ``axial``, ``planar``, ``helical``.
+    Each maps atom/edge indices to label strings.
     """
-    rs = assign_rs(graph)
-    for idx, label in rs.items():
-        graph.nodes[idx]["stereo_rs"] = label
-
+    point = assign_rs(graph)
     ez = assign_ez(graph)
-    for (i, j), label in ez.items():
-        if graph.has_edge(i, j):
-            graph.edges[i, j]["stereo_ez"] = label
 
-    axial, axial_axes = assign_axial(graph)
-    for (i, j), label in axial.items():
-        if graph.has_edge(i, j):
-            graph.edges[i, j]["stereo_axial"] = label
+    axial_edges, axial_nonedge = assign_axial(graph)
+    axial: dict[tuple[int, int], str] = {**axial_edges}
+    for i, j, label in axial_nonedge:
+        axial[(i, j)] = label
 
-    planar, planar_axes = assign_planar(graph)
-    for (i, j), label in planar.items():
-        if graph.has_edge(i, j):
-            graph.edges[i, j]["stereo_planar"] = label
+    planar_edges, planar_nonedge = assign_planar(graph)
+    planar: dict[tuple[int, int], str] = {**planar_edges}
+    for i, j, label in planar_nonedge:
+        planar[(i, j)] = label
 
-    axes: list[dict[str, object]] = []
-    for i, j, label in axial_axes:
-        axes.append({"i": i, "j": j, "label": label, "kind": "axial"})
-    for i, j, label in planar_axes:
-        axes.append({"i": i, "j": j, "label": label, "kind": "planar"})
+    helical: dict[tuple[int, int], str] = {}
+    for i, j, label in assign_helical(graph):
+        helical[(i, j)] = label
 
-    helical_axes = assign_helical(graph)
-    for i, j, label in helical_axes:
-        axes.append({"i": i, "j": j, "label": label, "kind": "helical"})
-    if axes:
-        graph.graph["stereo_axes"] = axes
-
-    return {"rs": rs, "ez": ez, "axial": axial, "planar": planar, "helical": helical_axes}
+    summary: StereoSummary = {
+        "point": point,
+        "ez": ez,
+        "axial": axial,
+        "planar": planar,
+        "helical": helical,
+    }
+    graph.graph["stereo"] = summary
+    return summary

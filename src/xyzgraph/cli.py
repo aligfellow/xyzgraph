@@ -89,25 +89,12 @@ def display_graph(G, args, show_h_indices, label=""):
 
 def display_stereo(G):
     """Run stereo detection and print summary."""
-    from .stereo import StereoSummary, annotate_stereo
+    from .stereo import annotate_stereo
 
-    def _summary_from_graph(graph, axes_list) -> StereoSummary:
-        rs = {idx: data["stereo_rs"] for idx, data in graph.nodes(data=True) if "stereo_rs" in data}
-        ez = {(i, j): d["stereo_ez"] for i, j, d in graph.edges(data=True) if "stereo_ez" in d}
-        axial = {(i, j): d["stereo_axial"] for i, j, d in graph.edges(data=True) if "stereo_axial" in d}
-        planar = {(i, j): d["stereo_planar"] for i, j, d in graph.edges(data=True) if "stereo_planar" in d}
-        helical = [
-            (ax["i"], ax["j"], ax["label"])
-            for ax in axes_list
-            if ax.get("kind") == "helical" and {"i", "j", "label"} <= set(ax)
-        ]
-        return {"rs": rs, "ez": ez, "axial": axial, "planar": planar, "helical": helical}
-
-    axes = G.graph.get("stereo_axes", [])
-    summary: StereoSummary = _summary_from_graph(G, axes)
-    if not any(summary.values()) and not axes:
+    summary = G.graph.get("stereo")
+    if summary is None:
         summary = annotate_stereo(G)
-        axes = G.graph.get("stereo_axes", [])
+
     print(f"\n{'=' * 80}")
     print("# Stereochemistry")
     print("=" * 80)
@@ -116,15 +103,15 @@ def display_stereo(G):
         print("#   No stereochemistry detected.")
         return
 
-    rs = summary["rs"]
+    point = summary["point"]
     ez = summary["ez"]
     axial = summary["axial"]
     planar = summary["planar"]
     helical = summary["helical"]
 
-    if rs:
-        print("# R/S Centers:")
-        for idx, label in sorted(rs.items()):
+    if point:
+        print("# Point Chirality (R/S):")
+        for idx, label in sorted(point.items()):
             sym = G.nodes[idx]["symbol"]
             print(f"#   {sym}{idx}: {label}")
     if ez:
@@ -136,7 +123,8 @@ def display_stereo(G):
         print("# Axial Chirality:")
         for (i, j), label in sorted(axial.items()):
             si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
-            print(f"#   {si}{i}-{sj}{j}: {label}")
+            conn = "-" if G.has_edge(i, j) else "..."
+            print(f"#   {si}{i}{conn}{sj}{j}: {label}")
     if planar:
         print("# Planar Chirality:")
         for (i, j), label in sorted(planar.items()):
@@ -144,13 +132,8 @@ def display_stereo(G):
             print(f"#   {si}{i}-{sj}{j}: {label}")
     if helical:
         print("# Helical Chirality:")
-        for i, j, label in helical:
+        for (i, j), label in sorted(helical.items()):
             print(f"#   {i}...{j}: {label}")
-
-    if axes:
-        print("# Non-edge Axes:")
-        for ax in axes:
-            print(f"#   {ax['i']}...{ax['j']}: {ax['label']} ({ax['kind']})")
 
 
 def display_ncis(G, args, show_h_indices):

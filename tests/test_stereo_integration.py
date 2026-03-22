@@ -36,6 +36,17 @@ def test_axial_metallocene_ferrocene_pair() -> None:
     assert {a_label, b_label} == {"Rₐ", "Sₐ"}
 
 
+def test_axial_allene_pair() -> None:
+    ra = build_graph(str(STRUCTURES / "Ra_allene.xyz"))
+    sa = build_graph(str(STRUCTURES / "Sa_allene.xyz"))
+    # Allene axes are non-edge (terminal C's aren't bonded)
+    ra_axes = assign_axial(ra)[1]
+    sa_axes = assign_axial(sa)[1]
+    assert len(ra_axes) == 1
+    assert len(sa_axes) == 1
+    assert {ra_axes[0][2], sa_axes[0][2]} == {"Rₐ", "Sₐ"}
+
+
 def test_planar_ferrocene_pair() -> None:
     rp = build_graph(str(STRUCTURES / "Rp_ferrocene.xyz"))
     sp = build_graph(str(STRUCTURES / "Sp_ferrocene.xyz"))

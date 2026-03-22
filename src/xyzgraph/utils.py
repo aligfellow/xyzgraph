@@ -257,21 +257,19 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
     else:
         lines.append("# (no bonds detected)")
 
-    # Stereo section — only if any stereo attrs present
-    stereo_lines: list[str] = []
-    for idx, data in G.nodes(data=True):
-        if "stereo_rs" in data:
-            stereo_lines.append(f"#   [{idx:>3}] {data.get('symbol', '?')}: {data['stereo_rs']}")
-    for i, j, d in sorted(G.edges(data=True)):
-        for attr in ("stereo_ez", "stereo_axial", "stereo_planar"):
-            if attr in d:
-                stereo_lines.append(f"#   [{i:>3}-{j:>3}]: {d[attr]}")
-    for ax in G.graph.get("stereo_axes", []):
-        stereo_lines.append(f"#   {ax['i']}...{ax['j']}: {ax['label']} ({ax['kind']})")
-    if stereo_lines:
+    # Stereo section — read from unified G.graph["stereo"]
+    stereo = G.graph.get("stereo")
+    if stereo and any(stereo.values()):
         lines.append("")
         lines.append("# Stereochemistry")
-        lines.extend(stereo_lines)
+        for idx, label in sorted(stereo.get("point", {}).items()):
+            sym = G.nodes[idx].get("symbol", "?")
+            lines.append(f"#   [{idx:>3}] {sym}: {label}")
+        for (i, j), label in sorted(stereo.get("ez", {}).items()):
+            lines.append(f"#   [{i:>3}={j:>3}]: {label}")
+        for key in ("axial", "planar", "helical"):
+            for (i, j), label in sorted(stereo.get(key, {}).items()):
+                lines.append(f"#   [{i:>3}-{j:>3}]: {label} ({key})")
 
     return "\n".join(lines)
 

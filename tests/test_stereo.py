@@ -206,8 +206,8 @@ def test_sulfone_not_stereocenter() -> None:
     assert len(assign_rs(G)) == 0
 
 
-def test_no_backward_compat_attrs() -> None:
-    """annotate_stereo must NOT set generic 'stereo' attribute."""
+def test_stereo_stored_as_graph_attr() -> None:
+    """annotate_stereo stores result in G.graph['stereo']."""
     G = nx.Graph()
     _add_node(G, 0, "C", (0.0, 0.0, 0.0))
     _add_node(G, 1, "F", (0.0, 0.0, -1.0))
@@ -217,9 +217,10 @@ def test_no_backward_compat_attrs() -> None:
     for n in [1, 2, 3, 4]:
         G.add_edge(0, n, bond_order=1.0)
 
-    annotate_stereo(G)
-    assert "stereo_rs" in G.nodes[0]
-    assert "stereo" not in G.nodes[0]
+    summary = annotate_stereo(G)
+    assert "stereo" in G.graph
+    assert G.graph["stereo"] is summary
+    assert summary["point"][0] == "S"
 
 
 # ---------------------------------------------------------------------------
@@ -341,9 +342,8 @@ def test_assign_axial_allene_and_annotate_axes() -> None:
     assert len(axes) == 1
     assert axes[0][2] in {"Rₐ", "Sₐ"}
 
-    annotate_stereo(G)
-    assert "stereo_axes" in G.graph
-    assert any(axis["kind"] == "axial" for axis in G.graph["stereo_axes"])
+    summary = annotate_stereo(G)
+    assert len(summary["axial"]) == 1
 
 
 def _make_axial_metallocene_graph() -> nx.Graph:
