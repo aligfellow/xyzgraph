@@ -214,10 +214,7 @@ def _count_ortho_subs(
     """
     if not ring_atoms:
         # Non-ring sp2 atom: its own non-H neighbors create the barrier
-        return sum(
-            1 for n in bridge_nbrs
-            if graph.nodes[n].get("symbol", "") != "H"
-        )
+        return sum(1 for n in bridge_nbrs if graph.nodes[n].get("symbol", "") != "H")
     count = 0
     for n in bridge_nbrs:
         if n not in ring_atoms:
