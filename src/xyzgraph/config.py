@@ -30,6 +30,7 @@ class DefaultParamsType(TypedDict):
     allow_metal_metal_bonds: bool
     period_scaling_h_bonds: float
     period_scaling_nonmetal_bonds: float
+    stereo: bool
     orca_bond_threshold: float
 
 
@@ -60,6 +61,7 @@ DEFAULT_PARAMS: DefaultParamsType = {
     "allow_metal_metal_bonds": True,
     "period_scaling_h_bonds": 0.05,
     "period_scaling_nonmetal_bonds": 0.00,
+    "stereo": False,
     # ORCA-specific parameters:
     "orca_bond_threshold": 0.25,
 }

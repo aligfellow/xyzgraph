@@ -46,6 +46,7 @@
     - **greedy**: iterative valence adjustment
 - **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings (optional `--kekule` to keep Kekulé bond orders)
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
+- **Stereochemistry assignment**: R/S, E/Z, axial (biaryl, allene, metallocene), planar (metallocene, paracyclophane), and helical (helicene) chirality from 3D geometry
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
 - **Non-covalent interaction (NCI) detection**: 17 interaction types including hydrogen bonds, pi-stacking, halogen/chalcogen/pnictogen bonds, cation-pi, and more
 - **ASCII 2D depiction** with layout alignment for method comparison (see also [[5]](https://github.com/whitead/moltext))
@@ -583,6 +584,48 @@ G_kekule = build_graph('molecule.xyz', kekule=True)
 # Aromatic rings are still detected and stored in G_kekule.graph["aromatic_rings"]
 # Bond orders remain as optimised Kekule values (1.0/2.0)
 ```
+
+Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
+
+```python
+from xyzgraph import annotate_stereo
+
+stereo = annotate_stereo(G_full)  # assigns all stereo types at once
+# Also stored as G.graph["stereo"] for downstream use (e.g. rendering)
+
+# Each key maps to a list of dicts with "label" and type-specific atom references:
+stereo["point"]    # [{"atom": 5, "label": "R"}, ...]         — R/S centres
+stereo["ez"]       # [{"bond": [4,6], "label": "E"}, ...]     — geometric isomerism
+stereo["axial"]    # [{"atoms": [9,10], "label": "Rₐ"}, ...]  — biaryl, allene, metallocene
+stereo["planar"]   # [{"ring": [...], "label": "Rₚ"}, ...]    — metallocene, paracyclophane
+stereo["helical"]  # [{"atoms": [12,0], "label": "M"}, ...]   — helicenes
+```
+
+Example structures for each stereo type are provided in `examples/stereo/`:
+
+| Type | Examples | Label |
+|------|----------|-------|
+| Point (R/S) | `mnh.xyz` | R, S |
+| E/Z | `E_2butene.xyz`, `Z_2butene.xyz` | E, Z |
+| Axial (biaryl) | `R_binol.xyz`, `S_binol.xyz` | Rₐ, Sₐ |
+| Axial (allene) | `Ra_allene.xyz`, `Sa_allene.xyz` | Rₐ, Sₐ |
+| Axial (metallocene) | `Ra_ferrocene_axial.xyz`, `Sa_ferrocene_axial.xyz` | Rₐ, Sₐ |
+| Axial (hindered biaryl) | `Ra_hindered_biaryl.xyz`, `Sa_hindered_biaryl.xyz` | Rₐ, Sₐ |
+| Planar (metallocene) | `Rp_ferrocene.xyz`, `Sp_ferrocene.xyz` | Rₚ, Sₚ |
+| Planar (paracyclophane) | `22paracyclophane.xyz`, `22paracyclophane_F.xyz` | None, Sₚ |
+| Helical | `M_helicene.xyz`, `P_helicene.xyz` | M, P |
+
+**Conventions**:
+- **R/S, E/Z, axial**: standard CIP rules
+- **Planar (general)**: IUPAC pilot-atom convention (CW from pilot = Rₚ)
+- **Planar (metallocene)**: Schlögl convention (view from opposite the metal, CW = Rₚ). Note: this gives the opposite label from IUPAC CIP when the metal is the pilot atom
+- **Helical**: IUPAC P/M helix convention
+
+**Known limitations**:
+- Axial chirality requires sp2 junction atoms with at least one in an aromatic ring; non-conjugated restricted rotations are not detected
+- Ortho steric gating (≥2 non-H ortho substituents) may be overly permissive for some aryl-vinyl or aryl-amide axes where free rotation is possible in practice
+- Planar chirality in paracyclophanes with chemically different bridges (e.g. -CH₂CH₂- vs -CH₂O-) may not be detected on the unsubstituted deck
+- Helical chirality requires fused aromatic rings; large aza-helicenes with ring detection issues may not be assigned
 
 ---
 
@@ -1569,6 +1612,10 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 7. **SMILES all around: structure to SMILES conversion for transition metal complexes**: Maria H. Rasmussen, Magnus Strandgaard, Julius Seumer, Laura K. Hemmingsen, Angelo Frei, David Balcells and Jan H. Jensen, *Journal of Cheminformatics*, 2025, **17**. [DOI](https://jcheminf.biomedcentral.com/articles/10.1186/s13321-025-01008-1).
 
 ---
+
+## Contributors
+
+- [James O'Brien (@JamesOBrien2)](https://github.com/JamesOBrien2) — stereochemistry detection 
 
 ## Contributing & Contact
 

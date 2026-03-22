@@ -17,6 +17,7 @@ def build_graph_rdkit_tm(
     xyz_file: str | list[tuple[str, tuple[float, float, float]]],
     charge: int = 0,
     bohr_units: bool = False,
+    stereo: bool = False,
 ) -> nx.Graph:
     """Build molecular graph using xyz2mol_tm for coordination complexes.
 
@@ -32,6 +33,8 @@ def build_graph_rdkit_tm(
         Total molecular charge.
     bohr_units : bool
         Whether input coordinates are in Bohr.
+    stereo : bool
+        If True, assign stereochemistry labels on the graph.
 
     Returns
     -------
@@ -106,6 +109,10 @@ def build_graph_rdkit_tm(
             "source": "rdkit_tm",
             "note": "xyz2mol_tmc failed or timed out",
         }
+        if stereo:
+            from .stereo import annotate_stereo
+
+            annotate_stereo(G)
         return G
 
     # Build RDKit connectivity graph (element + bonds only)
@@ -249,6 +256,11 @@ def build_graph_rdkit_tm(
     }
     G.graph["total_charge"] = charge
     G.graph["method"] = "rdkit_tm"
+
+    if stereo:
+        from .stereo import annotate_stereo
+
+        annotate_stereo(G)
 
     return G
 
