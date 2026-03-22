@@ -262,14 +262,20 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
     if stereo and any(stereo.values()):
         lines.append("")
         lines.append("# Stereochemistry")
-        for idx, label in sorted(stereo.get("point", {}).items()):
+        for entry in stereo.get("point", []):
+            idx = entry["atom"]
             sym = G.nodes[idx].get("symbol", "?")
-            lines.append(f"#   [{idx:>3}] {sym}: {label}")
-        for (i, j), label in sorted(stereo.get("ez", {}).items()):
-            lines.append(f"#   [{i:>3}={j:>3}]: {label}")
-        for key in ("axial", "planar", "helical"):
-            for (i, j), label in sorted(stereo.get(key, {}).items()):
-                lines.append(f"#   [{i:>3}-{j:>3}]: {label} ({key})")
+            lines.append(f"#   [{idx:>3}] {sym}: {entry['label']}")
+        for entry in stereo.get("ez", []):
+            i, j = entry["bond"]
+            lines.append(f"#   [{i:>3}={j:>3}]: {entry['label']}")
+        for key in ("axial", "helical"):
+            for entry in stereo.get(key, []):
+                i, j = entry["atoms"]
+                lines.append(f"#   [{i:>3}-{j:>3}]: {entry['label']} ({key})")
+        for entry in stereo.get("planar", []):
+            ring_str = ",".join(str(a) for a in entry["ring"])
+            lines.append(f"#   [{ring_str}]: {entry['label']} (planar)")
 
     return "\n".join(lines)
 

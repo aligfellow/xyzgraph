@@ -56,12 +56,33 @@ def test_planar_ferrocene_pair() -> None:
     assert {rp_label, sp_label} == {"Rₚ", "Sₚ"}
 
 
-def test_planar_paracyclophane_pair() -> None:
-    rp = build_graph(str(STRUCTURES / "Rp_paracyclophane.xyz"))
-    sp = build_graph(str(STRUCTURES / "Sp_paracyclophane.xyz"))
-    rp_label = _label_from_map(assign_planar(rp)[0])
-    sp_label = _label_from_map(assign_planar(sp)[0])
-    assert {rp_label, sp_label} == {"Rₚ", "Sₚ"}
+def test_22paracyclophane_achiral() -> None:
+    """Unsubstituted [2.2]paracyclophane is achiral — no stereo labels."""
+    from xyzgraph.stereo import annotate_stereo
+
+    G = build_graph(str(STRUCTURES / "22paracyclophane.xyz"))
+    s = annotate_stereo(G)
+    assert not any(s.values())
+
+
+def test_22paracyclophane_F_planar() -> None:
+    """Mono-F [2.2]paracyclophane has planar chirality."""
+    from xyzgraph.stereo import annotate_stereo
+
+    G = build_graph(str(STRUCTURES / "22paracyclophane_F.xyz"))
+    s = annotate_stereo(G)
+    planar = s["planar"]
+    assert len(planar) >= 1
+    assert all(entry["label"] in {"Rₚ", "Sₚ"} for entry in planar)
+
+
+def test_hindered_biaryl_axial_pair() -> None:
+    """Hindered biaryl (bridged biphenyl) pair gets opposite axial labels."""
+    ra = build_graph(str(STRUCTURES / "Ra_hindered_biaryl.xyz"))
+    sa = build_graph(str(STRUCTURES / "Sa_hindered_biaryl.xyz"))
+    ra_label = _label_from_map(assign_axial(ra)[0])
+    sa_label = _label_from_map(assign_axial(sa)[0])
+    assert {ra_label, sa_label} == {"Rₐ", "Sₐ"}
 
 
 def test_helicene_pair() -> None:

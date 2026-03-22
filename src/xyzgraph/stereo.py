@@ -9,24 +9,36 @@ import numpy as np
 from .data_loader import DATA
 
 
+class StereoEntry(TypedDict, total=False):
+    """A single stereochemistry annotation.
+
+    Always has ``label``.  Type-specific keys:
+      - point:   ``atom`` (int)
+      - ez:      ``bond`` ([int, int])
+      - axial:   ``atoms`` ([int, int])
+      - planar:  ``ring`` (list[int])
+      - helical: ``atoms`` ([int, int])
+    """
+
+    label: str
+    atom: int
+    bond: list[int]
+    atoms: list[int]
+    ring: list[int]
+
+
 class StereoSummary(TypedDict):
     """Return type for :func:`annotate_stereo`.
 
     Stored as ``graph.graph["stereo"]``.
-
-    Keys:
-      - ``point``:   R/S centres — ``{atom_idx: "R"|"S"}``
-      - ``ez``:      E/Z bonds — ``{(i, j): "E"|"Z"}``
-      - ``axial``:   axial chirality — ``{(i, j): "Rₐ"|"Sₐ"}``
-      - ``planar``:  planar chirality — ``{(i, j): "Rₚ"|"Sₚ"}``
-      - ``helical``: helical chirality — ``{(i, j): "P"|"M"}``
+    Each key maps to a list of :class:`StereoEntry` dicts.
     """
 
-    point: dict[int, str]
-    ez: dict[tuple[int, int], str]
-    axial: dict[tuple[int, int], str]
-    planar: dict[tuple[int, int], str]
-    helical: dict[tuple[int, int], str]
+    point: list[StereoEntry]
+    ez: list[StereoEntry]
+    axial: list[StereoEntry]
+    planar: list[StereoEntry]
+    helical: list[StereoEntry]
 
 
 _EPS = 1e-8
@@ -493,18 +505,32 @@ def _assign_axial_ring_bridge(graph) -> dict[tuple[int, int], str]:
         for atom in rset:
             atom_rings.setdefault(atom, set()).add(r_idx)
 
+    # Also map atoms to aromatic ring indices — used for the
+    # shared-ring check so that a non-aromatic macro-ring (e.g.
+    # a cyclophane bridge cycle) does not prevent detection of the
+    # biaryl axis between two aromatic ring systems.
+    ar_rings = graph.graph.get("aromatic_rings") or []
+    atom_ar_rings: dict[int, set[int]] = {}
+    for r_idx, ring in enumerate(ar_rings):
+        for atom in ring:
+            atom_ar_rings.setdefault(atom, set()).add(r_idx)
+
     pos = _build_pos(graph)
 
     for i, j, data in graph.edges(data=True):
         if data.get("bond_order", 1.0) > 1.3:
             continue
-        # Both atoms must be in rings
-        i_rings = atom_rings.get(i)
-        j_rings = atom_rings.get(j)
-        if not i_rings or not j_rings:
+        # Both atoms must be in aromatic rings (the junction carbons
+        # of a biaryl axis).  Bridge CH₂ atoms that only appear in a
+        # non-aromatic macro-ring are not valid biaryl endpoints.
+        i_ar = atom_ar_rings.get(i, set())
+        j_ar = atom_ar_rings.get(j, set())
+        if not i_ar or not j_ar:
             continue
-        # Must not share a ring (bridge connects different ring systems)
-        if i_rings & j_rings:
+        # Must not share an aromatic ring (bridge connects different
+        # ring systems).  Sharing only a non-aromatic macro-ring (e.g.
+        # cyclophane bridge cycle) is allowed.
+        if i_ar & j_ar:
             continue
 
         n_i = [n for n in graph.neighbors(i) if n != j]
@@ -514,12 +540,13 @@ def _assign_axial_ring_bridge(graph) -> dict[tuple[int, int], str]:
 
         # Ortho steric gating: count non-H substituents on ring neighbors
         # of each bridge atom (these create the rotation barrier)
+        ar_ring_sets = [set(r) for r in ar_rings]
         i_ring_atoms = set()
-        for r_idx in i_rings:
-            i_ring_atoms.update(ring_sets[r_idx])
+        for r_idx in i_ar:
+            i_ring_atoms.update(ar_ring_sets[r_idx])
         j_ring_atoms = set()
-        for r_idx in j_rings:
-            j_ring_atoms.update(ring_sets[r_idx])
+        for r_idx in j_ar:
+            j_ring_atoms.update(ar_ring_sets[r_idx])
 
         ortho_i = _count_ortho_subs(graph, i, j, n_i, i_ring_atoms)
         ortho_j = _count_ortho_subs(graph, j, i, n_j, j_ring_atoms)
@@ -702,7 +729,25 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
     planar: dict[tuple[int, int], str] = {}
     axes: list[tuple[int, int, str]] = []
     pos = _build_pos(graph)
-    rings = graph.graph.get("rings") or []
+
+    # Use aromatic rings only — planar chirality requires a genuine plane.
+    # Cp rings in metallocenes and aromatic decks in cyclophanes are
+    # aromatic; puckered rings (piperidines, cyclohexanes) are not.
+    rings = graph.graph.get("aromatic_rings") or graph.graph.get("rings") or []
+
+    aromatic_atoms: set[int] = set()
+    for r in graph.graph.get("aromatic_rings") or []:
+        aromatic_atoms.update(r)
+
+    # Map each atom to the set of ring atoms it co-occurs with (all rings)
+    all_rings = graph.graph.get("rings") or []
+    ring_membership: dict[int, set[int]] = {}
+    for r in all_rings:
+        s = set(r)
+        for a in s:
+            ring_membership.setdefault(a, set()).update(s)
+
+    _MAX_RING_PLANARITY_RMSD = 0.1  # Å — reject puckered rings
 
     for ring in rings:
         ring_set = set(ring)
@@ -712,11 +757,18 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
             continue
         centroid = coords.mean(axis=0)
 
-        # Collect non-H, non-ring substituents and find the pilot atom.
-        # The pilot atom is the out-of-plane atom (≥ 0.5 Å from the ring
-        # plane) with the highest CIP priority that is directly bonded to
-        # a ring atom.  Metals (~1.65 Å) and bridge carbons (~1-2 Å)
-        # qualify; in-plane substituents (OH, Cl ≈ 0 Å) do not.
+        # Planar chirality requires a genuinely flat ring.
+        # Puckered rings (chair cyclohexanes, piperidines) are not chiral planes.
+        dists = np.array([abs(float(np.dot(pos[a] - centroid, normal))) for a in ring])
+        if float(np.sqrt(np.mean(dists**2))) > _MAX_RING_PLANARITY_RMSD:
+            continue
+
+        # Find the pilot atom: the highest-CIP atom that is ≥ 0.5 Å
+        # from the ring plane and reachable within 2 bonds of a ring
+        # atom (but not itself in the ring).  Depth 1 catches metals
+        # in metallocenes; depth 2 catches bridge atoms in cyclophanes
+        # (the first bridge atom is nearly coplanar, but the second
+        # is clearly out of plane).
         _MIN_PILOT_DISP = 0.5
         pilot: int | None = None
         pilot_z: int = -1
@@ -726,22 +778,36 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
             for nb in graph.neighbors(atom):
                 if nb in ring_set:
                     continue
+                # Depth 1: direct neighbor
                 disp = float(abs(np.dot(pos[nb] - centroid, normal)))
-                if disp < _MIN_PILOT_DISP:
-                    continue
                 z = _atomic_number(graph, nb)
-                if z > pilot_z:
+                if disp >= _MIN_PILOT_DISP and z > pilot_z:
                     pilot_z = z
                     pilot = nb
+                # Depth 2: neighbor's neighbor (for cyclophane bridges).
+                # Only follow through intermediates that are (a) not
+                # aromatic and (b) in a ring that shares atoms with the
+                # current ring — this targets bridge CH₂ chains in
+                # cyclophanes and blocks unrelated substituents.
+                if nb not in aromatic_atoms and nb in ring_membership and (ring_membership[nb] & ring_set):
+                    for nb2 in graph.neighbors(nb):
+                        if nb2 in ring_set or nb2 == atom or nb2 in aromatic_atoms:
+                            continue
+                        disp2 = float(abs(np.dot(pos[nb2] - centroid, normal)))
+                        z2 = _atomic_number(graph, nb2)
+                        if disp2 >= _MIN_PILOT_DISP and z2 > pilot_z:
+                            pilot_z = z2
+                            pilot = nb2
 
-            # Collect ring atoms bearing non-H, non-ring substituents
+            # Collect ring atoms bearing non-H, non-metal substituents.
+            # Exclude aromatic neighbors (fused-ring junctions) but keep
+            # bridge atoms (cyclophane CH₂) — they contribute to the
+            # CIP ranking even though they aren't the chirality element.
             externals = [n for n in graph.neighbors(atom) if n not in ring_set]
-
-            # For metallocenes, exclude the metal from external ranking
-            # (it's the same for every ring atom so it doesn't differentiate)
-            metals_here = {n for n in externals if _is_metal(graph, n)}
-            rank_externals = [n for n in externals if n not in metals_here]
-
+            rank_externals = [
+                n for n in externals
+                if not _is_metal(graph, n) and n not in aromatic_atoms
+            ]
             non_h = [n for n in rank_externals if graph.nodes[n].get("symbol", "") != "H"]
             if not non_h:
                 continue
@@ -750,6 +816,26 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
 
         if pilot is None or len(candidates) < 2:
             continue
+
+        # At least one candidate must have a non-bridge substituent
+        # (i.e., one that is NOT in any ring).  Bridge atoms define
+        # the geometric constraint but not the chirality element.
+        # Without a real substituent the ring is symmetric and achiral.
+        has_real_sub = False
+        for _, ratom in candidates:
+            for nb in graph.neighbors(ratom):
+                if nb in ring_set or _is_metal(graph, nb) or nb in aromatic_atoms:
+                    continue
+                if graph.nodes[nb].get("symbol", "") == "H":
+                    continue
+                if nb not in ring_membership:
+                    has_real_sub = True
+                    break
+            if has_real_sub:
+                break
+        if not has_real_sub:
+            continue
+
         candidates.sort(key=lambda x: x[0], reverse=True)
         if candidates[0][0] == candidates[1][0]:
             continue
@@ -880,31 +966,76 @@ def annotate_stereo(graph) -> StereoSummary:
 
     The summary dict has five keys (see :class:`StereoSummary`):
     ``point``, ``ez``, ``axial``, ``planar``, ``helical``.
-    Each maps atom/edge indices to label strings.
+    Each is a list of :class:`StereoEntry` dicts with ``label``,
+    ``position``, and type-specific atom references.
     """
-    point = assign_rs(graph)
-    ez = assign_ez(graph)
+    # --- point chirality (R/S) ---
+    point_raw = assign_rs(graph)
+    point_list: list[StereoEntry] = [
+        {"label": label, "atom": idx}
+        for idx, label in point_raw.items()
+    ]
 
+    # --- E/Z ---
+    ez_raw = assign_ez(graph)
+    ez_list: list[StereoEntry] = [
+        {"label": label, "bond": list(bond)}
+        for bond, label in ez_raw.items()
+    ]
+
+    # --- axial chirality ---
     axial_edges, axial_nonedge = assign_axial(graph)
-    axial: dict[tuple[int, int], str] = {**axial_edges}
+    axial_all: dict[tuple[int, int], str] = {**axial_edges}
     for i, j, label in axial_nonedge:
-        axial[(i, j)] = label
+        axial_all[(i, j)] = label
 
+    axial_list: list[StereoEntry] = [
+        {"label": label, "atoms": list(bond)}
+        for bond, label in axial_all.items()
+    ]
+
+    # Atoms on axial bonds — suppress redundant planar labels on
+    # ring systems whose chirality is already described by an axis.
+    axial_atoms: set[int] = set()
+    for i, j in axial_all:
+        axial_atoms.update((i, j))
+
+    # --- planar chirality ---
     planar_edges, planar_nonedge = assign_planar(graph)
-    planar: dict[tuple[int, int], str] = {**planar_edges}
-    for i, j, label in planar_nonedge:
-        planar[(i, j)] = label
 
-    helical: dict[tuple[int, int], str] = {}
+    def _ring_for_entry(j: int) -> list[int]:
+        """Find the aromatic ring containing *j* (the ring atom)."""
+        for r in graph.graph.get("aromatic_rings") or []:
+            if j in r:
+                return list(r)
+        for r in graph.graph.get("rings") or []:
+            if j in r:
+                return list(r)
+        return [j]
+
+    planar_list: list[StereoEntry] = []
+    for (i, j), label in {**planar_edges}.items():
+        ring = _ring_for_entry(j)
+        if set(ring) & axial_atoms:
+            continue
+        planar_list.append({"label": label, "ring": ring})
+    for i, j, label in planar_nonedge:
+        ring = _ring_for_entry(j)
+        if set(ring) & axial_atoms:
+            continue
+        planar_list.append({"label": label, "ring": ring})
+
+    # --- helical chirality ---
+    helical_list: list[StereoEntry] = []
     for i, j, label in assign_helical(graph):
-        helical[(i, j)] = label
+        helical_list.append({"label": label, "atoms": [i, j]})
 
     summary: StereoSummary = {
-        "point": point,
-        "ez": ez,
-        "axial": axial,
-        "planar": planar,
-        "helical": helical,
+        "point": point_list,
+        "ez": ez_list,
+        "axial": axial_list,
+        "planar": planar_list,
+        "helical": helical_list,
     }
     graph.graph["stereo"] = summary
     return summary

@@ -220,7 +220,8 @@ def test_stereo_stored_as_graph_attr() -> None:
     summary = annotate_stereo(G)
     assert "stereo" in G.graph
     assert G.graph["stereo"] is summary
-    assert summary["point"][0] == "S"
+    assert summary["point"][0]["label"] == "S"
+    assert summary["point"][0]["atom"] == 0
 
 
 # ---------------------------------------------------------------------------

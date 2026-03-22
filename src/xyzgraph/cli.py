@@ -111,29 +111,33 @@ def display_stereo(G):
 
     if point:
         print("# Point Chirality (R/S):")
-        for idx, label in sorted(point.items()):
-            sym = G.nodes[idx]["symbol"]
-            print(f"#   {sym}{idx}: {label}")
+        for entry in point:
+            sym = G.nodes[entry["atom"]]["symbol"]
+            print(f"#   {sym}{entry['atom']}: {entry['label']}")
     if ez:
         print("# E/Z Bonds:")
-        for (i, j), label in sorted(ez.items()):
+        for entry in ez:
+            i, j = entry["bond"]
             si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
-            print(f"#   {si}{i}={sj}{j}: {label}")
+            print(f"#   {si}{i}={sj}{j}: {entry['label']}")
     if axial:
         print("# Axial Chirality:")
-        for (i, j), label in sorted(axial.items()):
+        for entry in axial:
+            i, j = entry["atoms"]
             si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
             conn = "-" if G.has_edge(i, j) else "..."
-            print(f"#   {si}{i}{conn}{sj}{j}: {label}")
+            print(f"#   {si}{i}{conn}{sj}{j}: {entry['label']}")
     if planar:
         print("# Planar Chirality:")
-        for (i, j), label in sorted(planar.items()):
-            si, sj = G.nodes[i]["symbol"], G.nodes[j]["symbol"]
-            print(f"#   {si}{i}-{sj}{j}: {label}")
+        for entry in planar:
+            ring = entry["ring"]
+            syms = "-".join(f"{G.nodes[a]['symbol']}{a}" for a in ring)
+            print(f"#   [{syms}]: {entry['label']}")
     if helical:
         print("# Helical Chirality:")
-        for (i, j), label in sorted(helical.items()):
-            print(f"#   {i}...{j}: {label}")
+        for entry in helical:
+            i, j = entry["atoms"]
+            print(f"#   {i}...{j}: {entry['label']}")
 
 
 def display_ncis(G, args, show_h_indices):
