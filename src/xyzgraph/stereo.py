@@ -619,13 +619,13 @@ def _assign_axial_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[t
         ring_a, cent_a = cp_rings[0]
         ring_b, cent_b = cp_rings[1]
 
-        def _best_ring_sub(ring: list[int]) -> tuple[tuple[tuple[int, ...], ...], int] | None:
+        def _best_ring_sub(ring: list[int], metal_center: int) -> tuple[tuple[tuple[int, ...], ...], int] | None:
             """Return (CIP_signature, ring_carbon) for highest-priority non-H sub."""
             ring_set = set(ring)
             best: tuple[tuple[tuple[int, ...], ...], int] | None = None
             for atom in ring:
                 for nb in graph.neighbors(atom):
-                    if nb in ring_set or nb == metal:
+                    if nb in ring_set or nb == metal_center:
                         continue
                     if graph.nodes[nb].get("symbol", "") == "H":
                         continue
@@ -634,8 +634,8 @@ def _assign_axial_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[t
                         best = (sig, atom)
             return best
 
-        sub_a = _best_ring_sub(ring_a)
-        sub_b = _best_ring_sub(ring_b)
+        sub_a = _best_ring_sub(ring_a, metal)
+        sub_b = _best_ring_sub(ring_b, metal)
         if sub_a is None or sub_b is None:
             continue
 
