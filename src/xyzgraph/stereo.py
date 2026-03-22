@@ -705,7 +705,7 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
         # Collect non-H, non-ring substituents and find the pilot atom.
         # The pilot atom is the out-of-plane atom (≥ 0.5 Å from the ring
         # plane) with the highest CIP priority that is directly bonded to
-        # a ring atom.  Metals (~1.65 Å) and bridge carbons (~1–2 Å)
+        # a ring atom.  Metals (~1.65 Å) and bridge carbons (~1-2 Å)
         # qualify; in-plane substituents (OH, Cl ≈ 0 Å) do not.
         _MIN_PILOT_DISP = 0.5
         pilot: int | None = None
