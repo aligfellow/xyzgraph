@@ -446,6 +446,67 @@ def test_symmetric_biaryl_no_label() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _make_paracyclophane_graph() -> nx.Graph:
+    """[2.2]paracyclophane with Cl at position 4 on ring A.
+
+    Ring A (z=0): 6 C atoms, Cl on atom 3.
+    Ring B (z=2.8): 6 C atoms, no non-H substituents.
+    Two CH₂-CH₂ bridges connecting atom 0↔6 and atom 3↔9 (para positions),
+    with bridge carbons at z ≈ 1.4 (out of both ring planes by ~1.4 Å).
+    """
+    G = nx.Graph()
+    # Ring A at z=0
+    for i in range(6):
+        angle = 2 * math.pi * i / 6
+        _add_node(G, i, "C", (1.4 * math.cos(angle), 1.4 * math.sin(angle), 0.0))
+    for i in range(6):
+        G.add_edge(i, (i + 1) % 6, bond_order=1.5)
+
+    # Ring B at z=2.8
+    for i in range(6):
+        angle = 2 * math.pi * i / 6
+        _add_node(G, i + 6, "C", (1.4 * math.cos(angle), 1.4 * math.sin(angle), 2.8))
+    for i in range(6):
+        G.add_edge(i + 6, ((i + 1) % 6) + 6, bond_order=1.5)
+
+    # Bridge 1: atom 0 (ring A) — CH₂(12) — CH₂(13) — atom 6 (ring B)
+    _add_node(G, 12, "C", (1.4, 0.0, 0.9))
+    _add_node(G, 13, "C", (1.4, 0.0, 1.9))
+    G.add_edge(0, 12, bond_order=1.0)
+    G.add_edge(12, 13, bond_order=1.0)
+    G.add_edge(13, 6, bond_order=1.0)
+
+    # Bridge 2: atom 3 (ring A) — CH₂(14) — CH₂(15) — atom 9 (ring B)
+    _add_node(G, 14, "C", (-1.4, 0.0, 0.9))
+    _add_node(G, 15, "C", (-1.4, 0.0, 1.9))
+    G.add_edge(3, 14, bond_order=1.0)
+    G.add_edge(14, 15, bond_order=1.0)
+    G.add_edge(15, 9, bond_order=1.0)
+
+    # Cl on ring A, atom 1 (ortho to bridge)
+    angle_1 = 2 * math.pi * 1 / 6
+    _add_node(G, 16, "Cl", (2.2 * math.cos(angle_1), 2.2 * math.sin(angle_1), -0.3))
+    G.add_edge(1, 16, bond_order=1.0)
+
+    # F on ring A, atom 5 (other ortho to bridge, different sub for chirality)
+    angle_5 = 2 * math.pi * 5 / 6
+    _add_node(G, 17, "F", (2.2 * math.cos(angle_5), 2.2 * math.sin(angle_5), -0.3))
+    G.add_edge(5, 17, bond_order=1.0)
+
+    G.graph["rings"] = [list(range(6)), list(range(6, 12))]
+    return G
+
+
+def test_assign_planar_paracyclophane() -> None:
+    """Substituted [2.2]paracyclophane gets planar chirality label."""
+    G = _make_paracyclophane_graph()
+    planar, axes = assign_planar(G)
+    total = len(planar) + len(axes)
+    assert total == 1
+    label = next(iter(planar.values())) if planar else axes[0][2]
+    assert label in {"Rₚ", "Sₚ"}
+
+
 def test_assign_planar_metallocene() -> None:
     """Substituted Cp ring with Fe gets planar chirality label."""
     G = _make_planar_metallocene_graph()

@@ -676,34 +676,25 @@ def _assign_axial_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[t
 
 
 def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, int, str]]]:
-    """Assign planar chirality (Rₚ/Sₚ) on suitable planar systems.
+    """Assign planar chirality (Rₚ/Sₚ) using the IUPAC pilot-atom convention.
 
-    Currently targets substituted metallocene-like Cp rings.
+    Handles metallocenes (Cp rings with metals) and general cases
+    (any aromatic ring with ≥2 different non-H substituents and
+    an out-of-plane atom that serves as the pilot atom).
+
+    Convention (IUPAC CIP):
+      1. Pilot atom = highest-CIP out-of-plane atom bonded to the ring
+      2. Orient normal toward the pilot atom
+      3. a1 = ring atom with highest-CIP substituent,
+         a2 = ring atom with second-highest
+      4. a1 → a2 clockwise from pilot → Rₚ
     """
-    planar: dict[tuple[int, int], str] = {}
-    axes: list[tuple[int, int, str]] = []
-    planar_labels, planar_axes = _assign_planar_metallocene(graph)
-    planar.update(planar_labels)
-    axes.extend(planar_axes)
-    return planar, axes
-
-
-def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, int, str]]]:
     planar: dict[tuple[int, int], str] = {}
     axes: list[tuple[int, int, str]] = []
     pos = _build_pos(graph)
     rings = graph.graph.get("rings") or []
-    ring_candidates: list[tuple[list[int], int]] = []
-    for ring in rings:
-        if len(ring) != 5:
-            continue
-        if not all(graph.nodes[a].get("symbol", "") == "C" for a in ring):
-            continue
-        metals = {nb for a in ring for nb in graph.neighbors(a) if _is_metal(graph, nb)}
-        for metal in metals:
-            ring_candidates.append((ring, metal))
 
-    for ring, metal in ring_candidates:
+    for ring in rings:
         ring_set = set(ring)
         coords = np.array([pos[a] for a in ring], dtype=float)
         normal = _plane_normal(coords)
@@ -711,26 +702,52 @@ def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[
             continue
         centroid = coords.mean(axis=0)
 
-        to_metal = pos[metal] - centroid
-        if np.dot(normal, to_metal) < 0:
-            normal = -normal
-
+        # Collect non-H, non-ring substituents and find the pilot atom.
+        # The pilot atom is the out-of-plane atom (≥ 0.5 Å from the ring
+        # plane) with the highest CIP priority that is directly bonded to
+        # a ring atom.  Metals (~1.65 Å) and bridge carbons (~1–2 Å)
+        # qualify; in-plane substituents (OH, Cl ≈ 0 Å) do not.
+        _MIN_PILOT_DISP = 0.5
+        pilot: int | None = None
+        pilot_z: int = -1
         candidates: list[tuple[tuple[tuple[int, ...], ...], int]] = []
+
         for atom in ring:
-            externals = [n for n in graph.neighbors(atom) if n not in ring_set and n != metal]
-            # Only consider atoms with non-H external substituents —
-            # a monosubstituted Cp has a mirror plane and is not planar chiral.
-            non_h = [n for n in externals if graph.nodes[n].get("symbol", "") != "H"]
+            for nb in graph.neighbors(atom):
+                if nb in ring_set:
+                    continue
+                disp = float(abs(np.dot(pos[nb] - centroid, normal)))
+                if disp < _MIN_PILOT_DISP:
+                    continue
+                z = _atomic_number(graph, nb)
+                if z > pilot_z:
+                    pilot_z = z
+                    pilot = nb
+
+            # Collect ring atoms bearing non-H, non-ring substituents
+            externals = [n for n in graph.neighbors(atom) if n not in ring_set]
+
+            # For metallocenes, exclude the metal from external ranking
+            # (it's the same for every ring atom so it doesn't differentiate)
+            metals_here = {n for n in externals if _is_metal(graph, n)}
+            rank_externals = [n for n in externals if n not in metals_here]
+
+            non_h = [n for n in rank_externals if graph.nodes[n].get("symbol", "") != "H"]
             if not non_h:
                 continue
-            ranks = _rank_neighbors(graph, atom, externals)
+            ranks = _rank_neighbors(graph, atom, rank_externals)
             candidates.append((ranks[0][0], atom))
 
-        if len(candidates) < 2:
+        if pilot is None or len(candidates) < 2:
             continue
         candidates.sort(key=lambda x: x[0], reverse=True)
         if candidates[0][0] == candidates[1][0]:
             continue
+
+        # Orient normal toward the pilot atom (IUPAC: view from pilot side)
+        to_pilot = pos[pilot] - centroid
+        if np.dot(normal, to_pilot) < 0:
+            normal = -normal
 
         a1 = candidates[0][1]
         a2 = candidates[1][1]
@@ -741,16 +758,28 @@ def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[
         if np.linalg.norm(v1) < _EPS or np.linalg.norm(v2) < _EPS:
             continue
 
+        # Normal points toward the pilot atom.
+        # orient > 0 ⇒ a1→a2 is CCW from pilot (= CW from opposite side).
+        # orient < 0 ⇒ a1→a2 is CW  from pilot (= CCW from opposite side).
+        #
+        # Metallocenes use the Schlögl convention (view from opposite the
+        # metal, CW → Rₚ), which is standard in organometallic chemistry.
+        # Non-metallocenes use IUPAC (view from pilot side, CW → Rₚ).
         orient = float(np.dot(normal, np.cross(v1, v2)))
         if abs(orient) < _EPS:
             continue
-        label = "Rₚ" if orient > 0 else "Sₚ"
+        if _is_metal(graph, pilot):
+            label = "Rₚ" if orient > 0 else "Sₚ"  # Schlögl
+        else:
+            label = "Rₚ" if orient < 0 else "Sₚ"  # IUPAC
 
-        key = (metal, a1) if metal < a1 else (a1, metal)
-        if graph.has_edge(metal, a1):
+        # Store label on the pilot-to-a1 edge (or as non-edge axis)
+        ref = pilot
+        key = (ref, a1) if ref < a1 else (a1, ref)
+        if graph.has_edge(ref, a1):
             planar[key] = label
         else:
-            axes.append((metal, a1, label))
+            axes.append((ref, a1, label))
 
     return planar, axes
 

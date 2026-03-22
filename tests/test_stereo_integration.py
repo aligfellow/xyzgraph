@@ -45,6 +45,14 @@ def test_planar_ferrocene_pair() -> None:
     assert {rp_label, sp_label} == {"Rₚ", "Sₚ"}
 
 
+def test_planar_paracyclophane_pair() -> None:
+    rp = build_graph(str(STRUCTURES / "Rp_paracyclophane.xyz"))
+    sp = build_graph(str(STRUCTURES / "Sp_paracyclophane.xyz"))
+    rp_label = _label_from_map(assign_planar(rp)[0])
+    sp_label = _label_from_map(assign_planar(sp)[0])
+    assert {rp_label, sp_label} == {"Rₚ", "Sₚ"}
+
+
 def test_helicene_pair() -> None:
     m = build_graph(str(STRUCTURES / "M_helicene.xyz"))
     p = build_graph(str(STRUCTURES / "P_helicene.xyz"))
