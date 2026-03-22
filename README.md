@@ -46,7 +46,7 @@
     - **greedy**: iterative valence adjustment
 - **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings (optional `--kekule` to keep Kekulé bond orders)
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
-- **Stereochemistry assignment**: R/S stereocenters and E/Z alkenes from 3D geometry
+- **Stereochemistry assignment**: R/S, E/Z, axial (biaryl, allene, metallocene), planar (metallocene, paracyclophane), and helical (helicene) chirality from 3D geometry
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
 - **Non-covalent interaction (NCI) detection**: 17 interaction types including hydrogen bonds, pi-stacking, halogen/chalcogen/pnictogen bonds, cation-pi, and more
 - **ASCII 2D depiction** with layout alignment for method comparison (see also [[5]](https://github.com/whitead/moltext))
@@ -591,12 +591,26 @@ Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
 from xyzgraph import annotate_stereo
 
 stereo = annotate_stereo(G_full)  # assigns all stereo types at once
-stereo["rs"]       # {atom_index: "R"|"S"}
-stereo["ez"]       # {(i,j): "E"|"Z"} (i<j)
-stereo["axial"]    # {(i,j): "Rₐ"|"Sₐ"}
-stereo["planar"]   # {(i,j): "Rₚ"|"Sₚ"}
-stereo["helical"]  # [(i, j, "P"|"M"), ...]
+# Also stored as G.graph["stereo"] for downstream use (e.g. rendering)
+
+# Each key maps to a list of dicts with "label" and type-specific atom references:
+stereo["point"]    # [{"atom": 5, "label": "R"}, ...]         — R/S centres
+stereo["ez"]       # [{"bond": [4,6], "label": "E"}, ...]     — geometric isomerism
+stereo["axial"]    # [{"atoms": [9,10], "label": "Rₐ"}, ...]  — biaryl, allene, metallocene
+stereo["planar"]   # [{"ring": [...], "label": "Rₚ"}, ...]    — metallocene, paracyclophane
+stereo["helical"]  # [{"atoms": [12,0], "label": "M"}, ...]   — helicenes
 ```
+
+**Conventions**:
+- **R/S, E/Z, axial**: standard CIP rules
+- **Planar**: IUPAC pilot-atom convention (CW from pilot = Rₚ)
+- **Helical**: IUPAC P/M helix convention
+
+**Limitations**:
+- Axial chirality requires both atoms to be in aromatic rings (e.g. biaryl bonds); non-aromatic rotational barriers are not detected
+- Planar chirality in paracyclophanes with chemically different bridges (e.g. -CH₂CH₂- vs -CH₂O-) may not be detected on the unsubstituted deck
+- Helical chirality requires fused aromatic rings; large aza-helicenes with ring detection issues may not be assigned
+- Absolute R/S labels for symmetric biaryls (e.g. BINOL) use an atom-index tiebreaker that may not match IUPAC locant numbering
 
 ---
 
@@ -1583,6 +1597,10 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 7. **SMILES all around: structure to SMILES conversion for transition metal complexes**: Maria H. Rasmussen, Magnus Strandgaard, Julius Seumer, Laura K. Hemmingsen, Angelo Frei, David Balcells and Jan H. Jensen, *Journal of Cheminformatics*, 2025, **17**. [DOI](https://jcheminf.biomedcentral.com/articles/10.1186/s13321-025-01008-1).
 
 ---
+
+## Contributors
+
+- [James O'Brien (@JamesOBrien2)](https://github.com/JamesOBrien2) — stereochemistry detection 
 
 ## Contributing & Contact
 
