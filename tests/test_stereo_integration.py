@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-import pytest
+from pathlib import Path
 
 from xyzgraph import build_graph
 from xyzgraph.stereo import assign_axial, assign_ez, assign_helical, assign_planar
@@ -47,10 +45,6 @@ def test_planar_ferrocene_pair() -> None:
     assert {rp_label, sp_label} == {"Rₚ", "Sₚ"}
 
 
-@pytest.mark.xfail(
-    reason="aromatic ring fusion not detected in 132-atom aza-helicene — xyzgraph ring detection issue",
-    strict=True,
-)
 def test_helicene_pair() -> None:
     m = build_graph(str(STRUCTURES / "M_helicene.xyz"))
     p = build_graph(str(STRUCTURES / "P_helicene.xyz"))

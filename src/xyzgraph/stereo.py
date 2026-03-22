@@ -247,7 +247,7 @@ def _axis_label(axis: np.ndarray, v_front: np.ndarray, v_back: np.ndarray) -> st
     orient = float(np.dot(np.cross(vf, vb), bh))
     if abs(orient) < _EPS:
         return None
-    return "Rₐ" if orient > 0 else "Sₐ"
+    return "Rₐ" if orient < 0 else "Sₐ"
 
 
 def _plane_normal(coords: np.ndarray) -> np.ndarray | None:
