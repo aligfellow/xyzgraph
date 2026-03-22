@@ -585,13 +585,17 @@ G_kekule = build_graph('molecule.xyz', kekule=True)
 # Bond orders remain as optimised Kekule values (1.0/2.0)
 ```
 
-Stereochemistry assignment (R/S and E/Z):
+Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
 
 ```python
-from xyzgraph import assign_rs, assign_ez
+from xyzgraph import annotate_stereo
 
-rs_labels = assign_rs(G_full)  # {atom_index: "R"|"S"}
-ez_labels = assign_ez(G_full)  # {(i,j): "E"|"Z"} (i<j)
+stereo = annotate_stereo(G_full)  # assigns all stereo types at once
+stereo["rs"]       # {atom_index: "R"|"S"}
+stereo["ez"]       # {(i,j): "E"|"Z"} (i<j)
+stereo["axial"]    # {(i,j): "Rₐ"|"Sₐ"}
+stereo["planar"]   # {(i,j): "Rₚ"|"Sₚ"}
+stereo["helical"]  # [(i, j, "P"|"M"), ...]
 ```
 
 ---

@@ -48,8 +48,15 @@ def _is_dummy(graph, n: int) -> bool:
 def _is_tetrahedral(pos: dict[int, np.ndarray], center: int, nbrs: list[int]) -> bool:
     """Check that 4 neighbors form tetrahedral geometry (not planar/linear)."""
     p = [pos[n] - pos[center] for n in nbrs]
-    # Signed volume of tetrahedron — near zero means coplanar (sp2)
-    vol = abs(float(np.dot(p[0], np.cross(p[1], p[2]))))
+    # Volume of parallelepiped spanned by all 4 neighbor vectors —
+    # near zero means all 4 neighbors are coplanar (sp2).
+    # Uses differences from p[0] so the result is independent of
+    # neighbor ordering and correctly handles TS-like geometries
+    # where 3 substituents are in-plane with a 4th out-of-plane.
+    v01 = p[1] - p[0]
+    v02 = p[2] - p[0]
+    v03 = p[3] - p[0]
+    vol = abs(float(np.dot(v03, np.cross(v01, v02))))
     if vol < 0.01:
         return False
     # Reject if any angle > 145° (nearly linear)
@@ -457,6 +464,9 @@ def assign_axial(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, int
     allene_labels, allene_axes = _assign_axial_allene(graph)
     axial.update(allene_labels)
     axes.extend(allene_axes)
+    mc_labels, mc_axes = _assign_axial_metallocene(graph)
+    axial.update(mc_labels)
+    axes.extend(mc_axes)
     return axial, axes
 
 
@@ -513,7 +523,7 @@ def _assign_axial_ring_bridge(graph) -> dict[tuple[int, int], str]:
         if ranks_i[0][0] == ranks_i[1][0] or ranks_j[0][0] == ranks_j[1][0]:
             continue
 
-        result = _determine_front_back(pos, ranks_i, ranks_j, i, j)
+        result = _determine_front_back(pos, ranks_i, ranks_j, i, j, symmetric_is_chiral=True)
         if result is None:
             continue
         axis, v_front, v_back = result
@@ -576,6 +586,90 @@ def _assign_axial_allene(graph) -> tuple[dict[tuple[int, int], str], list[tuple[
     return axial, axes
 
 
+def _assign_axial_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, int, str]]]:
+    """Assign axial chirality for sandwich metallocenes (1,1'-disubstituted).
+
+    The chirality axis runs through the centroids of two Cp rings bonded to the
+    same metal.  Each ring must have at least one non-H substituent, and the
+    highest-priority substituents on the two rings must differ (identical
+    substitution on both rings is achiral).
+    """
+    axial: dict[tuple[int, int], str] = {}
+    axes: list[tuple[int, int, str]] = []
+    pos = _build_pos(graph)
+    rings = graph.graph.get("rings") or []
+
+    # Collect (ring_atoms, centroid) grouped by metal
+    cp_by_metal: dict[int, list[tuple[list[int], np.ndarray]]] = {}
+    for ring in rings:
+        if len(ring) != 5:
+            continue
+        if not all(graph.nodes[a].get("symbol", "") == "C" for a in ring):
+            continue
+        metals = {nb for a in ring for nb in graph.neighbors(a) if _is_metal(graph, nb)}
+        for metal in metals:
+            coords = np.array([pos[a] for a in ring], dtype=float)
+            centroid = coords.mean(axis=0)
+            cp_by_metal.setdefault(metal, []).append((ring, centroid))
+
+    for metal, cp_rings in cp_by_metal.items():
+        if len(cp_rings) != 2:
+            continue  # only handle sandwich (2 Cp rings)
+
+        ring_a, cent_a = cp_rings[0]
+        ring_b, cent_b = cp_rings[1]
+
+        def _best_ring_sub(ring: list[int]) -> tuple[tuple[tuple[int, ...], ...], int] | None:
+            """Return (CIP_signature, ring_carbon) for highest-priority non-H sub."""
+            ring_set = set(ring)
+            best: tuple[tuple[tuple[int, ...], ...], int] | None = None
+            for atom in ring:
+                for nb in graph.neighbors(atom):
+                    if nb in ring_set or nb == metal:
+                        continue
+                    if graph.nodes[nb].get("symbol", "") == "H":
+                        continue
+                    sig = _substituent_signature(graph, nb, atom)
+                    if best is None or sig > best[0]:
+                        best = (sig, atom)
+            return best
+
+        sub_a = _best_ring_sub(ring_a)
+        sub_b = _best_ring_sub(ring_b)
+        if sub_a is None or sub_b is None:
+            continue
+
+        sig_a, carbon_a = sub_a
+        sig_b, carbon_b = sub_b
+
+        # Identical highest-priority substituents → achiral
+        if sig_a == sig_b:
+            continue
+
+        # Front = ring with higher-priority substituent
+        if sig_a > sig_b:
+            v_front = pos[carbon_a] - cent_a
+            v_back = pos[carbon_b] - cent_b
+            axis_vec = cent_b - cent_a
+        else:
+            v_front = pos[carbon_b] - cent_b
+            v_back = pos[carbon_a] - cent_a
+            axis_vec = cent_a - cent_b
+
+        label = _axis_label(axis_vec, v_front, v_back)
+        if label is None:
+            continue
+
+        front_carbon = carbon_a if sig_a > sig_b else carbon_b
+        i, j = (metal, front_carbon) if metal < front_carbon else (front_carbon, metal)
+        if graph.has_edge(metal, front_carbon):
+            axial[(i, j)] = label
+        else:
+            axes.append((i, j, label))
+
+    return axial, axes
+
+
 # ---------------------------------------------------------------------------
 # Planar chirality
 # ---------------------------------------------------------------------------
@@ -624,7 +718,10 @@ def _assign_planar_metallocene(graph) -> tuple[dict[tuple[int, int], str], list[
         candidates: list[tuple[tuple[tuple[int, ...], ...], int]] = []
         for atom in ring:
             externals = [n for n in graph.neighbors(atom) if n not in ring_set and n != metal]
-            if not externals:
+            # Only consider atoms with non-H external substituents —
+            # a monosubstituted Cp has a mirror plane and is not planar chiral.
+            non_h = [n for n in externals if graph.nodes[n].get("symbol", "") != "H"]
+            if not non_h:
                 continue
             ranks = _rank_neighbors(graph, atom, externals)
             candidates.append((ranks[0][0], atom))

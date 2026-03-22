@@ -170,6 +170,25 @@ def test_rs_rejects_near_linear() -> None:
     assert len(assign_rs(G)) == 0
 
 
+def test_rs_accepts_ts_geometry() -> None:
+    """4-coordinate with 3 in-plane + 1 out-of-plane (Buergi-Dunitz TS) gets R/S."""
+    G = nx.Graph()
+    _add_node(G, 0, "C", (0.0, 0.0, 0.0))
+    # 3 substituents in the xy-plane at ~120 degrees
+    _add_node(G, 1, "F", (1.4, 0.0, 0.0))
+    _add_node(G, 2, "Cl", (-0.7, 1.212, 0.0))
+    _add_node(G, 3, "Br", (-0.7, -1.212, 0.0))
+    # Nucleophile approaching from above at ~17 degrees (Buergi-Dunitz)
+    _add_node(G, 4, "I", (0.0, 0.0, 2.5))
+
+    for n in [1, 2, 3, 4]:
+        G.add_edge(0, n, bond_order=1.0)
+
+    rs = assign_rs(G)
+    assert len(rs) == 1
+    assert rs[0] in {"R", "S"}
+
+
 def test_sulfone_not_stereocenter() -> None:
     """S(=O)2 with different S-O bond orders must NOT be a stereocenter."""
     G = nx.Graph()
@@ -325,6 +344,78 @@ def test_assign_axial_allene_and_annotate_axes() -> None:
     annotate_stereo(G)
     assert "stereo_axes" in G.graph
     assert any(axis["kind"] == "axial" for axis in G.graph["stereo_axes"])
+
+
+def _make_axial_metallocene_graph() -> nx.Graph:
+    """Sandwich metallocene with different subs on each ring — axial chirality."""
+    G = nx.Graph()
+    # Ring A at z=0
+    for i in range(5):
+        angle = 2 * math.pi * i / 5
+        _add_node(G, i, "C", (math.cos(angle), math.sin(angle), 0.0))
+    # Ring B at z=3.3
+    for i in range(5):
+        angle = 2 * math.pi * i / 5
+        _add_node(G, i + 5, "C", (math.cos(angle), math.sin(angle), 3.3))
+    # Fe at midpoint
+    _add_node(G, 10, "Fe", (0.0, 0.0, 1.65))
+
+    for i in range(5):
+        G.add_edge(i, (i + 1) % 5, bond_order=1.5)
+        G.add_edge(10, i, bond_order=1.0)
+        G.add_edge(i + 5, ((i + 1) % 5) + 5, bond_order=1.5)
+        G.add_edge(10, i + 5, bond_order=1.0)
+
+    # CH₃ on ring A, atom 0 (angle 0)
+    _add_node(G, 11, "C", (2.0, 0.0, 0.0))
+    G.add_edge(0, 11, bond_order=1.0)
+
+    # Cl on ring B, atom 7 (angle 2·2π/5 ≈ 144° — NOT eclipsed with CH₃)
+    angle_7 = 2 * math.pi * 2 / 5
+    _add_node(G, 12, "Cl", (math.cos(angle_7) * 2.0, math.sin(angle_7) * 2.0, 3.3))
+    G.add_edge(7, 12, bond_order=1.0)
+
+    G.graph["rings"] = [list(range(5)), list(range(5, 10))]
+    return G
+
+
+def test_assign_axial_metallocene() -> None:
+    """Sandwich metallocene with different substituents on each ring gets axial label."""
+    G = _make_axial_metallocene_graph()
+    axial, axes = assign_axial(G)
+    total = len(axial) + len(axes)
+    assert total == 1
+    label = next(iter(axial.values())) if axial else axes[0][2]
+    assert label in {"Rₐ", "Sₐ"}
+
+
+def test_axial_metallocene_identical_subs_rejected() -> None:
+    """Sandwich metallocene with identical substituents on each ring — achiral."""
+    G = nx.Graph()
+    for i in range(5):
+        angle = 2 * math.pi * i / 5
+        _add_node(G, i, "C", (math.cos(angle), math.sin(angle), 0.0))
+    for i in range(5):
+        angle = 2 * math.pi * i / 5
+        _add_node(G, i + 5, "C", (math.cos(angle), math.sin(angle), 3.3))
+    _add_node(G, 10, "Fe", (0.0, 0.0, 1.65))
+    for i in range(5):
+        G.add_edge(i, (i + 1) % 5, bond_order=1.5)
+        G.add_edge(10, i, bond_order=1.0)
+        G.add_edge(i + 5, ((i + 1) % 5) + 5, bond_order=1.5)
+        G.add_edge(10, i + 5, bond_order=1.0)
+
+    # Same substituent (CH₃) on both rings
+    _add_node(G, 11, "C", (2.0, 0.0, 0.0))
+    G.add_edge(0, 11, bond_order=1.0)
+    angle_7 = 2 * math.pi * 2 / 5
+    _add_node(G, 12, "C", (math.cos(angle_7) * 2.0, math.sin(angle_7) * 2.0, 3.3))
+    G.add_edge(7, 12, bond_order=1.0)
+
+    G.graph["rings"] = [list(range(5)), list(range(5, 10))]
+    axial, axes = assign_axial(G)
+    # Metallocene-specific labels only — ring bridge / allene should also be empty
+    assert len(axial) + len(axes) == 0
 
 
 def test_symmetric_biaryl_no_label() -> None:
