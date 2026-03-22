@@ -804,10 +804,7 @@ def assign_planar(graph) -> tuple[dict[tuple[int, int], str], list[tuple[int, in
             # bridge atoms (cyclophane CH₂) — they contribute to the
             # CIP ranking even though they aren't the chirality element.
             externals = [n for n in graph.neighbors(atom) if n not in ring_set]
-            rank_externals = [
-                n for n in externals
-                if not _is_metal(graph, n) and n not in aromatic_atoms
-            ]
+            rank_externals = [n for n in externals if not _is_metal(graph, n) and n not in aromatic_atoms]
             non_h = [n for n in rank_externals if graph.nodes[n].get("symbol", "") != "H"]
             if not non_h:
                 continue
@@ -971,17 +968,11 @@ def annotate_stereo(graph) -> StereoSummary:
     """
     # --- point chirality (R/S) ---
     point_raw = assign_rs(graph)
-    point_list: list[StereoEntry] = [
-        {"label": label, "atom": idx}
-        for idx, label in point_raw.items()
-    ]
+    point_list: list[StereoEntry] = [{"label": label, "atom": idx} for idx, label in point_raw.items()]
 
     # --- E/Z ---
     ez_raw = assign_ez(graph)
-    ez_list: list[StereoEntry] = [
-        {"label": label, "bond": list(bond)}
-        for bond, label in ez_raw.items()
-    ]
+    ez_list: list[StereoEntry] = [{"label": label, "bond": list(bond)} for bond, label in ez_raw.items()]
 
     # --- axial chirality ---
     axial_edges, axial_nonedge = assign_axial(graph)
@@ -989,10 +980,7 @@ def annotate_stereo(graph) -> StereoSummary:
     for i, j, label in axial_nonedge:
         axial_all[(i, j)] = label
 
-    axial_list: list[StereoEntry] = [
-        {"label": label, "atoms": list(bond)}
-        for bond, label in axial_all.items()
-    ]
+    axial_list: list[StereoEntry] = [{"label": label, "atoms": list(bond)} for bond, label in axial_all.items()]
 
     # Atoms on axial bonds — suppress redundant planar labels on
     # ring systems whose chirality is already described by an axis.
@@ -1014,12 +1002,12 @@ def annotate_stereo(graph) -> StereoSummary:
         return [j]
 
     planar_list: list[StereoEntry] = []
-    for (i, j), label in {**planar_edges}.items():
+    for (_i, j), label in {**planar_edges}.items():
         ring = _ring_for_entry(j)
         if set(ring) & axial_atoms:
             continue
         planar_list.append({"label": label, "ring": ring})
-    for i, j, label in planar_nonedge:
+    for _i, j, label in planar_nonedge:
         ring = _ring_for_entry(j)
         if set(ring) & axial_atoms:
             continue

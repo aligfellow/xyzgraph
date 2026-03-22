@@ -65,7 +65,7 @@ def test_22paracyclophane_achiral() -> None:
     assert not any(s.values())
 
 
-def test_22paracyclophane_F_planar() -> None:
+def test_22paracyclophane_f_planar() -> None:
     """Mono-F [2.2]paracyclophane has planar chirality."""
     from xyzgraph.stereo import annotate_stereo
 
