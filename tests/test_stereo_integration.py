@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from xyzgraph import assign_axial, assign_ez, assign_helical, assign_planar, build_graph
 
+if TYPE_CHECKING:
+    from pathlib import Path
 R_BINOL_XYZ = """36
 * xyz 0 1
 C       -3.373229000     -2.451617000      1.255507000
@@ -473,7 +475,7 @@ def test_helicene_pair(tmp_path: Path) -> None:
 
 
 def test_ez_2_butene_rdkit_reference() -> None:
-    rdkit = pytest.importorskip("rdkit")
+    pytest.importorskip("rdkit")
     from rdkit import Chem
     from rdkit.Chem import AllChem
 

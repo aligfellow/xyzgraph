@@ -546,6 +546,7 @@ def main():
             threshold_metal_metal_self=args.threshold_metal_metal_self,
             period_scaling_h_bonds=args.period_scaling_h_bonds,
             period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
+            stereo=args.stereo,
             metadata=metadata,
         )
         print(f"Constructed graph with chemical formula: {G_primary.graph['formula']}")
@@ -558,10 +559,6 @@ def main():
                 from .nci import detect_ncis
 
                 detect_ncis(G_primary)
-            if args.stereo:
-                from .stereo import annotate_stereo
-
-                annotate_stereo(G_primary)
             print(json.dumps(graph_to_dict(G_primary), indent=2))
             continue  # Skip to next frame or exit
 

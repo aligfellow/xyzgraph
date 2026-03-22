@@ -421,6 +421,7 @@ def build_graph(
     threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
     period_scaling_h_bonds: float = DEFAULT_PARAMS["period_scaling_h_bonds"],
     period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
+    stereo: bool = False,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> nx.Graph:
     """Build molecular graph using GraphBuilder.
@@ -502,5 +503,10 @@ def build_graph(
         "citation": __citation__,
         "parameters": metadata,
     }
+
+    if stereo:
+        from .stereo import annotate_stereo
+
+        annotate_stereo(G)
 
     return G
