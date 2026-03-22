@@ -16,6 +16,7 @@ def build_graph_rdkit(
     xyz_file: str | List[Tuple[str, Tuple[float, float, float]]],
     charge: int = 0,
     bohr_units: bool = False,
+    stereo: bool = False,
 ) -> nx.Graph:
     """Build molecular graph using RDKit's DetermineBonds algorithm.
 
@@ -30,6 +31,8 @@ def build_graph_rdkit(
         Total molecular charge.
     bohr_units : bool
         Whether coordinates are in Bohr (only used if *xyz_file* is a path).
+    stereo : bool
+        If True, assign stereochemistry labels on the graph.
 
     Returns
     -------
@@ -168,5 +171,10 @@ def build_graph_rdkit(
     }
     G.graph["total_charge"] = charge
     G.graph["method"] = "rdkit"
+
+    if stereo:
+        from .stereo import annotate_stereo
+
+        annotate_stereo(G)
 
     return G

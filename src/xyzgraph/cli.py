@@ -91,7 +91,23 @@ def display_stereo(G):
     """Run stereo detection and print summary."""
     from .stereo import StereoSummary, annotate_stereo
 
-    summary: StereoSummary = annotate_stereo(G)
+    def _summary_from_graph(graph, axes_list) -> StereoSummary:
+        rs = {idx: data["stereo_rs"] for idx, data in graph.nodes(data=True) if "stereo_rs" in data}
+        ez = {(i, j): d["stereo_ez"] for i, j, d in graph.edges(data=True) if "stereo_ez" in d}
+        axial = {(i, j): d["stereo_axial"] for i, j, d in graph.edges(data=True) if "stereo_axial" in d}
+        planar = {(i, j): d["stereo_planar"] for i, j, d in graph.edges(data=True) if "stereo_planar" in d}
+        helical = [
+            (ax["i"], ax["j"], ax["label"])
+            for ax in axes_list
+            if ax.get("kind") == "helical" and {"i", "j", "label"} <= set(ax)
+        ]
+        return {"rs": rs, "ez": ez, "axial": axial, "planar": planar, "helical": helical}
+
+    axes = G.graph.get("stereo_axes", [])
+    summary: StereoSummary = _summary_from_graph(G, axes)
+    if not any(summary.values()) and not axes:
+        summary = annotate_stereo(G)
+        axes = G.graph.get("stereo_axes", [])
     print(f"\n{'=' * 80}")
     print("# Stereochemistry")
     print("=" * 80)
@@ -131,7 +147,6 @@ def display_stereo(G):
         for i, j, label in helical:
             print(f"#   {i}...{j}: {label}")
 
-    axes = G.graph.get("stereo_axes", [])
     if axes:
         print("# Non-edge Axes:")
         for ax in axes:

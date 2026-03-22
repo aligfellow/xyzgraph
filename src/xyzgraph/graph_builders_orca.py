@@ -20,6 +20,7 @@ def build_graph_orca(
     orca_file: str,
     bond_threshold: float = ORCA_BOND_THRESHOLD,
     debug: bool = False,
+    stereo: bool = False,
 ) -> nx.Graph:
     """Build molecular graph from ORCA quantum chemistry output file.
 
@@ -35,6 +36,8 @@ def build_graph_orca(
     debug : bool
         Enable debug logging.  Not needed when called via
         ``build_graph()`` which configures logging upstream.
+    stereo : bool
+        If True, assign stereochemistry labels on the graph.
 
     Returns
     -------
@@ -160,6 +163,11 @@ def build_graph_orca(
     G.graph["total_charge"] = charge
     G.graph["multiplicity"] = multiplicity
     G.graph["method"] = "orca"
+
+    if stereo:
+        from .stereo import annotate_stereo
+
+        annotate_stereo(G)
 
     logger.debug("Final graph: %d atoms, %d bonds", G.number_of_nodes(), G.number_of_edges())
 

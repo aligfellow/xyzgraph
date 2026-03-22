@@ -25,6 +25,7 @@ def build_graph_xtb(
     basename: str = "xtb",
     clean_up: bool = True,
     debug: bool = False,
+    stereo: bool = False,
 ) -> nx.Graph:
     """Build molecular graph from xTB Wiberg bond orders and Mulliken charges.
 
@@ -49,6 +50,8 @@ def build_graph_xtb(
         Ignored when *xtb_dir* is provided.
     debug : bool
         Enable debug logging.
+    stereo : bool
+        If True, assign stereochemistry labels on the graph.
 
     Returns
     -------
@@ -202,6 +205,11 @@ def build_graph_xtb(
     G.graph["total_charge"] = charge
     G.graph["multiplicity"] = multiplicity
     G.graph["method"] = "xtb"
+
+    if stereo:
+        from .stereo import annotate_stereo
+
+        annotate_stereo(G)
 
     return G
 
