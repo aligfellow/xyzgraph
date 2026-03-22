@@ -520,12 +520,16 @@ def _assign_axial_ring_bridge(graph) -> dict[tuple[int, int], str]:
     for i, j, data in graph.edges(data=True):
         if data.get("bond_order", 1.0) > 1.3:
             continue
-        # Both atoms must be in aromatic rings (the junction carbons
-        # of a biaryl axis).  Bridge CH₂ atoms that only appear in a
-        # non-aromatic macro-ring are not valid biaryl endpoints.
+        # Both junction atoms must be sp2 (≤ 3 neighbors) — restricted
+        # rotation requires conjugation.  This excludes sp3 bridge CH₂
+        # (4 neighbors) while allowing biaryl, aryl-vinyl, aryl-amide,
+        # and aryl-heteroaromatic axes.
+        if graph.degree(i) > 3 or graph.degree(j) > 3:
+            continue
+        # At least one must be in an aromatic ring.
         i_ar = atom_ar_rings.get(i, set())
         j_ar = atom_ar_rings.get(j, set())
-        if not i_ar or not j_ar:
+        if not i_ar and not j_ar:
             continue
         # Must not share an aromatic ring (bridge connects different
         # ring systems).  Sharing only a non-aromatic macro-ring (e.g.
@@ -539,7 +543,10 @@ def _assign_axial_ring_bridge(graph) -> dict[tuple[int, int], str]:
             continue
 
         # Ortho steric gating: count non-H substituents on ring neighbors
-        # of each bridge atom (these create the rotation barrier)
+        # of each bridge atom (these create the rotation barrier).
+        # For atoms in aromatic rings, "ortho" = ring neighbors.
+        # For non-aromatic sp2 atoms (vinyl, amide), all non-H neighbors
+        # count as substituents creating the barrier.
         ar_ring_sets = [set(r) for r in ar_rings]
         i_ring_atoms = set()
         for r_idx in i_ar:

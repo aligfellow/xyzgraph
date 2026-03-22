@@ -601,16 +601,31 @@ stereo["planar"]   # [{"ring": [...], "label": "Rₚ"}, ...]    — metallocene,
 stereo["helical"]  # [{"atoms": [12,0], "label": "M"}, ...]   — helicenes
 ```
 
+Example structures for each stereo type are provided in `examples/stereo/`:
+
+| Type | Examples | Label |
+|------|----------|-------|
+| Point (R/S) | `mnh.xyz` | R, S |
+| E/Z | `E_2butene.xyz`, `Z_2butene.xyz` | E, Z |
+| Axial (biaryl) | `R_binol.xyz`, `S_binol.xyz` | Rₐ, Sₐ |
+| Axial (allene) | `Ra_allene.xyz`, `Sa_allene.xyz` | Rₐ, Sₐ |
+| Axial (metallocene) | `Ra_ferrocene_axial.xyz`, `Sa_ferrocene_axial.xyz` | Rₐ, Sₐ |
+| Axial (hindered biaryl) | `Ra_hindered_biaryl.xyz`, `Sa_hindered_biaryl.xyz` | Rₐ, Sₐ |
+| Planar (metallocene) | `Rp_ferrocene.xyz`, `Sp_ferrocene.xyz` | Rₚ, Sₚ |
+| Planar (paracyclophane) | `22paracyclophane.xyz`, `22paracyclophane_F.xyz` | None, Sₚ |
+| Helical | `M_helicene.xyz`, `P_helicene.xyz` | M, P |
+
 **Conventions**:
 - **R/S, E/Z, axial**: standard CIP rules
-- **Planar**: IUPAC pilot-atom convention (CW from pilot = Rₚ)
+- **Planar (general)**: IUPAC pilot-atom convention (CW from pilot = Rₚ)
+- **Planar (metallocene)**: Schlögl convention (view from opposite the metal, CW = Rₚ). Note: this gives the opposite label from IUPAC CIP when the metal is the pilot atom
 - **Helical**: IUPAC P/M helix convention
 
-**Limitations**:
-- Axial chirality requires both atoms to be in aromatic rings (e.g. biaryl bonds); non-aromatic rotational barriers are not detected
+**Known limitations**:
+- Axial chirality requires sp2 junction atoms with at least one in an aromatic ring; non-conjugated restricted rotations are not detected
+- Ortho steric gating (≥2 non-H ortho substituents) may be overly permissive for some aryl-vinyl or aryl-amide axes where free rotation is possible in practice
 - Planar chirality in paracyclophanes with chemically different bridges (e.g. -CH₂CH₂- vs -CH₂O-) may not be detected on the unsubstituted deck
 - Helical chirality requires fused aromatic rings; large aza-helicenes with ring detection issues may not be assigned
-- Absolute R/S labels for symmetric biaryls (e.g. BINOL) use an atom-index tiebreaker that may not match IUPAC locant numbering
 
 ---
 
