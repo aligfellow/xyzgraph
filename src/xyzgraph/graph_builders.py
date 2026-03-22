@@ -46,6 +46,7 @@ def compute_metadata(
     threshold_metal_metal_self: float,
     period_scaling_h_bonds: float,
     period_scaling_nonmetal_bonds: float,
+    stereo: bool,
 ) -> Dict[str, Any]:
     """
     Compute non-default parameters for metadata.
@@ -100,6 +101,8 @@ def compute_metadata(
         non_default["period_scaling_h_bonds"] = period_scaling_h_bonds
     if period_scaling_nonmetal_bonds != DEFAULT_PARAMS["period_scaling_nonmetal_bonds"]:
         non_default["period_scaling_nonmetal_bonds"] = period_scaling_nonmetal_bonds
+    if stereo != DEFAULT_PARAMS["stereo"]:
+        non_default["stereo"] = stereo
 
     return non_default
 
@@ -421,13 +424,14 @@ def build_graph(
     threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
     period_scaling_h_bonds: float = DEFAULT_PARAMS["period_scaling_h_bonds"],
     period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
-    stereo: bool = False,
+    stereo: bool = DEFAULT_PARAMS["stereo"],
     metadata: Optional[Dict[str, Any]] = None,
 ) -> nx.Graph:
     """Build molecular graph using GraphBuilder.
 
     atoms: Either a list of (symbol, (x,y,z)) tuples, or a filepath to read.
     metadata: Pre-computed metadata dict (for CLI to avoid duplication).
+    stereo: If True, annotate stereochemistry labels on the returned graph.
     """
     # Configure logging for debug mode (API backward compat)
     if debug:
@@ -463,6 +467,7 @@ def build_graph(
             threshold_metal_metal_self=threshold_metal_metal_self,
             period_scaling_h_bonds=period_scaling_h_bonds,
             period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds,
+            stereo=stereo,
         )
 
     builder = GraphBuilder(

@@ -508,6 +508,7 @@ def main():
         threshold_metal_metal_self=args.threshold_metal_metal_self,
         period_scaling_h_bonds=args.period_scaling_h_bonds,
         period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
+        stereo=args.stereo,
     )
 
     # Determine frames to process
