@@ -231,7 +231,11 @@ class BondDetector:
         if has_custom:
             self._log("Custom thresholds detected - using 2-phase construction", 1)
 
-        # ===== STEP 1: Baseline bonds (DEFAULT thresholds) =====
+        # ===== STEP 1: Baseline bonds =====
+        # When threshold < 1.0 (tighter), use custom thresholds directly so
+        # that fewer bonds are detected.  Otherwise use defaults so that rings
+        # are computed on the conservative baseline before extending in phase 2.
+        phase1_thresholds = self.thresholds if self.thresholds.threshold < 1.0 else _DEFAULT_THRESHOLDS
         baseline_bonds = []
 
         for i in range(len(atoms)):
@@ -249,7 +253,7 @@ class BondDetector:
                 r_sum = self.data.vdw.get(si, 2.0) + self.data.vdw.get(sj, 2.0)
 
                 baseline_threshold = self._compute_threshold(
-                    _DEFAULT_THRESHOLDS, si, sj, has_h, has_metal, r_sum, is_metal_metal_self
+                    phase1_thresholds, si, sj, has_h, has_metal, r_sum, is_metal_metal_self
                 )
 
                 z_i = atomic_numbers[i]
@@ -307,8 +311,8 @@ class BondDetector:
 
         self._log(f"Found {len(rings)} rings from initial bonding (excluding metal cycles)", 1)
 
-        # ===== STEP 2: Extended bonds (CUSTOM thresholds if modified) =====
-        if has_custom:
+        # ===== STEP 2: Extended bonds (CUSTOM thresholds if more permissive) =====
+        if has_custom and self.thresholds.threshold >= 1.0:
             extended_bonds = []
             baseline_edges = set(G.edges())
 
