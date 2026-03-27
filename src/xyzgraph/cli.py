@@ -391,7 +391,13 @@ def main():
         "--threshold-metal-ligand",
         type=float,
         default=DEFAULT_PARAMS["threshold_metal_ligand"],
-        help=f"Metal-ligand vdW threshold (default: {DEFAULT_PARAMS['threshold_metal_ligand']})",
+        help=f"D-block metal-ligand vdW threshold (default: {DEFAULT_PARAMS['threshold_metal_ligand']})",
+    )
+    advanced.add_argument(
+        "--threshold-sblock-ligand",
+        type=float,
+        default=DEFAULT_PARAMS["threshold_sblock_ligand"],
+        help=f"S-block metal-ligand vdW threshold (default: {DEFAULT_PARAMS['threshold_sblock_ligand']})",
     )
     advanced.add_argument(
         "--threshold-nonmetal",
@@ -422,6 +428,12 @@ def main():
         type=float,
         default=DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
         help=f"Period scaling for nonmetal bonds (default: {DEFAULT_PARAMS['period_scaling_nonmetal_bonds']})",
+    )
+    advanced.add_argument(
+        "--period-scaling-sblock-bonds",
+        type=float,
+        default=DEFAULT_PARAMS["period_scaling_sblock_bonds"],
+        help=f"Period scaling for s-block M-L bonds (default: {DEFAULT_PARAMS['period_scaling_sblock_bonds']})",
     )
 
     args = p.parse_args()
@@ -488,6 +500,7 @@ def main():
         threshold_h_nonmetal=args.threshold_h_nonmetal,
         threshold_h_metal=args.threshold_h_metal,
         threshold_metal_ligand=args.threshold_metal_ligand,
+        threshold_sblock_ligand=args.threshold_sblock_ligand,
         threshold_nonmetal_nonmetal=args.threshold_nonmetal,
         kekule=args.kekule,
         relaxed=args.relaxed,
@@ -495,6 +508,7 @@ def main():
         threshold_metal_metal_self=args.threshold_metal_metal_self,
         period_scaling_h_bonds=args.period_scaling_h_bonds,
         period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
+        period_scaling_sblock_bonds=args.period_scaling_sblock_bonds,
         stereo=args.stereo,
     )
 
@@ -542,6 +556,7 @@ def main():
             threshold_h_nonmetal=args.threshold_h_nonmetal,
             threshold_h_metal=args.threshold_h_metal,
             threshold_metal_ligand=args.threshold_metal_ligand,
+            threshold_sblock_ligand=args.threshold_sblock_ligand,
             threshold_nonmetal_nonmetal=args.threshold_nonmetal,
             kekule=args.kekule,
             relaxed=args.relaxed,
@@ -549,6 +564,7 @@ def main():
             threshold_metal_metal_self=args.threshold_metal_metal_self,
             period_scaling_h_bonds=args.period_scaling_h_bonds,
             period_scaling_nonmetal_bonds=args.period_scaling_nonmetal_bonds,
+            period_scaling_sblock_bonds=args.period_scaling_sblock_bonds,
             stereo=args.stereo,
             metadata=metadata,
         )

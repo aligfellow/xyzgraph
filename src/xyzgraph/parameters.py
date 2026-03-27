@@ -172,7 +172,10 @@ class BondThresholds:
     """H to metals. M-H longer than nonmetal-H."""
 
     threshold_metal_ligand: float = 0.65
-    """Metal-ligand dative bonds. Longer than covalent."""
+    """D-block metal-ligand dative bonds. Longer than covalent."""
+
+    threshold_sblock_ligand: float = 0.55
+    """S-block metal-ligand bonds. Lower than d-block."""
 
     threshold_nonmetal_nonmetal: float = 0.55
     """C-C, C-N, C-O. Baseline for organic chemistry."""
@@ -185,6 +188,9 @@ class BondThresholds:
 
     period_scaling_nonmetal_bonds: float = 0.0
     """No scaling for nonmetal-nonmetal. VDW radii already account for size."""
+
+    period_scaling_sblock_bonds: float = 0.05
+    """Per-period scaling for s-block M-L. Heavier s-block metals bond longer."""
 
     allow_metal_metal_bonds: bool = True
     """Enable M-M bond detection."""

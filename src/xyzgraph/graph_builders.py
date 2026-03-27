@@ -39,6 +39,7 @@ def compute_metadata(
     threshold_h_nonmetal: float,
     threshold_h_metal: float,
     threshold_metal_ligand: float,
+    threshold_sblock_ligand: float,
     threshold_nonmetal_nonmetal: float,
     kekule: bool,
     relaxed: bool,
@@ -46,6 +47,7 @@ def compute_metadata(
     threshold_metal_metal_self: float,
     period_scaling_h_bonds: float,
     period_scaling_nonmetal_bonds: float,
+    period_scaling_sblock_bonds: float,
     stereo: bool,
 ) -> Dict[str, Any]:
     """
@@ -87,6 +89,8 @@ def compute_metadata(
         non_default["threshold_h_metal"] = threshold_h_metal
     if threshold_metal_ligand != DEFAULT_PARAMS["threshold_metal_ligand"]:
         non_default["threshold_metal_ligand"] = threshold_metal_ligand
+    if threshold_sblock_ligand != DEFAULT_PARAMS["threshold_sblock_ligand"]:
+        non_default["threshold_sblock_ligand"] = threshold_sblock_ligand
     if threshold_nonmetal_nonmetal != DEFAULT_PARAMS["threshold_nonmetal_nonmetal"]:
         non_default["threshold_nonmetal_nonmetal"] = threshold_nonmetal_nonmetal
     if kekule != DEFAULT_PARAMS["kekule"]:
@@ -101,6 +105,8 @@ def compute_metadata(
         non_default["period_scaling_h_bonds"] = period_scaling_h_bonds
     if period_scaling_nonmetal_bonds != DEFAULT_PARAMS["period_scaling_nonmetal_bonds"]:
         non_default["period_scaling_nonmetal_bonds"] = period_scaling_nonmetal_bonds
+    if period_scaling_sblock_bonds != DEFAULT_PARAMS["period_scaling_sblock_bonds"]:
+        non_default["period_scaling_sblock_bonds"] = period_scaling_sblock_bonds
     if stereo != DEFAULT_PARAMS["stereo"]:
         non_default["stereo"] = stereo
 
@@ -138,6 +144,7 @@ class GraphBuilder:
         threshold_h_nonmetal: float = DEFAULT_PARAMS["threshold_h_nonmetal"],
         threshold_h_metal: float = DEFAULT_PARAMS["threshold_h_metal"],
         threshold_metal_ligand: float = DEFAULT_PARAMS["threshold_metal_ligand"],
+        threshold_sblock_ligand: float = DEFAULT_PARAMS["threshold_sblock_ligand"],
         threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS["threshold_nonmetal_nonmetal"],
         kekule: bool = DEFAULT_PARAMS["kekule"],
         relaxed: bool = DEFAULT_PARAMS["relaxed"],
@@ -145,6 +152,7 @@ class GraphBuilder:
         threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
         period_scaling_h_bonds: float = DEFAULT_PARAMS["period_scaling_h_bonds"],
         period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
+        period_scaling_sblock_bonds: float = DEFAULT_PARAMS["period_scaling_sblock_bonds"],
     ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
         self.charge = charge
@@ -174,12 +182,14 @@ class GraphBuilder:
         self.threshold_h_nonmetal = threshold_h_nonmetal
         self.threshold_h_metal = threshold_h_metal
         self.threshold_metal_ligand = threshold_metal_ligand
+        self.threshold_sblock_ligand = threshold_sblock_ligand
         self.threshold_nonmetal_nonmetal = threshold_nonmetal_nonmetal
         self.relaxed = relaxed
         self.allow_metal_metal_bonds = allow_metal_metal_bonds
         self.threshold_metal_metal_self = threshold_metal_metal_self
         self.period_scaling_h_bonds = period_scaling_h_bonds
         self.period_scaling_nonmetal_bonds = period_scaling_nonmetal_bonds
+        self.period_scaling_sblock_bonds = period_scaling_sblock_bonds
 
         # Reference to global data
         self.data = DATA
@@ -211,10 +221,12 @@ class GraphBuilder:
             threshold_h_nonmetal=threshold_h_nonmetal,
             threshold_h_metal=threshold_h_metal,
             threshold_metal_ligand=threshold_metal_ligand,
+            threshold_sblock_ligand=threshold_sblock_ligand,
             threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
             threshold_metal_metal_self=threshold_metal_metal_self,
             period_scaling_h_bonds=period_scaling_h_bonds,
             period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds,
+            period_scaling_sblock_bonds=period_scaling_sblock_bonds,
             allow_metal_metal_bonds=allow_metal_metal_bonds,
         )
         self._bond_detector = BondDetector(
@@ -417,6 +429,7 @@ def build_graph(
     threshold_h_nonmetal: float = DEFAULT_PARAMS["threshold_h_nonmetal"],
     threshold_h_metal: float = DEFAULT_PARAMS["threshold_h_metal"],
     threshold_metal_ligand: float = DEFAULT_PARAMS["threshold_metal_ligand"],
+    threshold_sblock_ligand: float = DEFAULT_PARAMS["threshold_sblock_ligand"],
     threshold_nonmetal_nonmetal: float = DEFAULT_PARAMS["threshold_nonmetal_nonmetal"],
     kekule: bool = DEFAULT_PARAMS["kekule"],
     relaxed: bool = DEFAULT_PARAMS["relaxed"],
@@ -424,6 +437,7 @@ def build_graph(
     threshold_metal_metal_self: float = DEFAULT_PARAMS["threshold_metal_metal_self"],
     period_scaling_h_bonds: float = DEFAULT_PARAMS["period_scaling_h_bonds"],
     period_scaling_nonmetal_bonds: float = DEFAULT_PARAMS["period_scaling_nonmetal_bonds"],
+    period_scaling_sblock_bonds: float = DEFAULT_PARAMS["period_scaling_sblock_bonds"],
     stereo: bool = DEFAULT_PARAMS["stereo"],
     metadata: Optional[Dict[str, Any]] = None,
 ) -> nx.Graph:
@@ -460,6 +474,7 @@ def build_graph(
             threshold_h_nonmetal=threshold_h_nonmetal,
             threshold_h_metal=threshold_h_metal,
             threshold_metal_ligand=threshold_metal_ligand,
+            threshold_sblock_ligand=threshold_sblock_ligand,
             threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
             kekule=kekule,
             relaxed=relaxed,
@@ -467,6 +482,7 @@ def build_graph(
             threshold_metal_metal_self=threshold_metal_metal_self,
             period_scaling_h_bonds=period_scaling_h_bonds,
             period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds,
+            period_scaling_sblock_bonds=period_scaling_sblock_bonds,
             stereo=stereo,
         )
 
@@ -489,6 +505,7 @@ def build_graph(
         threshold_h_nonmetal=threshold_h_nonmetal,
         threshold_h_metal=threshold_h_metal,
         threshold_metal_ligand=threshold_metal_ligand,
+        threshold_sblock_ligand=threshold_sblock_ligand,
         threshold_nonmetal_nonmetal=threshold_nonmetal_nonmetal,
         kekule=kekule,
         relaxed=relaxed,
@@ -496,6 +513,7 @@ def build_graph(
         threshold_metal_metal_self=threshold_metal_metal_self,
         period_scaling_h_bonds=period_scaling_h_bonds,
         period_scaling_nonmetal_bonds=period_scaling_nonmetal_bonds,
+        period_scaling_sblock_bonds=period_scaling_sblock_bonds,
     )
 
     G = builder.build()

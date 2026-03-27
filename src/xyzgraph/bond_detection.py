@@ -102,8 +102,19 @@ class BondDetector:
                 max_period = max(self._get_period(z_i), self._get_period(z_j))
                 period_factor = 1.0 + (max_period - 2) * self.thresholds.period_scaling_nonmetal_bonds
                 return base_threshold * period_factor
-            else:
-                return base_threshold
+
+            # S-block metal-ligand period scaling
+            if self.thresholds.period_scaling_sblock_bonds != 0.0:
+                sblock_sym = (
+                    sym_i if sym_i in self.data.sblock_metals else (sym_j if sym_j in self.data.sblock_metals else None)
+                )
+                if sblock_sym is not None:
+                    metal_z = z_i if sym_i == sblock_sym else z_j
+                    metal_period = self._get_period(metal_z)
+                    period_factor = 1.0 + (metal_period - 2) * self.thresholds.period_scaling_sblock_bonds
+                    return base_threshold * period_factor
+
+            return base_threshold
 
     def _should_bond_metal(self, sym_i: str, sym_j: str) -> bool:
         """Chemical filter for metal bonds (called AFTER distance check).
@@ -152,8 +163,8 @@ class BondDetector:
         except nx.NodeNotFound:
             return []
 
-    @staticmethod
     def _compute_threshold(
+        self,
         thresholds: BondThresholds,
         si: str,
         sj: str,
@@ -172,6 +183,9 @@ class BondDetector:
         elif is_metal_metal_self:
             return thresholds.threshold_metal_metal_self * r_sum
         elif has_metal:
+            metal_sym = si if si in self.data.metals else sj
+            if metal_sym in self.data.sblock_metals:
+                return thresholds.threshold_sblock_ligand * r_sum * thresholds.threshold
             return thresholds.threshold_metal_ligand * r_sum
         else:
             return thresholds.threshold_nonmetal_nonmetal * r_sum * thresholds.threshold
@@ -225,6 +239,7 @@ class BondDetector:
             or self.thresholds.threshold_h_nonmetal != _DEFAULT_THRESHOLDS.threshold_h_nonmetal
             or self.thresholds.threshold_h_metal != _DEFAULT_THRESHOLDS.threshold_h_metal
             or self.thresholds.threshold_metal_ligand != _DEFAULT_THRESHOLDS.threshold_metal_ligand
+            or self.thresholds.threshold_sblock_ligand != _DEFAULT_THRESHOLDS.threshold_sblock_ligand
             or self.thresholds.threshold_nonmetal_nonmetal != _DEFAULT_THRESHOLDS.threshold_nonmetal_nonmetal
         )
 
