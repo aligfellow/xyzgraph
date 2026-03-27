@@ -1562,12 +1562,12 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 | H-H | 0.38 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
 | H-metal | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
-| Metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
+| S-block metal-ligand | 0.55 × (r₁ + r₂) | `threshold_sblock_ligand` |
+| D-block metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
 | Metal-Metal (same type) | 0.7 × (2r) | `threshold_metal_metal_self` |
 
-
-Where r₁ and r₂ are the VDW radii of the two atoms.
+Where r₁ and r₂ are the VDW radii of the two atoms. Period-dependent scaling is applied for H-bonds (`period_scaling_h_bonds=0.05`) and s-block metal-ligand bonds (`period_scaling_sblock_bonds=0.05`) to account for heavier elements bonding at longer distances.
 
 ### Detecting Elongated Bonds (Transition States)
 
