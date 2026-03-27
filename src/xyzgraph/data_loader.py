@@ -19,6 +19,7 @@ class MolecularData:
     valences: Dict[str, List[int]]
     electrons: Dict[str, int]
     metals: Set[str]
+    sblock_metals: Set[str]
     s2n: Dict[str, int]
     n2s: Dict[int, str]
     electronegativity: Dict[str, float]
@@ -105,13 +106,32 @@ class MolecularData:
                 "I": 7,
             }
 
+        # S-block metals (alkali + alkaline earth)
+        sblock_metals = {
+            "Li",
+            "Be",
+            "Na",
+            "Mg",
+            "K",
+            "Ca",
+            "Rb",
+            "Sr",
+            "Cs",
+            "Ba",
+        }
+
         # Define metals set
         metals = {
             "Li",
+            "Be",
             "Na",
-            "K",
             "Mg",
+            "K",
             "Ca",
+            "Rb",
+            "Sr",
+            "Cs",
+            "Ba",
             "Zn",
             "Sc",
             "Ti",
@@ -199,6 +219,7 @@ class MolecularData:
             valences=expected_valences,
             electrons=valence_electrons,
             metals=metals,
+            sblock_metals=sblock_metals,
             s2n=s2n,
             n2s=n2s,
             electronegativity=electronegativity,

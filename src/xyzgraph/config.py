@@ -23,6 +23,7 @@ class DefaultParamsType(TypedDict):
     threshold_h_nonmetal: float
     threshold_h_metal: float
     threshold_metal_ligand: float
+    threshold_sblock_ligand: float
     threshold_nonmetal_nonmetal: float
     threshold_metal_metal_self: float
     kekule: bool
@@ -30,6 +31,7 @@ class DefaultParamsType(TypedDict):
     allow_metal_metal_bonds: bool
     period_scaling_h_bonds: float
     period_scaling_nonmetal_bonds: float
+    period_scaling_sblock_bonds: float
     stereo: bool
     orca_bond_threshold: float
 
@@ -53,6 +55,7 @@ DEFAULT_PARAMS: DefaultParamsType = {
     "threshold_h_nonmetal": 0.42,
     "threshold_h_metal": 0.45,
     "threshold_metal_ligand": 0.65,
+    "threshold_sblock_ligand": 0.55,
     "threshold_nonmetal_nonmetal": 0.55,
     "threshold_metal_metal_self": 0.7,
     "kekule": False,
@@ -61,6 +64,7 @@ DEFAULT_PARAMS: DefaultParamsType = {
     "allow_metal_metal_bonds": True,
     "period_scaling_h_bonds": 0.05,
     "period_scaling_nonmetal_bonds": 0.00,
+    "period_scaling_sblock_bonds": 0.05,
     "stereo": False,
     # ORCA-specific parameters:
     "orca_bond_threshold": 0.25,

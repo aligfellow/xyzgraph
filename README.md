@@ -458,11 +458,26 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 
 ```text
 > xyzgraph -h
-usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}] [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [-k] [--relaxed] [-t THRESHOLD] [-d] [-a] [--json] [-as ASCII_SCALE] [--nci] [-H]
-                [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames] [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT] [--orca-threshold ORCA_THRESHOLD] [-o {greedy,beam}]
-                [-bw BEAM_WIDTH] [--max-iter MAX_ITER] [--edge-per-iter EDGE_PER_ITER] [--bond BOND] [--unbond UNBOND] [--threshold-h-h THRESHOLD_H_H] [--threshold-h-nonmetal THRESHOLD_H_NONMETAL]
-                [--threshold-h-metal THRESHOLD_H_METAL] [--threshold-metal-ligand THRESHOLD_METAL_LIGAND] [--threshold-nonmetal THRESHOLD_NONMETAL] [--allow-metal-metal-bonds]
-                [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF] [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS] [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
+usage: xyzgraph [-h] [--version] [--citation] [--method {cheminf,xtb}]
+                [--no-clean] [-c CHARGE] [-m MULTIPLICITY] [-q] [-k]
+                [--relaxed] [-t THRESHOLD] [-d] [-a] [--json]
+                [-as ASCII_SCALE] [--nci] [--stereo] [-H]
+                [--show-h-idx SHOW_H_IDX] [-b] [--frame FRAME] [--all-frames]
+                [--compare-rdkit] [--compare-rdkit-tm] [--orca-out ORCA_OUT]
+                [--orca-threshold ORCA_THRESHOLD] [-o {greedy,beam}]
+                [-bw BEAM_WIDTH] [--max-iter MAX_ITER]
+                [--edge-per-iter EDGE_PER_ITER] [--bond BOND]
+                [--unbond UNBOND] [--threshold-h-h THRESHOLD_H_H]
+                [--threshold-h-nonmetal THRESHOLD_H_NONMETAL]
+                [--threshold-h-metal THRESHOLD_H_METAL]
+                [--threshold-metal-ligand THRESHOLD_METAL_LIGAND]
+                [--threshold-sblock-ligand THRESHOLD_SBLOCK_LIGAND]
+                [--threshold-nonmetal THRESHOLD_NONMETAL]
+                [--allow-metal-metal-bonds]
+                [--threshold-metal-metal-self THRESHOLD_METAL_METAL_SELF]
+                [--period-scaling-h-bonds PERIOD_SCALING_H_BONDS]
+                [--period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS]
+                [--period-scaling-sblock-bonds PERIOD_SCALING_SBLOCK_BONDS]
                 [input_file]
 
 Build molecular graph from XYZ or ORCA output.
@@ -479,30 +494,33 @@ Common Options:
   --method {cheminf,xtb}
                         Graph construction method (default: cheminf)
   --no-clean            Keep temporary xTB files (only for --method xtb)
-  -c CHARGE, --charge CHARGE
-                        Total molecular charge (default: 0)
-  -m MULTIPLICITY, --multiplicity MULTIPLICITY
+  -c, --charge CHARGE   Total molecular charge (default: 0)
+  -m, --multiplicity MULTIPLICITY
                         Spin multiplicity (default: auto estimation)
-  -q, --quick           Geometric detection only: skip bond order assignment, formal charges, and aromatic detection
-  -k, --kekule          Keep Kekule bond orders (do not convert aromatic rings to 1.5)
+  -q, --quick           Geometric detection only: skip bond order assignment,
+                        formal charges, and aromatic detection
+  -k, --kekule          Keep Kekule bond orders (do not convert aromatic rings
+                        to 1.5)
   --relaxed             Relaxed geometric validation (for transition states)
-  -t THRESHOLD, --threshold THRESHOLD
+  -t, --threshold THRESHOLD
                         Global scaling for bond thresholds (default: 1.0)
 
 Output Options:
   -d, --debug           Enable debug output
   -a, --ascii           Show 2D ASCII depiction
   --json                Output graph as JSON (for generating test fixtures)
-  -as ASCII_SCALE, --ascii-scale ASCII_SCALE
+  -as, --ascii-scale ASCII_SCALE
                         ASCII scaling factor (default: 2.5)
   --nci                 Detect and report non-covalent interactions
+  --stereo              Assign and display stereochemistry labels
   -H, --show-h          Include hydrogens in visualizations
   --show-h-idx SHOW_H_IDX
                         Show specific H atoms (comma-separated indices)
 
 Input Options:
   -b, --bohr            XYZ file in Bohr units (default: Angstrom)
-  --frame FRAME         Frame index for trajectory files, 0-indexed (default: 0)
+  --frame FRAME         Frame index for trajectory files, 0-indexed (default:
+                        0)
   --all-frames          Process all frames in trajectory
 
 Comparison Options:
@@ -513,9 +531,9 @@ Comparison Options:
                         Min Mayer bond order for ORCA (default: 0.25)
 
 Optimizer Options:
-  -o {greedy,beam}, --optimizer {greedy,beam}
+  -o, --optimizer {greedy,beam}
                         Algorithm (default: beam)
-  -bw BEAM_WIDTH, --beam-width BEAM_WIDTH
+  -bw, --beam-width BEAM_WIDTH
                         Beam width (default: 5)
   --max-iter MAX_ITER   Max iterations (default: 50)
   --edge-per-iter EDGE_PER_ITER
@@ -533,7 +551,9 @@ Advanced Thresholds:
   --threshold-h-metal THRESHOLD_H_METAL
                         H-metal vdW threshold (default: 0.45)
   --threshold-metal-ligand THRESHOLD_METAL_LIGAND
-                        Metal-ligand vdW threshold (default: 0.65)
+                        D-block metal-ligand vdW threshold (default: 0.65)
+  --threshold-sblock-ligand THRESHOLD_SBLOCK_LIGAND
+                        S-block metal-ligand vdW threshold (default: 0.55)
   --threshold-nonmetal THRESHOLD_NONMETAL
                         Nonmetal-nonmetal vdW threshold (default: 0.55)
   --allow-metal-metal-bonds
@@ -544,6 +564,8 @@ Advanced Thresholds:
                         Period scaling for H bonds (default: 0.05)
   --period-scaling-nonmetal-bonds PERIOD_SCALING_NONMETAL_BONDS
                         Period scaling for nonmetal bonds (default: 0.0)
+  --period-scaling-sblock-bonds PERIOD_SCALING_SBLOCK_BONDS
+                        Period scaling for s-block M-L bonds (default: 0.05)
 ```
 
 **Method comparison**:
