@@ -106,20 +106,32 @@ class MolecularData:
                 "I": 7,
             }
 
+        # S-block metals (alkali + alkaline earth)
+        sblock_metals = {
+            "Li",
+            "Be",
+            "Na",
+            "Mg",
+            "K",
+            "Ca",
+            "Rb",
+            "Sr",
+            "Cs",
+            "Ba",
+        }
+
         # Define metals set
         metals = {
             "Li",
-            "Na",
-            "K",
-            "Rb",
-            "Cs",
-            "Fr",
             "Be",
+            "Na",
             "Mg",
+            "K",
             "Ca",
+            "Rb",
             "Sr",
+            "Cs",
             "Ba",
-            "Ra",
             "Zn",
             "Sc",
             "Ti",
@@ -169,9 +181,6 @@ class MolecularData:
             "Yb",
             "Lu",
         }
-
-        # Common s-block metals (for selector compatibility in downstream tools)
-        sblock_metals = {"Li", "Na", "K", "Rb", "Cs", "Fr", "Be", "Mg", "Ca", "Sr", "Ba", "Ra"}
 
         # Load element mappings
         element_file = data_path / "atom_symbols.json"
