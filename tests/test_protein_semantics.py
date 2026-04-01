@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from itertools import pairwise
+from typing import Iterable, Iterator, TypeVar
 
 import networkx as nx
 
@@ -12,6 +12,19 @@ from xyzgraph.protein import (
     annotate_protein_semantics,
     protein_semantics_from_dict,
 )
+
+_T = TypeVar("_T")
+
+
+def _pairwise(iterable: Iterable[_T]) -> Iterator[tuple[_T, _T]]:
+    it = iter(iterable)
+    try:
+        previous = next(it)
+    except StopIteration:
+        return
+    for current in it:
+        yield previous, current
+        previous = current
 
 
 def _add_node(g: nx.Graph, idx: int, sym: str, x: float) -> None:
@@ -236,7 +249,7 @@ def test_heuristic_requires_peptide_links_not_just_ca_like_motifs():
         idx += 4
 
     # Connect motifs as a single large component without carbonyl->amide links.
-    for a, b in pairwise(ca_nodes):
+    for a, b in _pairwise(ca_nodes):
         g.add_edge(a, b)
 
     report = annotate_protein_semantics(g, protein_requested=True)
@@ -271,7 +284,8 @@ def test_geometry_inference_supplements_unlabeled_secondary_structure():
 def test_geometry_inference_preserves_explicit_secondary_structure_labels():
     g, annotations = _build_helical_backbone(n_residues=12)
     for row in annotations:
-        if row["res_seq"] <= 4:
+        res_seq = row.get("res_seq")
+        if isinstance(res_seq, int) and res_seq <= 4:
             row["ss_type"] = "H"
 
     report = annotate_protein_semantics(g, atom_annotations=annotations, format_hint=".pdb")
