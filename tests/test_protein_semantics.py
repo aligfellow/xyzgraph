@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from itertools import pairwise
 
 import networkx as nx
 
@@ -33,7 +34,14 @@ def _build_helical_backbone(n_residues: int = 12) -> tuple[nx.Graph, list[dict[s
         n_idx = serial
         g.add_node(n_idx, symbol="N", position=n_pos)
         annotations.append(
-            {"record_type": "ATOM", "atom_name": "N", "res_name": "ALA", "res_seq": seq, "chain_id": "A", "ss_type": "C"}
+            {
+                "record_type": "ATOM",
+                "atom_name": "N",
+                "res_name": "ALA",
+                "res_seq": seq,
+                "chain_id": "A",
+                "ss_type": "C",
+            }
         )
         serial += 1
 
@@ -54,14 +62,28 @@ def _build_helical_backbone(n_residues: int = 12) -> tuple[nx.Graph, list[dict[s
         c_idx = serial
         g.add_node(c_idx, symbol="C", position=c_pos)
         annotations.append(
-            {"record_type": "ATOM", "atom_name": "C", "res_name": "ALA", "res_seq": seq, "chain_id": "A", "ss_type": "C"}
+            {
+                "record_type": "ATOM",
+                "atom_name": "C",
+                "res_name": "ALA",
+                "res_seq": seq,
+                "chain_id": "A",
+                "ss_type": "C",
+            }
         )
         serial += 1
 
         o_idx = serial
         g.add_node(o_idx, symbol="O", position=o_pos)
         annotations.append(
-            {"record_type": "ATOM", "atom_name": "O", "res_name": "ALA", "res_seq": seq, "chain_id": "A", "ss_type": "C"}
+            {
+                "record_type": "ATOM",
+                "atom_name": "O",
+                "res_name": "ALA",
+                "res_seq": seq,
+                "chain_id": "A",
+                "ss_type": "C",
+            }
         )
         serial += 1
 
@@ -214,7 +236,7 @@ def test_heuristic_requires_peptide_links_not_just_ca_like_motifs():
         idx += 4
 
     # Connect motifs as a single large component without carbonyl->amide links.
-    for a, b in zip(ca_nodes[:-1], ca_nodes[1:], strict=False):
+    for a, b in pairwise(ca_nodes):
         g.add_edge(a, b)
 
     report = annotate_protein_semantics(g, protein_requested=True)

@@ -24,7 +24,9 @@ _ANNOTATION_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 _WATER_RESNAMES: frozenset[str] = frozenset({"HOH", "WAT", "DOD", "H2O", "TIP", "TIP3", "SOL"})
-_ION_RESNAMES: frozenset[str] = frozenset({"NA", "K", "CA", "MG", "ZN", "CL", "FE", "CU", "MN", "CO", "NI", "SO4", "PO4"})
+_ION_RESNAMES: frozenset[str] = frozenset(
+    {"NA", "K", "CA", "MG", "ZN", "CL", "FE", "CU", "MN", "CO", "NI", "SO4", "PO4"}
+)
 _SS_INFERENCE = {
     "helix_torsion_min": 20.0,
     "helix_torsion_max": 105.0,
@@ -134,14 +136,14 @@ def _normalize_annotations(raw: Iterable[dict[str, object]] | None, n_atoms: int
         return None
 
     out: list[dict[str, object]] = []
-    for idx, row in enumerate(rows):
-        row = row or {}
-        rec = str(_pick_annotation_value(row, "record_type", "ATOM")).strip().upper() or "ATOM"
-        atom_name = str(_pick_annotation_value(row, "atom_name", "")).strip()
-        res_name = str(_pick_annotation_value(row, "res_name", "UNK")).strip().upper() or "UNK"
-        chain_id = str(_pick_annotation_value(row, "chain_id", "A")).strip() or "A"
-        res_seq = _to_int(_pick_annotation_value(row, "res_seq", idx + 1), default=idx + 1)
-        ss_type = _normalize_ss(_pick_annotation_value(row, "ss_type", "C"))
+    for idx, annotation_row in enumerate(rows):
+        normalized_row = annotation_row or {}
+        rec = str(_pick_annotation_value(normalized_row, "record_type", "ATOM")).strip().upper() or "ATOM"
+        atom_name = str(_pick_annotation_value(normalized_row, "atom_name", "")).strip()
+        res_name = str(_pick_annotation_value(normalized_row, "res_name", "UNK")).strip().upper() or "UNK"
+        chain_id = str(_pick_annotation_value(normalized_row, "chain_id", "A")).strip() or "A"
+        res_seq = _to_int(_pick_annotation_value(normalized_row, "res_seq", idx + 1), default=idx + 1)
+        ss_type = _normalize_ss(_pick_annotation_value(normalized_row, "ss_type", "C"))
 
         out.append(
             {
@@ -174,10 +176,9 @@ def _derive_ss_spans(chains: dict[str, ProteinChainSemantics], ss_type: str) -> 
                 else:
                     spans.append((cid, int(start), int(end)))
                     start = end = res.res_seq
-            else:
-                if start is not None:
-                    spans.append((cid, int(start), int(end)))
-                    start = end = None
+            elif start is not None:
+                spans.append((cid, int(start), int(end)))
+                start = end = None
             prev_seq = res.res_seq
         if start is not None:
             spans.append((cid, int(start), int(end)))
@@ -295,7 +296,10 @@ def _infer_missing_ss_in_chain(graph: nx.Graph, residues: list[ProteinResidueSem
         p1 = anchors[i]
         p2 = anchors[i + 1]
         p3 = anchors[i + 2]
-        assert p0 is not None and p1 is not None and p2 is not None and p3 is not None
+        assert p0 is not None
+        assert p1 is not None
+        assert p2 is not None
+        assert p3 is not None
 
         torsion = _dihedral_degrees(p0, p1, p2, p3)
         abs_torsion = abs(torsion)
@@ -591,7 +595,7 @@ def _extract_heuristic(graph: nx.Graph) -> ProteinSemantics | None:
         n_to_candidates.setdefault(n_atom, []).append(rid)
 
     succ: dict[int, set[int]] = {rid: set() for rid in range(len(candidates))}
-    pred_count: dict[int, int] = {rid: 0 for rid in range(len(candidates))}
+    pred_count: dict[int, int] = dict.fromkeys(range(len(candidates)), 0)
     for rid, (_, _, carbonyl_c) in enumerate(candidates):
         for nb in graph.neighbors(carbonyl_c):
             for nxt in n_to_candidates.get(int(nb), []):
@@ -623,7 +627,9 @@ def _extract_heuristic(graph: nx.Graph) -> ProteinSemantics | None:
         if len(seg) >= 3:
             segments.append(seg)
 
-    remainder = [rid for rid in range(len(candidates)) if rid not in seen_candidates and (succ[rid] or pred_count[rid] > 0)]
+    remainder = [
+        rid for rid in range(len(candidates)) if rid not in seen_candidates and (succ[rid] or pred_count[rid] > 0)
+    ]
     for rid in sorted(remainder):
         seg = _walk(rid, seen_candidates)
         if len(seg) >= 3:
