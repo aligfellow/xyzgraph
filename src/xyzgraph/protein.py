@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Iterable
+from typing import Iterable, SupportsIndex, SupportsInt
 
 import networkx as nx
 import numpy as np
@@ -108,10 +108,71 @@ def _normalize_ss(value: object) -> str:
 
 
 def _to_int(value: object, default: int = 0) -> int:
+    if not isinstance(value, (str, bytes, bytearray, SupportsInt, SupportsIndex)):
+        return default
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _to_int_set(value: object) -> set[int]:
+    if not isinstance(value, list):
+        return set()
+    out: set[int] = set()
+    for item in value:
+        if isinstance(item, (str, bytes, bytearray, SupportsInt, SupportsIndex)):
+            try:
+                out.add(int(item))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def _to_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _to_spans(value: object) -> list[tuple[str, int, int]]:
+    if not isinstance(value, list):
+        return []
+    spans: list[tuple[str, int, int]] = []
+    for entry in value:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+            continue
+        c, s, e = entry
+        if not isinstance(s, (str, bytes, bytearray, SupportsInt, SupportsIndex)):
+            continue
+        if not isinstance(e, (str, bytes, bytearray, SupportsInt, SupportsIndex)):
+            continue
+        try:
+            s_val = int(s)
+            e_val = int(e)
+        except (TypeError, ValueError):
+            continue
+        spans.append((str(c), s_val, e_val))
+    return spans
+
+
+def _to_trace_chains(value: object) -> dict[str, list[int]]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, list[int]] = {}
+    for cid, idxs in value.items():
+        if not isinstance(idxs, list):
+            continue
+        chain: list[int] = []
+        for item in idxs:
+            if not isinstance(item, (str, bytes, bytearray, SupportsInt, SupportsIndex)):
+                continue
+            try:
+                chain.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        out[str(cid)] = chain
+    return out
 
 
 def _pick_annotation_value(row: dict[str, object], key: str, default: object) -> object:
@@ -174,13 +235,16 @@ def _derive_ss_spans(chains: dict[str, ProteinChainSemantics], ss_type: str) -> 
                 elif prev_seq is not None and res.res_seq == prev_seq + 1:
                     end = res.res_seq
                 else:
+                    assert end is not None
                     spans.append((cid, int(start), int(end)))
                     start = end = res.res_seq
             elif start is not None:
+                assert end is not None
                 spans.append((cid, int(start), int(end)))
                 start = end = None
             prev_seq = res.res_seq
         if start is not None:
+            assert end is not None
             spans.append((cid, int(start), int(end)))
     return spans
 
@@ -644,7 +708,7 @@ def _extract_heuristic(graph: nx.Graph) -> ProteinSemantics | None:
     chains: dict[str, ProteinChainSemantics] = {}
     trace_chains: dict[str, list[int]] = {}
     backbone_indices: set[int] = set()
-    for cid, trace in zip(chain_ids, segments, strict=False):
+    for cid, trace in zip(chain_ids, segments):
         residues = [
             ProteinResidueSemantics(
                 res_name="UNK",
@@ -717,26 +781,39 @@ def protein_semantics_from_dict(payload: dict[str, object]) -> ProteinSemantics:
         for cid, chain_obj in raw_chains.items():
             if not isinstance(chain_obj, dict):
                 continue
-            residues_obj = chain_obj.get("residues", [])
+            chain_data = {str(k): v for k, v in chain_obj.items()}
+            residues_obj = chain_data.get("residues", [])
             residues: list[ProteinResidueSemantics] = []
             if isinstance(residues_obj, list):
                 for r in residues_obj:
                     if not isinstance(r, dict):
                         continue
+                    residue_data = {str(k): v for k, v in r.items()}
+                    atom_indices_raw = residue_data.get("atom_indices", [])
+                    atom_indices: list[int] = []
+                    if isinstance(atom_indices_raw, list):
+                        for x in atom_indices_raw:
+                            if not isinstance(x, (str, bytes, bytearray, SupportsInt, SupportsIndex)):
+                                continue
+                            atom_indices.append(int(x))
+                    ca_index_raw = residue_data.get("ca_index")
+                    c_index_raw = residue_data.get("c_index")
+                    o_index_raw = residue_data.get("o_index")
+                    n_index_raw = residue_data.get("n_index")
                     residues.append(
                         ProteinResidueSemantics(
-                            res_name=str(r.get("res_name", "UNK")),
-                            res_seq=_to_int(r.get("res_seq", 0), 0),
-                            chain_id=str(r.get("chain_id", cid)),
-                            atom_indices=[int(x) for x in r.get("atom_indices", [])],
-                            ca_index=(None if r.get("ca_index") is None else int(r["ca_index"])),
-                            c_index=(None if r.get("c_index") is None else int(r["c_index"])),
-                            o_index=(None if r.get("o_index") is None else int(r["o_index"])),
-                            n_index=(None if r.get("n_index") is None else int(r["n_index"])),
-                            ss_type=_normalize_ss(r.get("ss_type", "C")),
+                            res_name=str(residue_data.get("res_name", "UNK")),
+                            res_seq=_to_int(residue_data.get("res_seq", 0), 0),
+                            chain_id=str(residue_data.get("chain_id", cid)),
+                            atom_indices=atom_indices,
+                            ca_index=(None if ca_index_raw is None else _to_int(ca_index_raw, 0)),
+                            c_index=(None if c_index_raw is None else _to_int(c_index_raw, 0)),
+                            o_index=(None if o_index_raw is None else _to_int(o_index_raw, 0)),
+                            n_index=(None if n_index_raw is None else _to_int(n_index_raw, 0)),
+                            ss_type=_normalize_ss(residue_data.get("ss_type", "C")),
                         )
                     )
-            chains[str(cid)] = ProteinChainSemantics(chain_id=str(chain_obj.get("chain_id", cid)), residues=residues)
+            chains[str(cid)] = ProteinChainSemantics(chain_id=str(chain_data.get("chain_id", cid)), residues=residues)
 
     confidence_raw = str(payload.get("confidence_tier", ProteinConfidenceTier.INSUFFICIENT.value))
     try:
@@ -746,18 +823,18 @@ def protein_semantics_from_dict(payload: dict[str, object]) -> ProteinSemantics:
 
     return ProteinSemantics(
         chains=chains,
-        hetatm_indices={int(x) for x in payload.get("hetatm_indices", [])},
-        backbone_indices={int(x) for x in payload.get("backbone_indices", [])},
-        sidechain_indices={int(x) for x in payload.get("sidechain_indices", [])},
-        helix_spans=[(str(c), int(s), int(e)) for c, s, e in payload.get("helix_spans", [])],
-        sheet_spans=[(str(c), int(s), int(e)) for c, s, e in payload.get("sheet_spans", [])],
-        ligand_indices={int(x) for x in payload.get("ligand_indices", [])},
-        water_indices={int(x) for x in payload.get("water_indices", [])},
-        ion_indices={int(x) for x in payload.get("ion_indices", [])},
+        hetatm_indices=_to_int_set(payload.get("hetatm_indices", [])),
+        backbone_indices=_to_int_set(payload.get("backbone_indices", [])),
+        sidechain_indices=_to_int_set(payload.get("sidechain_indices", [])),
+        helix_spans=_to_spans(payload.get("helix_spans", [])),
+        sheet_spans=_to_spans(payload.get("sheet_spans", [])),
+        ligand_indices=_to_int_set(payload.get("ligand_indices", [])),
+        water_indices=_to_int_set(payload.get("water_indices", [])),
+        ion_indices=_to_int_set(payload.get("ion_indices", [])),
         confidence_tier=confidence,
-        confidence_reasons=[str(x) for x in payload.get("confidence_reasons", [])],
-        provenance=[str(x) for x in payload.get("provenance", [])],
-        trace_chains={str(cid): [int(x) for x in idxs] for cid, idxs in payload.get("trace_chains", {}).items()},
+        confidence_reasons=_to_str_list(payload.get("confidence_reasons", [])),
+        provenance=_to_str_list(payload.get("provenance", [])),
+        trace_chains=_to_trace_chains(payload.get("trace_chains", {})),
     )
 
 
