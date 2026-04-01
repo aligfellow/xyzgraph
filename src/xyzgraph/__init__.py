@@ -19,6 +19,16 @@ from .graph_builders_rdkit_tm import build_graph_rdkit_tm
 from .graph_builders_xtb import build_graph_xtb
 from .nci import NCIAnalyzer, NCIThresholds, detect_ncis
 from .orca_parser import OrcaParseError, parse_orca_output
+from .protein import (
+    ProteinChainSemantics,
+    ProteinConfidenceTier,
+    ProteinExtractionReport,
+    ProteinResidueSemantics,
+    ProteinSemantics,
+    annotate_protein_semantics,
+    protein_semantics_from_dict,
+    protein_semantics_to_dict,
+)
 from .stereo import StereoSummary, annotate_stereo
 from .utils import count_frames_and_atoms, graph_debug_report, graph_to_dict, read_xyz_file
 
@@ -27,7 +37,13 @@ __all__ = [
     "NCIAnalyzer",
     "NCIThresholds",
     "OrcaParseError",
+    "ProteinChainSemantics",
+    "ProteinConfidenceTier",
+    "ProteinExtractionReport",
+    "ProteinResidueSemantics",
+    "ProteinSemantics",
     "StereoSummary",
+    "annotate_protein_semantics",
     "annotate_stereo",
     "build_graph",
     "build_graph_orca",
@@ -42,5 +58,7 @@ __all__ = [
     "graph_to_ascii",
     "graph_to_dict",
     "parse_orca_output",
+    "protein_semantics_from_dict",
+    "protein_semantics_to_dict",
     "read_xyz_file",
 ]
