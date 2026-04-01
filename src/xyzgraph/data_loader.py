@@ -19,6 +19,7 @@ class MolecularData:
     valences: Dict[str, List[int]]
     electrons: Dict[str, int]
     metals: Set[str]
+    sblock_metals: Set[str]
     s2n: Dict[str, int]
     n2s: Dict[int, str]
     electronegativity: Dict[str, float]
@@ -110,8 +111,15 @@ class MolecularData:
             "Li",
             "Na",
             "K",
+            "Rb",
+            "Cs",
+            "Fr",
+            "Be",
             "Mg",
             "Ca",
+            "Sr",
+            "Ba",
+            "Ra",
             "Zn",
             "Sc",
             "Ti",
@@ -162,6 +170,9 @@ class MolecularData:
             "Lu",
         }
 
+        # Common s-block metals (for selector compatibility in downstream tools)
+        sblock_metals = {"Li", "Na", "K", "Rb", "Cs", "Fr", "Be", "Mg", "Ca", "Sr", "Ba", "Ra"}
+
         # Load element mappings
         element_file = data_path / "atom_symbols.json"
         with element_file.open("r", encoding="utf-8") as f:
@@ -199,6 +210,7 @@ class MolecularData:
             valences=expected_valences,
             electrons=valence_electrons,
             metals=metals,
+            sblock_metals=sblock_metals,
             s2n=s2n,
             n2s=n2s,
             electronegativity=electronegativity,
