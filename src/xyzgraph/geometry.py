@@ -3,6 +3,7 @@
 All methods are stateless and operate on coordinate data.
 """
 
+import math
 from typing import List, Tuple
 
 import networkx as nx
@@ -17,8 +18,11 @@ class GeometryCalculator:
 
     @staticmethod
     def distance(pos1: Tuple[float, float, float], pos2: Tuple[float, float, float]) -> float:
-        """Euclidean distance between two 3D points."""
-        return float(np.linalg.norm(np.array(pos1) - np.array(pos2)))
+        """Euclidean distance between two 3D points. Pure-math inline."""
+        dx = pos1[0] - pos2[0]
+        dy = pos1[1] - pos2[1]
+        dz = pos1[2] - pos2[2]
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
 
     @staticmethod
     def angle(
@@ -27,24 +31,25 @@ class GeometryCalculator:
         pos3: Tuple[float, float, float],
     ) -> float:
         """Angle at pos2 formed by pos1-pos2-pos3 (in degrees)."""
-        v1 = np.array(pos1) - np.array(pos2)
-        v2 = np.array(pos3) - np.array(pos2)
+        v1x = pos1[0] - pos2[0]
+        v1y = pos1[1] - pos2[1]
+        v1z = pos1[2] - pos2[2]
+        v2x = pos3[0] - pos2[0]
+        v2y = pos3[1] - pos2[1]
+        v2z = pos3[2] - pos2[2]
 
-        # Normalize vectors
-        v1_norm = np.linalg.norm(v1)
-        v2_norm = np.linalg.norm(v2)
+        v1_norm = math.sqrt(v1x * v1x + v1y * v1y + v1z * v1z)
+        v2_norm = math.sqrt(v2x * v2x + v2y * v2y + v2z * v2z)
 
         if v1_norm < 1e-10 or v2_norm < 1e-10:
             return 0.0
 
-        v1 = v1 / v1_norm
-        v2 = v2 / v2_norm
-
-        # Calculate angle
-        cos_angle = np.clip(np.dot(v1, v2), -1.0, 1.0)
-        angle_rad = np.arccos(cos_angle)
-
-        return float(np.degrees(angle_rad))
+        cos_angle = (v1x * v2x + v1y * v2y + v1z * v2z) / (v1_norm * v2_norm)
+        if cos_angle > 1.0:
+            cos_angle = 1.0
+        elif cos_angle < -1.0:
+            cos_angle = -1.0
+        return math.degrees(math.acos(cos_angle))
 
     @staticmethod
     def ring_angle_sum(ring: List[int], graph: nx.Graph) -> float:

@@ -137,7 +137,7 @@ def build_graph_orca(
                 formal_charge = int(V - valence)
             else:
                 B = 2 * valence
-                target = 8
+                target = min(8, 2 * V)
                 L = max(0, target - B)
                 formal_charge = round(V - L - B / 2)
 

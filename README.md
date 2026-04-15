@@ -44,7 +44,7 @@
   - `--optimizer`: Full optimization with valence and charge minimisation
     - **beam**: optimization across multiple paths (slightly slower, default)  
     - **greedy**: iterative valence adjustment
-- **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings (optional `--kekule` to keep Kekulé bond orders)
+- **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings, plus a fused-perimeter fallback for non-alternant systems (azulene, acenaphthylene). Optional `--kekule` to keep Kekulé bond orders
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
 - **Stereochemistry assignment**: R/S, E/Z, axial (biaryl, allene, metallocene), planar (metallocene, paracyclophane), and helical (helicene) chirality from 3D geometry
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
@@ -254,7 +254,9 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │    • High confidence (>0.4): added directly                     │
 │    • Low confidence (≤0.4): geometric validation applied        │
 │    • Result: stable molecular scaffold                          │
-│    • Compute rings using NetworkX cycle_basis                   │
+│    • Compute rings via shortest-cycle-per-edge BFS (SSSR-like,  │
+│      chemically natural smallest rings; avoids 11-ring or       │
+│      larger artefacts from a plain cycle basis)                 │
 │                                                                 │
 │    Step 2: Extended Bonds (if using CUSTOM thresholds)          │
 │    • Sorted highest-confidence-first (most reliable first)      │
@@ -276,11 +278,14 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │    • Find 5/6-membered planar rings with C/N/O/S/B/P/Se         │
 │    • Initialize alternating bond orders (5-ring: 2-1-2-1-1,     │
 │      6-ring: 2-1-2-1-2-1)                                       │
-│    • Handle fused rings (naphthalene, anthracene):              │
-│      - Detecting shared edges from previous rings               │
-│      - Validated across extended ring system                    │
-│    • Gives optimizer excellent starting point                   │
-│    • Reduces iterations needed for conjugated systems           │
+│    • Priority passes: Cp-like metal-bound 5-rings, heteroatom   │
+│      5-rings, fused benzene blocks, isolated rings              │
+│    • Valence check excludes metal coord bonds so Cp/arene-η     │
+│      patterns actually apply (not silently dropped)             │
+│    • Handle fused rings (naphthalene, anthracene) by            │
+│      propagating shared-edge patterns across components         │
+│    • Gives optimizer a good starting point; remaining locally   │
+│      inconsistent pairs are resolved later via Kekulé shifts    │
 │    • Broader atom set than aromatic detection (P, Se included)  │
 └────────────────────┬────────────────────────────────────────────┘
                      │
@@ -295,31 +300,42 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │    need increased    │   │  • Score = f(valence_error,          │
 │    valence           │   │             formal_charges,          │
 │  • Distance check    │   │             electronegativity,       │
-│                      │   │             conjugation_penalty)     │
+│                      │   │             conjugation deficit)     │
 │                      │   │  • Optimizer choice:                 │
 │                      │   │    - Beam: parallel hypotheses       │
 │                      │   │    - Greedy: single best change      │
-│                      │   │  • Cache where possible for speed    │
 │                      │   │  • Top-k edge candidate selection    │
+│                      │   │  • Kekulé-shift fallback when single-│
+│                      │   │    edge moves stall: flips a whole   │
+│                      │   │    alternating chain between two     │
+│                      │   │    valence-deficient atoms at once   │
+│                      │   │    (escapes fused-ring traps)        │
 └─────────┬────────────┘   └──────────┬───────────────────────────┘
           └───────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
 │ 5. Aromatic Detection (Hückel 4n+2)                             │
-│    • Find 5/6-membered rings with C/N/O/S/B                     │
-│    • Count π electrons (sp² carbons → 1e, N/O/S LP → 2e)        │
-│    • Apply Hückel rule: 4n+2 π electrons                        │
-│    • Set aromatic bonds to 1.5 (unless --kekule / kekule=True)  │
-│    • Aromatic ring metadata always stored regardless            │
+│    • Per-ring: 5/6-membered rings with C/N/O/S/B                │
+│      - Count π electrons (sp² C → 1e, N/O/S LP → 2e, B → 0)     │
+│      - Apply Hückel 4n+2; set ring bonds to 1.5                 │
+│    • Fused-perimeter fallback for non-alternant systems         │
+│      (azulene 5-7, acenaphthylene 5-6-6) where no individual    │
+│      ring is Hückel but the perimeter of the union is:          │
+│      promotes every bond inside the component to 1.5            │
+│    • --kekule / kekule=True keeps Kekulé bond orders but still  │
+│      stores aromatic ring metadata                              │
 │    • Other heteroatoms (e.g. P, Se) use Kekulé structures       │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
 │ 6. Formal Charge Assignment                                     │
 │    • For each non-metal atom:                                   │
-│      - B = 2 × Σ(bond_orders)                                   │
-│      - L = max(0, target - B)  [target: 2 for H, 8 otherwise]   │
-│      - formal = V_electrons - (L + B/2)                         │
+│      - B = 2 × Σ(bond_orders, excluding metal coord)            │
+│      - target = min(8, 2 × V_electrons)                         │
+│        (octet for C/N/O/F/..., sextet for B/Al/Ga — no          │
+│         spurious lone pair on trivalent boron)                  │
+│      - L = max(0, target - B)                                   │
+│      - formal = V_electrons - L - B/2                           │
 │    • Balance total to match system charge                       │
 │    • Metals assigned oxidation state as formal charge           │
 └────────────────────┬────────────────────────────────────────────┘
@@ -439,6 +455,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 - Explores multiple optimization paths in parallel
 - Maintains top-k hypotheses at each iteration (of top candidates)
 - Bidirectional: tests both +1 and -1 bond orders for each hypothesis
+- **Kekulé-shift fallback**: when no single-edge move improves any beam, searches for an alternating-BO chain (1,2,1,2,…,1) between two valence-deficient atoms and flips the whole chain in one move. Escapes local-optimum traps in fused-ring systems where every single-edge change violates valence on a saturated neighbour (e.g. BN-doped PAHs, fused-ring carbanions). Only fires on stall so it can't pre-empt legitimate single-edge solutions (like promoting a double to a triple in benzyne)
 - More robust against local minima
 - Slower, but better convergence
 - Best for robust bonding assignment across periodic table
@@ -1103,30 +1120,30 @@ xyzgraph examples/mnh.xyz --ascii --debug
 KEKULE INITIALIZATION FOR AROMATIC RINGS
 ================================================================================
     
-Ring 0 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
+Ring 0 (6-membered): ['N6', 'C52', 'C58', 'C57', 'C55', 'C53']
+      π electrons estimate: 6
+    
+Ring 1 (5-membered): ['C7', 'C8', 'C9', 'C11', 'C13']
       ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
       π electrons estimate: 6
     
-Ring 1 (6-membered): ['C37', 'C39', 'C41', 'C43', 'C45', 'C36']
-      π electrons estimate: 6
-    
-Ring 2 (6-membered): ['C34', 'C32', 'C30', 'C28', 'C26', 'C25']
-      π electrons estimate: 6
-    
-Ring 3 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
-      π electrons estimate: 6
-    
-Ring 4 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
+Ring 2 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
       ✓ Detected Cp-like ring (all 5 C bonded to Fe0)
+      π electrons estimate: 6
+    
+Ring 3 (6-membered): ['C25', 'C26', 'C28', 'C30', 'C32', 'C34']
+      π electrons estimate: 6
+    
+Ring 4 (6-membered): ['C36', 'C37', 'C39', 'C41', 'C43', 'C45']
       π electrons estimate: 6
 --------------------------------------------------------------------------------
 Valid rings for Kekulé initialization: 
         [0, 1, 2, 3, 4]
-      ✓ Cp-like 5-ring 0 initialized (rotation 0)
-      ✓ Cp-like 5-ring 4 initialized (rotation 0)
-      ✓ Initialized isolated 6-ring 1
-      ✓ Initialized isolated 6-ring 2
+      ✓ Cp-like 5-ring 1 initialized (rotation 0)
+      ✓ Cp-like 5-ring 2 initialized (rotation 0)
+      ✓ Initialized isolated 6-ring 0
       ✓ Initialized isolated 6-ring 3
+      ✓ Initialized isolated 6-ring 4
 
 --------------------------------------------------------------------------------
   SUMMARY: Initialized 5 ring(s) with Kekulé pattern
@@ -1136,52 +1153,32 @@ Valid rings for Kekulé initialization:
 BEAM SEARCH OPTIMIZATION (width=5)
 ================================================================================
   Locked 16 metal bonds
-  Initial score: 936.20
+  Initial score: 392.70
   
 Iteration 1:
-      Generated 7 candidates, keeping top 5
-      ✓ New best: C7-C8       Δtotal = 132.00  score =   804.20
+      Generated 2 candidates, keeping top 2
+      ✓ New best: O3-C64      Δtotal =  81.00  score =   311.70
   
 Iteration 2:
-      Generated 35 candidates, keeping top 5
-      ✓ New best: C15-C17     Δtotal = 132.00  score =   672.20
+      Generated 4 candidates, keeping top 4
+      ✓ New best: O4-C65      Δtotal =  81.00  score =   230.70
   
 Iteration 3:
-      Generated 35 candidates, keeping top 5
-      ✓ New best: O3-C64      Δtotal =  81.00  score =   591.20
+      Generated 6 candidates, keeping top 5
+      ✓ New best: O3-C64      Δtotal =  20.00  score =   210.70
   
 Iteration 4:
-      Generated 35 candidates, keeping top 5
-      ✓ New best: O4-C65      Δtotal =  81.00  score =   510.20
+      Generated 5 candidates, keeping top 5
+      ✓ New best: O4-C65      Δtotal =  20.00  score =   190.70
   
 Iteration 5:
-      Generated 35 candidates, keeping top 5
-      ✓ New best: C9-C11      Δtotal =  72.00  score =   438.20
-  
-Iteration 6:
-      Generated 25 candidates, keeping top 5
-      ✓ New best: C19-C21     Δtotal =  72.00  score =   366.20
-  
-Iteration 7:
-      Generated 15 candidates, keeping top 5
-      ✓ New best: N6-C52      Δtotal =  71.50  score =   294.70
-  
-Iteration 8:
-      Generated 10 candidates, keeping top 5
-      ✓ New best: O3-C64      Δtotal =  20.00  score =   274.70
-  
-Iteration 9:
-      Generated 5 candidates, keeping top 5
-      ✓ New best: O4-C65      Δtotal =  20.00  score =   254.70
-  
-Iteration 10:
-      No improvements found in any beam, stopping
+      No improvements (single or Kekulé shift) found, stopping
   
 Applying best solution to graph...
 --------------------------------------------------------------------------------
-  Explored 511 states across 10 iterations
-  Found 9 improvements
-  Score: 936.20 → 254.70
+  Explored 198 states across 5 iterations
+  Found 4 improvements
+  Score: 392.70 → 190.70
 --------------------------------------------------------------------------------
 
 ================================================================================
@@ -1214,24 +1211,24 @@ Metal complex detected:
 AROMATIC RING DETECTION (Hückel 4n+2)
 ================================================================================
   
-Ring 1 (5-membered): ['C7', 'C13', 'C11', 'C9', 'C8']
-    π electrons: 6 (C7:1, C13:2(fc=-1), C11:1, C9:1, C8:1)
+Ring 1 (6-membered): ['N6', 'C52', 'C58', 'C57', 'C55', 'C53']
+    π electrons: 6 (N6:1, C52:1, C58:1, C57:1, C55:1, C53:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
-Ring 2 (6-membered): ['C37', 'C39', 'C41', 'C43', 'C45', 'C36']
-    π electrons: 6 (C37:1, C39:1, C41:1, C43:1, C45:1, C36:1)
+Ring 2 (5-membered): ['C7', 'C8', 'C9', 'C11', 'C13']
+    π electrons: 6 (C7:2(fc=-1), C8:1, C9:1, C11:1, C13:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
-Ring 3 (6-membered): ['C34', 'C32', 'C30', 'C28', 'C26', 'C25']
-    π electrons: 6 (C34:1, C32:1, C30:1, C28:1, C26:1, C25:1)
+Ring 3 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
+    π electrons: 6 (C15:2(fc=-1), C17:1, C19:1, C21:1, C23:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
-Ring 4 (6-membered): ['C55', 'C53', 'N6', 'C52', 'C58', 'C57']
-    π electrons: 6 (C55:1, C53:1, N6:1, C52:1, C58:1, C57:1)
+Ring 4 (6-membered): ['C25', 'C26', 'C28', 'C30', 'C32', 'C34']
+    π electrons: 6 (C25:1, C26:1, C28:1, C30:1, C32:1, C34:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
-Ring 5 (5-membered): ['C15', 'C17', 'C19', 'C21', 'C23']
-    π electrons: 6 (C15:1, C17:1, C19:1, C21:1, C23:2(fc=-1))
+Ring 5 (6-membered): ['C36', 'C37', 'C39', 'C41', 'C43', 'C45']
+    π electrons: 6 (C36:1, C37:1, C39:1, C41:1, C43:1, C45:1)
     ✓ AROMATIC (4n+2 rule: n=1)
 
 --------------------------------------------------------------------------------
@@ -1349,22 +1346,22 @@ Atoms: 52, Charge: 1, Multiplicity: 1
 KEKULE INITIALIZATION FOR AROMATIC RINGS
 ================================================================================
     
-Ring 0 (6-membered): ['C24', 'C23', 'C22', 'C21', 'C26', 'C25']
+Ring 0 (6-membered): ['N5', 'C6', 'C13', 'C17', 'N18', 'C19']
+      ✗ Not planar
+    
+Ring 1 (6-membered): ['C7', 'C8', 'C9', 'C10', 'C11', 'C12']
       π electrons estimate: 6
     
-Ring 1 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
+Ring 2 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
       π electrons estimate: 7
       ✗ Hückel rule violated (π=7)
     
-Ring 2 (6-membered): ['N18', 'C17', 'C13', 'C6', 'N5', 'C19']
-      ✗ Not planar
-    
-Ring 3 (6-membered): ['C8', 'C9', 'C10', 'C11', 'C12', 'C7']
+Ring 3 (6-membered): ['C21', 'C22', 'C23', 'C24', 'C25', 'C26']
       π electrons estimate: 6
 --------------------------------------------------------------------------------
 Valid rings for Kekulé initialization: 
-        [0, 3]
-      ✓ Initialized isolated 6-ring 0
+        [1, 3]
+      ✓ Initialized isolated 6-ring 1
       ✓ Initialized isolated 6-ring 3
 
 --------------------------------------------------------------------------------
@@ -1374,28 +1371,28 @@ Valid rings for Kekulé initialization:
 ================================================================================
 BEAM SEARCH OPTIMIZATION (width=5)
 ================================================================================
-  Initial score: 657.00
+  Initial score: 489.00
   
 Iteration 1:
-      Generated 3 candidates, keeping top 3
-      ✓ New best: C1-C2       Δtotal =  72.00  score =   585.00
+      Generated 5 candidates, keeping top 5
+      ✓ New best: N18-C19     Δtotal = 116.50  score =   372.50
   
 Iteration 2:
-      Generated 5 candidates, keeping top 5
-      ✓ New best: N18-C19     Δtotal = 116.50  score =   468.50
+      Generated 17 candidates, keeping top 5
+      ✓ New best: C1-C2       Δtotal =  72.00  score =   300.50
   
 Iteration 3:
-      Generated 4 candidates, keeping top 4
-      ✓ New best: O0-C1       Δtotal =  71.00  score =   397.50
+      Generated 3 candidates, keeping top 3
+      ✓ New best: O0-C1       Δtotal =  71.00  score =   229.50
   
 Iteration 4:
-      No improvements found in any beam, stopping
+      No improvements (single or Kekulé shift) found, stopping
   
 Applying best solution to graph...
 --------------------------------------------------------------------------------
-  Explored 148 states across 4 iterations
+  Explored 152 states across 4 iterations
   Found 3 improvements
-  Score: 657.00 → 397.50
+  Score: 489.00 → 229.50
 --------------------------------------------------------------------------------
 
 ================================================================================
@@ -1413,19 +1410,19 @@ No residual charge distribution needed (sum matches target)
 AROMATIC RING DETECTION (Hückel 4n+2)
 ================================================================================
   
-Ring 1 (6-membered): ['C24', 'C23', 'C22', 'C21', 'C26', 'C25']
-    π electrons: 6 (C24:1, C23:1, C22:1, C21:1, C26:1, C25:1)
+Ring 1 (6-membered): ['N5', 'C6', 'C13', 'C17', 'N18', 'C19']
+    ✗ Not planar, skipping aromaticity check
+  
+Ring 2 (6-membered): ['C7', 'C8', 'C9', 'C10', 'C11', 'C12']
+    π electrons: 6 (C7:1, C8:1, C9:1, C10:1, C11:1, C12:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
-Ring 2 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
+Ring 3 (5-membered): ['N18', 'C19', 'S20', 'C21', 'C26']
     π electrons: 6 (N18:1(fc=+1), C19:1, S20:2(LP), C21:1, C26:1)
     ✓ AROMATIC (4n+2 rule: n=1)
   
-Ring 3 (6-membered): ['N18', 'C17', 'C13', 'C6', 'N5', 'C19']
-    ✗ Not planar, skipping aromaticity check
-  
-Ring 4 (6-membered): ['C8', 'C9', 'C10', 'C11', 'C12', 'C7']
-    π electrons: 6 (C8:1, C9:1, C10:1, C11:1, C12:1, C7:1)
+Ring 4 (6-membered): ['C21', 'C22', 'C23', 'C24', 'C25', 'C26']
+    π electrons: 6 (C21:1, C22:1, C23:1, C24:1, C25:1, C26:1)
     ✓ AROMATIC (4n+2 rule: n=1)
 
 --------------------------------------------------------------------------------

@@ -16,14 +16,17 @@ Also handles:
 """
 
 import logging
+from collections import defaultdict, deque
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 import networkx as nx
+import numpy as np
 
 from .data_loader import MolecularData
 from .geometry import GeometryCalculator
 from .parameters import OptimizerConfig, ScoringWeights
 from .scoring_arrays import ScoringArrays
+from .utils import smallest_rings
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +101,18 @@ class BondOrderOptimizer:
 
     @staticmethod
     def _compute_formal_charge_value(symbol: str, valence_electrons: int, bond_order_sum: float) -> int:
-        """Compute formal charge for an atom."""
+        """Compute formal charge for an atom.
+
+        Lone-pair count L is filled to the preferred shell: ``min(8, 2*V)``.
+        That is octet for groups 14-17 and sextet for group 13 (B/Al/Ga/In:
+        V=3 → target 6, no spurious LP).  Hypervalent expansion (P/S/Cl with
+        bond_sum > target/2) is handled by the ``max(0, ...)`` clamp.
+        """
         if symbol == "H":
             return valence_electrons - int(bond_order_sum)
 
         B = 2 * bond_order_sum
-        target = 8
+        target = min(8, 2 * valence_electrons)
         L = max(0, target - B)
         return round(valence_electrons - L - B / 2)
 
@@ -396,7 +405,7 @@ class BondOrderOptimizer:
         """
         cycles = G.graph.get("_rings")
         if cycles is None:
-            cycles = nx.cycle_basis(G)
+            cycles = smallest_rings(G)
             G.graph["_rings"] = cycles
 
         self._log("\n" + "=" * 80, 0)
@@ -496,12 +505,16 @@ class BondOrderOptimizer:
             return self.data.max_aromatic_valence.get(G.nodes[n].get("symbol"), 4)
 
         def bond_sum(node, ignore_edge=None):
+            """Organic valence — excludes metal-coordination bonds."""
             s = 0.0
+            metals = self.data.metals
             for nbr in G.neighbors(node):
                 if ignore_edge is not None:
                     a, b = ignore_edge
                     if (node == a and nbr == b) or (node == b and nbr == a):
                         continue
+                if G.nodes[nbr]["symbol"] in metals:
+                    continue
                 s += float(G.edges[node, nbr].get("bond_order", 1.0))
             return s
 
@@ -886,7 +899,7 @@ class BondOrderOptimizer:
 
         # Ensure graph caches
         if "_rings" not in G.graph:
-            G.graph["_rings"] = nx.cycle_basis(G)
+            G.graph["_rings"] = smallest_rings(G)
         G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
         G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
@@ -1001,6 +1014,92 @@ class BondOrderOptimizer:
         return stats
 
     # =========================================================================
+    # Kekulé shift along an alternating chain between two deficit atoms
+    # =========================================================================
+
+    def _find_kekule_shift_path(
+        self,
+        sa,
+        bond_orders,
+        valence_sums,
+    ):
+        """Find an alternating-BO chain between two valence-deficient atoms.
+
+        The chain has the form (1,2,1,2,...,1) — an odd number of edges
+        starting and ending on a single bond.  Flipping every bond on the
+        chain saturates both endpoints while preserving the bond_sum at every
+        intermediate atom (each loses 1 from one side, gains 1 from the
+        other), escaping Kekulé local-optimum traps where no single-edge
+        move improves the score.
+
+        Returns the list of edge indices on the chain, or None.
+        """
+        deficit_mask = (~sa.is_metal) & (~sa.is_h) & (valence_sums < sa.vmax - 0.01)
+        deficit_atoms = [int(a) for a in np.where(deficit_mask)[0]]
+        if len(deficit_atoms) < 2:
+            return None
+        deficit_set = set(deficit_atoms)
+
+        # Per-atom neighbour/edge lookup (cached on sa to amortise across
+        # the many shift calls during beam search).
+        adj = self._atom_adjacency(sa)
+
+        for start in deficit_atoms:
+            # BFS state = (atom, expected_BO_for_next_edge).  From ``start``
+            # the next edge must be single (BO=1) so flipping elevates it
+            # and saturates ``start``.
+            visited = {(start, 1.0): None}
+            q = deque([(start, 1.0)])
+            found = None
+            while q and found is None:
+                atom, expect = q.popleft()
+                for nb, eidx in adj[atom]:
+                    bo = bond_orders[eidx]
+                    if abs(bo - expect) > 0.01:
+                        continue  # wrong BO for alternation
+                    next_expect = 2.0 if expect < 1.5 else 1.0
+                    state = (nb, next_expect)
+                    if state in visited:
+                        continue
+                    visited[state] = (atom, expect, eidx)
+                    # Endpoint: another deficit atom reached via a single bond
+                    if nb in deficit_set and nb != start and expect < 1.5:
+                        found = state
+                        break
+                    q.append(state)
+            if found is None:
+                continue
+
+            # Reconstruct edge-index path from root sentinel
+            path = []
+            cur = found
+            entry = visited[cur]
+            while entry is not None:
+                patom, pexpect, eidx = entry
+                path.append(int(eidx))
+                cur = (patom, pexpect)
+                entry = visited[cur]
+            path.reverse()
+            return path
+
+        return None
+
+    @staticmethod
+    def _atom_adjacency(sa):
+        """Return per-atom list of (neighbour, edge_index) pairs, cached on sa."""
+        adj = getattr(sa, "_atom_adj_cache", None)
+        if adj is not None:
+            return adj
+        n = sa.n_atoms
+        adj = [[] for _ in range(n)]
+        for eidx in range(sa.n_edges):
+            i, j = int(sa.edge_src[eidx]), int(sa.edge_dst[eidx])
+            adj[i].append((j, eidx))
+            adj[j].append((i, eidx))
+        sa._atom_adj_cache = adj
+        return adj
+
+    # =========================================================================
     # Beam search optimizer
     # =========================================================================
 
@@ -1017,7 +1116,7 @@ class BondOrderOptimizer:
 
         # Ensure graph caches exist (rings, neighbours)
         if "_rings" not in G.graph:
-            G.graph["_rings"] = nx.cycle_basis(G)
+            G.graph["_rings"] = smallest_rings(G)
         G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
         G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
@@ -1093,8 +1192,35 @@ class BondOrderOptimizer:
                             new_history = [*parent_history, (i, j, change)]
                             candidates.append((new_score, cand_bo, cand_vs, (i, j, change), new_history))
 
+            # Stall fallback: if no single-edge move improves any beam, try a
+            # Kekulé shift — an alternating 1,2,...,1 chain between two deficit
+            # atoms, flipped wholesale.  Resolves fused-ring local-optimum traps
+            # (e.g. BNTD carbanions) that no single-edge change can escape.
+            # Gated on stall so it can't pre-empt legitimate single-edge
+            # solutions (like promoting a double to a triple in benzyne).
             if not candidates:
-                self._log("  No improvements found in any beam, stopping", 2)
+                for _beam_idx, (parent_score, parent_bo, parent_vs, parent_history) in enumerate(beam):
+                    path = self._find_kekule_shift_path(sa, parent_bo, parent_vs)
+                    if path is None:
+                        continue
+                    cand_bo = parent_bo.copy()
+                    cand_vs = parent_vs.copy()
+                    for eidx in path:
+                        old = cand_bo[eidx]
+                        new = 1.0 if old > 1.5 else 2.0
+                        sa.update_valence_sums(cand_vs, eidx, old, new)
+                        cand_bo[eidx] = new
+                    new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
+                    stats["beam_explored"] += 1
+                    if new_score < parent_score:
+                        i_a = int(sa.edge_src[path[0]])
+                        j_b = int(sa.edge_dst[path[-1]])
+                        info = (i_a, j_b, float(len(path)))
+                        new_history = [*parent_history, info]
+                        candidates.append((new_score, cand_bo, cand_vs, info, new_history))
+
+            if not candidates:
+                self._log("  No improvements (single or Kekulé shift) found, stopping", 2)
                 break
 
             # Sort and keep top beam_width
@@ -1289,6 +1415,15 @@ class BondOrderOptimizer:
             else:
                 self._log("✗ Not aromatic (4n+2 rule violated)", 2)
 
+        # Fused-perimeter aromaticity: for non-alternant systems (azulene,
+        # acenaphthylene) where no individual SSSR ring satisfies Hückel but
+        # the union perimeter does.  Run only on rings that failed per-ring
+        # detection — if a ring already passed, leave it alone.
+        if not kekule:
+            extra_bonds, extra_rings = self._detect_perimeter_aromatic(G, cycles)
+            aromatic_count += extra_bonds
+            aromatic_rings += extra_rings
+
         self._log(f"\n{'-' * 80}", 0)
         self._log(
             f"SUMMARY: {aromatic_rings} aromatic rings, {aromatic_count} bonds set to 1.5",
@@ -1297,6 +1432,166 @@ class BondOrderOptimizer:
         self._log(f"{'-' * 80}\n", 0)
 
         return aromatic_count
+
+    def _detect_perimeter_aromatic(self, G: nx.Graph, cycles) -> Tuple[int, int]:
+        """Detect aromaticity over the perimeter of a fused all-sp2 ring system.
+
+        For non-alternant aromatics (azulene 5-7, acenaphthylene 5-6-6) no
+        individual SSSR ring is Hückel but the union perimeter is.  Walks
+        fused components of conjugatable rings, counts π electrons around
+        the perimeter, and promotes every bond inside a Hückel-satisfying
+        component to 1.5.
+        """
+        candidate_rings = self._eligible_rings(G, cycles)
+        if len(candidate_rings) < 2:
+            return 0, 0
+
+        bonds_set = 0
+        rings_set = 0
+        for comp in self._fused_components(candidate_rings, cycles):
+            comp_atoms = {a for r in comp for a in cycles[r]}
+            if not self.geometry.check_planarity(list(comp_atoms), G):
+                continue
+
+            # Edges in the component, with usage counts.  An edge used by
+            # exactly one ring is on the outer perimeter.
+            edge_counts: Dict[frozenset, int] = defaultdict(int)
+            for r in comp:
+                cyc = cycles[r]
+                for k in range(len(cyc)):
+                    edge_counts[frozenset((cyc[k], cyc[(k + 1) % len(cyc)]))] += 1
+            perim_atoms = self._trace_perimeter([e for e, c in edge_counts.items() if c == 1])
+            if perim_atoms is None:
+                continue
+
+            pi_total = self._pi_electron_count(G, perim_atoms)
+            self._log(
+                f"\nFused-perimeter check: {len(comp)} rings, perimeter={len(perim_atoms)} atoms, π={pi_total}",
+                1,
+            )
+            if pi_total not in (2, 6, 10, 14, 18):
+                self._log("✗ Perimeter not Hückel-aromatic", 2)
+                continue
+            # Don't clobber a triple bond the optimizer already found.
+            if any(G.has_edge(*e) and G.edges[tuple(e)]["bond_order"] > 2.01 for e in edge_counts):
+                self._log("✗ Component has bond order > 2; keeping Kekulé", 2)
+                continue
+
+            self._log(f"✓ AROMATIC PERIMETER (rings={sorted(comp)})", 2)
+            for e in edge_counts:
+                a, b = tuple(e)
+                if G.has_edge(a, b):
+                    if abs(G.edges[a, b]["bond_order"] - 1.5) > 0.01:
+                        bonds_set += 1
+                    G.edges[a, b]["bond_order"] = 1.5
+            for r in comp:
+                G.graph.setdefault("_aromatic_rings", []).append(cycles[r])
+                rings_set += 1
+
+        return bonds_set, rings_set
+
+    def _eligible_rings(self, G: nx.Graph, cycles) -> List[int]:
+        """Rings that are conjugatable, sp2-only, and not already aromatic."""
+        already = {tuple(sorted(r)) for r in G.graph.get("_aromatic_rings", [])}
+        metals = self.data.metals
+        out: List[int] = []
+        for r_idx, cyc in enumerate(cycles):
+            if len(cyc) < 3:
+                continue
+            if not all(G.nodes[i]["symbol"] in self.data.aromatic_atoms for i in cyc):
+                continue
+            if tuple(sorted(cyc)) in already:
+                continue
+            has_sp3 = any(
+                G.nodes[i]["symbol"] == "C"
+                and sum(1 for nb in G.neighbors(i) if G.nodes[nb]["symbol"] not in metals) >= 4
+                for i in cyc
+            )
+            if not has_sp3:
+                out.append(r_idx)
+        return out
+
+    @staticmethod
+    def _fused_components(ring_indices: List[int], cycles) -> List[set]:
+        """Group rings into connected components via shared edges (size ≥ 2)."""
+        edge_rings: Dict[frozenset, List[int]] = defaultdict(list)
+        for r_idx in ring_indices:
+            cyc = cycles[r_idx]
+            for k in range(len(cyc)):
+                edge_rings[frozenset((cyc[k], cyc[(k + 1) % len(cyc)]))].append(r_idx)
+
+        ring_adj: Dict[int, set] = {r: set() for r in ring_indices}
+        for sharing in edge_rings.values():
+            if len(sharing) > 1:
+                for a in sharing:
+                    ring_adj[a].update(b for b in sharing if b != a)
+
+        components: List[set] = []
+        seen: set = set()
+        for r in ring_indices:
+            if r in seen:
+                continue
+            comp: set = set()
+            stack = [r]
+            while stack:
+                x = stack.pop()
+                if x in comp:
+                    continue
+                comp.add(x)
+                stack.extend(ring_adj[x] - comp)
+            seen |= comp
+            if len(comp) >= 2:
+                components.append(comp)
+        return components
+
+    def _pi_electron_count(self, G: nx.Graph, atoms: List[int]) -> int:
+        """Neutral-atom π contribution along the perimeter (Hückel test input).
+
+        B contributes 0 (empty p); pyrrole-like N (degree 3) contributes 2;
+        pyridine-like N (degree 2) contributes 1; O/S always 2; C always 1.
+        """
+        metals = self.data.metals
+        total = 0
+        for idx in atoms:
+            sym = G.nodes[idx]["symbol"]
+            if sym == "C":
+                total += 1
+            elif sym == "N":
+                degree = sum(1 for nb in G.neighbors(idx) if G.nodes[nb]["symbol"] not in metals)
+                total += 2 if degree == 3 else 1
+            elif sym in ("O", "S"):
+                total += 2
+        return total
+
+    @staticmethod
+    def _trace_perimeter(perimeter_edges: List[frozenset]) -> Optional[List[int]]:
+        """Walk the perimeter edges into a single closed atom sequence.
+
+        Returns None if the edges don't form a single cycle.
+        """
+        if not perimeter_edges:
+            return None
+        adj: Dict[int, List[int]] = {}
+        for e in perimeter_edges:
+            a, b = tuple(e)
+            adj.setdefault(a, []).append(b)
+            adj.setdefault(b, []).append(a)
+        # Each perimeter atom should have exactly 2 perimeter neighbours
+        if not all(len(v) == 2 for v in adj.values()):
+            return None
+        start = next(iter(adj))
+        path = [start]
+        prev = None
+        cur = start
+        for _ in range(len(adj)):
+            nxt = next((n for n in adj[cur] if n != prev), None)
+            if nxt is None or nxt == start:
+                break
+            path.append(nxt)
+            prev, cur = cur, nxt
+        if len(path) != len(adj):
+            return None
+        return path
 
     # =========================================================================
     # Metal-ligand classification
