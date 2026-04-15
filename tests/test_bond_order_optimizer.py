@@ -67,15 +67,55 @@ def test_valence_sum():
 
 
 def test_formal_charge_value():
-    """Formal charge: neutral C with 4 bonds → 0, N with 4 bonds → +1."""
-    # Carbon: 4 valence electrons, 4 bonds → FC = 0
-    assert BondOrderOptimizer._compute_formal_charge_value("C", 4, 4.0) == 0
-    # Nitrogen: 5 valence electrons, 4 bonds → FC = +1 (ammonium)
-    assert BondOrderOptimizer._compute_formal_charge_value("N", 5, 4.0) == 1
-    # Oxygen: 6 valence electrons, 1 bond → FC = -1 (alkoxide)
-    assert BondOrderOptimizer._compute_formal_charge_value("O", 6, 1.0) == -1
-    # Hydrogen: 1 valence electron, 1 bond → FC = 0
-    assert BondOrderOptimizer._compute_formal_charge_value("H", 1, 1.0) == 0
+    """Formal charge across octet, sextet (B), and duet (H) shells."""
+    fc = BondOrderOptimizer._compute_formal_charge_value
+    # Octet group (target = 8)
+    assert fc("C", 4, 4.0) == 0  # methane-style
+    assert fc("N", 5, 4.0) == 1  # ammonium
+    assert fc("O", 6, 1.0) == -1  # alkoxide
+    assert fc("F", 7, 1.0) == 0  # HF-style
+    # Group-13 sextet (target = 6, not octet).  A neutral trivalent boron
+    # must come out as fc=0 — the octet-only formula gave fc=-2 here.
+    assert fc("B", 3, 3.0) == 0  # BF3
+    assert fc("B", 3, 4.0) == -1  # BF4-
+    # Hydrogen duet
+    assert fc("H", 1, 1.0) == 0
+    assert fc("H", 1, 0.0) == 1
+
+
+def test_trace_perimeter_single_cycle():
+    """Perimeter edge set of a fused 6+5 system walks to a single closed atom sequence."""
+    # Atoms 0..8; 6-ring = 0-1-2-3-4-5-0, 5-ring shares edge 0-5 with vertices 0,5,6,7,8
+    perimeter_edges = [
+        frozenset((0, 1)),
+        frozenset((1, 2)),
+        frozenset((2, 3)),
+        frozenset((3, 4)),
+        frozenset((4, 5)),  # on the 6-ring
+        frozenset((5, 6)),
+        frozenset((6, 7)),
+        frozenset((7, 8)),
+        frozenset((8, 0)),  # closes via 5-ring's outer edges
+    ]
+    path = BondOrderOptimizer._trace_perimeter(perimeter_edges)
+    assert path is not None
+    assert len(path) == 9
+    # Every atom appears once; consecutive atoms share a perimeter edge
+    assert set(path) == {0, 1, 2, 3, 4, 5, 6, 7, 8}
+    for k in range(len(path)):
+        a, b = path[k], path[(k + 1) % len(path)]
+        assert frozenset((a, b)) in perimeter_edges
+
+
+def test_trace_perimeter_degenerate():
+    """A degenerate edge set (not a single cycle) returns None."""
+    # A vertex with 3 perimeter neighbours cannot form a single cycle
+    perimeter_edges = [
+        frozenset((0, 1)),
+        frozenset((0, 2)),
+        frozenset((0, 3)),
+    ]
+    assert BondOrderOptimizer._trace_perimeter(perimeter_edges) is None
 
 
 # ---- Valence violation ----

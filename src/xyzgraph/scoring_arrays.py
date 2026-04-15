@@ -49,10 +49,13 @@ def _compute_formal_charge_vec(
     h_mask = is_h
     fc[h_mask] = valence_electrons[h_mask] - np.round(bond_order_sums[h_mask]).astype(np.int64)
 
-    # Non-H atoms: octet rule
+    # Non-H atoms: target shell = min(8, 2*V) — octet for groups 14-17,
+    # sextet for group 13 (B/Al/Ga: V=3 → target=6).  Hypervalent expansion
+    # (P/S/Cl with 2*bond_sum > 8) is handled by the max(0, ...) clamp.
     nh = ~h_mask
     B = 2.0 * bond_order_sums[nh]
-    L = np.maximum(0.0, 8.0 - B)
+    target = np.minimum(8.0, 2.0 * valence_electrons[nh])
+    L = np.maximum(0.0, target - B)
     fc[nh] = np.round(valence_electrons[nh] - L - B / 2.0).astype(np.int64)
 
     return fc
@@ -492,17 +495,15 @@ class ScoringArrays:
             else:
                 exocyclic_double = 0
 
-            # Scoring logic
+            # Continuous deficit (no `expected - 1` slack): every missing
+            # elevated bond up to the Kekulé ideal is penalised, giving the
+            # optimiser a gradient all the way to the fully-conjugated state.
             expected = ring_size // 2
-            if elevated_bonds >= expected - 1:
-                if exocyclic_double > 0:
-                    penalty += exocyclic_double * weights.exocyclic_double_penalty
-            else:
-                deficit = (expected - 1) - elevated_bonds
-                if deficit > 0:
-                    penalty += deficit * weights.conjugation_deficit_penalty
-                    if exocyclic_double > 0:
-                        penalty += exocyclic_double * weights.exocyclic_double_penalty
+            deficit = max(0, expected - elevated_bonds)
+            if deficit > 0:
+                penalty += deficit * weights.conjugation_deficit_penalty
+            if exocyclic_double > 0:
+                penalty += exocyclic_double * weights.exocyclic_double_penalty
 
         return penalty
 

@@ -19,6 +19,7 @@ from .bond_geometry_check import BondGeometryChecker
 from .data_loader import MolecularData
 from .geometry import GeometryCalculator
 from .parameters import BondThresholds
+from .utils import smallest_rings
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,10 @@ class BondDetector:
         positions = [(x, y, z) for _, (x, y, z) in atoms]
         pos = np.array(positions)
 
+        # All-pairs distance matrix in one vectorised call
+        diffs = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]
+        dist_matrix = np.sqrt(np.einsum("ijk,ijk->ij", diffs, diffs))
+
         # Add nodes
         for i, (atomic_num, symbol) in enumerate(zip(atomic_numbers, symbols)):
             G.add_node(i, symbol=symbol, atomic_number=atomic_num, position=tuple(pos[i]))
@@ -264,7 +269,7 @@ class BondDetector:
                 is_metal_metal_self = is_metal_i and is_metal_j and (si == sj)
                 has_h = "H" in (si, sj)
 
-                d = GeometryCalculator.distance(tuple(pos[i]), tuple(pos[j]))
+                d = float(dist_matrix[i, j])
                 r_sum = self.data.vdw.get(si, 2.0) + self.data.vdw.get(sj, 2.0)
 
                 baseline_threshold = self._compute_threshold(
@@ -318,7 +323,7 @@ class BondDetector:
         # Compute rings from baseline structure
         non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]
         G_no_metals = G.subgraph(non_metal_nodes).copy()
-        rings = nx.cycle_basis(G_no_metals)
+        rings = smallest_rings(G_no_metals)
 
         G.graph["_rings"] = rings
         G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
@@ -344,7 +349,7 @@ class BondDetector:
                     has_metal = is_metal_i or is_metal_j
                     has_h = "H" in (si, sj)
 
-                    d = GeometryCalculator.distance(tuple(pos[i]), tuple(pos[j]))
+                    d = float(dist_matrix[i, j])
                     r_sum = self.data.vdw.get(si, 2.0) + self.data.vdw.get(sj, 2.0)
 
                     # Custom phase: no is_metal_metal_self check (preserves original behavior)
@@ -408,7 +413,7 @@ class BondDetector:
         if bond:
             for i, j in bond:
                 if not G.has_edge(i, j):
-                    d = GeometryCalculator.distance(tuple(pos[i]), tuple(pos[j]))
+                    d = float(dist_matrix[i, j])
                     G.add_edge(i, j, bond_order=1, distance=d)
                     si = symbols[i]
                     sj = symbols[j]
@@ -426,7 +431,7 @@ class BondDetector:
         if has_custom or bond or unbond:
             non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]
             G_no_metals = G.subgraph(non_metal_nodes).copy()
-            rings = nx.cycle_basis(G_no_metals)
+            rings = smallest_rings(G_no_metals)
             G.graph["_rings"] = rings
             self._log(f"Final: {len(rings)} rings after bond modifications", 1)
 
