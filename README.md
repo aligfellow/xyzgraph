@@ -280,8 +280,6 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │      6-ring: 2-1-2-1-2-1)                                       │
 │    • Priority passes: Cp-like metal-bound 5-rings, heteroatom   │
 │      5-rings, fused benzene blocks, isolated rings              │
-│    • Valence check excludes metal coord bonds so Cp/arene-η     │
-│      patterns actually apply (not silently dropped)             │
 │    • Handle fused rings (naphthalene, anthracene) by            │
 │      propagating shared-edge patterns across components         │
 │    • Gives optimizer a good starting point; remaining locally   │
@@ -317,6 +315,7 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │ 5. Aromatic Detection (Hückel 4n+2)                             │
 │    • Per-ring: 5/6-membered rings with C/N/O/S/B                │
 │      - Count π electrons (sp² C → 1e, N/O/S LP → 2e, B → 0)     │
+│      - Lone pairs are counted in every ring an atom belongs to  │
 │      - Apply Hückel 4n+2; set ring bonds to 1.5                 │
 │    • Fused-perimeter fallback for non-alternant systems         │
 │      (azulene 5-7, acenaphthylene 5-6-6) where no individual    │
