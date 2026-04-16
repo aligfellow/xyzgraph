@@ -89,6 +89,13 @@ def build_nci_graph(G: nx.Graph, ncis: list[NCIData] | None = None) -> nx.Graph:
         if cid not in used:
             nci_G.remove_node(cid)
 
-    nci_G.graph["nci_centroid"] = sorted(used)
-    nci_G.graph["nci_centroid_sites"] = {cid: atoms for atoms, cid in centroid_nodes.items() if cid in used}
+    # ensure no gaps
+    nci_G = nx.convert_node_labels_to_integers(nci_G, label_attribute="_old_id")                       
+    _remap = {nci_G.nodes[n].pop("_old_id"): n for n in nci_G.nodes()}                                 
+                                                                                                         
+    nci_G.graph["nci_centroid"] = sorted(_remap[c] for c in used)                                      
+    nci_G.graph["nci_centroid_sites"] = {                                                              
+        _remap[cid]: atoms for atoms, cid in centroid_nodes.items() if cid in used                     
+    }                                                                                                  
     return nci_G
+
