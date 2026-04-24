@@ -532,3 +532,75 @@ def test_benzyne_kekule_and_aromatic(optimizer):
     assert G.edges[3, 4]["bond_order"] == pytest.approx(3.0), "Triple bond must be preserved"
     for i, j in BENZYNE_EDGES[:6]:
         assert G.edges[i, j]["bond_order"] != pytest.approx(1.5), f"Bond {i}-{j} should not be aromatic 1.5"
+
+
+# ---- NHC carbenes: regression guard for the N-cap fix ----
+#
+# Carbene C2 sits between two Ns with no H — its non-metal valence sum is
+# naturally ≤ 2, so before `SCORING_VALENCE_LIMITS["N"]` was tightened to 4,
+# the optimiser closed the gap by promoting one C-N to a triple bond and
+# letting N go to valence 5.  Representation-agnostic invariants: no C-N
+# triple, no N > 4, formal charges balance.  Survives the follow-up
+# electron-counting PR (ylide → pure C:) without modification.
+
+NHC_ATOMS = [  # 1H,3H-imidazol-2-ylidene (free singlet carbene)
+    ("N", (0.315321, -1.090120, 0.030915)),  # 0
+    ("C", (1.167190, -0.044472, 0.274604)),  # 1
+    ("C", (0.412102, 1.101290, 0.390491)),  # 2
+    ("N", (-0.942833, 0.733552, 0.210340)),  # 3
+    ("C", (-0.973417, -0.625439, -0.010014)),  # 4  carbene
+    ("H", (0.594186, -2.054220, -0.098510)),  # 5  N-H
+    ("H", (2.234610, -0.205024, 0.344430)),  # 6  C-H
+    ("H", (0.795428, 2.094790, 0.583885)),  # 7  C-H
+    ("H", (-1.803260, 1.389490, 0.238365)),  # 8  N-H
+]
+NHC_EDGES = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 5), (1, 6), (2, 7), (3, 8)]
+
+NHC_PT_ATOMS = [  # [Pt(NHC)Cl2(NH3)]
+    ("N", (0.275626, -1.065130, 0.034780)),  # 0
+    ("C", (1.157650, -0.046999, 0.270073)),  # 1
+    ("C", (0.421646, 1.086720, 0.386920)),  # 2
+    ("N", (-0.882388, 0.723162, 0.221738)),  # 3
+    ("C", (-0.987589, -0.600189, 0.005288)),  # 4  carbene
+    ("H", (0.504845, -2.041530, -0.090950)),  # 5
+    ("H", (2.217780, -0.185132, 0.339715)),  # 6
+    ("H", (0.732437, 2.094450, 0.573955)),  # 7
+    ("H", (-1.703560, 1.319020, 0.230587)),  # 8
+    ("Pt", (-2.702450, -1.556900, -0.244630)),  # 9
+    ("Cl", (-3.864720, 0.437196, -0.312301)),  # 10
+    ("Cl", (-1.686330, -3.611530, -0.188207)),  # 11
+    ("N", (-4.566200, -2.548630, -0.493331)),  # 12 NH3
+    ("H", (-4.457570, -3.370940, -1.086820)),  # 13
+    ("H", (-5.251820, -1.915830, -0.906690)),  # 14
+    ("H", (-4.920640, -2.856940, 0.412246)),  # 15
+]
+NHC_PT_EDGES = [*NHC_EDGES, (4, 9), (9, 10), (9, 11), (9, 12), (12, 13), (12, 14), (12, 15)]
+NHC_PT_METAL_EDGES = {(4, 9), (9, 10), (9, 11), (9, 12)}
+
+
+def _assert_nhc_invariants(G, optimizer, carbene, n_neighbors, total_charge):
+    for nb in n_neighbors:
+        assert G.edges[carbene, nb]["bond_order"] <= 2.0, (
+            f"C{carbene}-N{nb} bond order {G.edges[carbene, nb]['bond_order']} (triple disallowed)"
+        )
+        nv = BondOrderOptimizer.valence_sum(G, nb)
+        assert nv <= 4.0, f"N{nb} valence {nv} > 4"
+    assert sum(optimizer.compute_formal_charges(G)) == total_charge
+
+
+def test_nhc_free_carbene_no_hypervalent_n(optimizer):
+    """Free NHC: optimiser must not produce C≡N or pentavalent N."""
+    G = _make_graph(NHC_ATOMS, NHC_EDGES)
+    optimizer.init_kekule(G)
+    optimizer.optimize(G)
+    _assert_nhc_invariants(G, optimizer, carbene=4, n_neighbors=(0, 3), total_charge=0)
+
+
+def test_nhc_pt_carbene_no_hypervalent_n(optimizer):
+    """[Pt(NHC)Cl2(NH3)]: same invariants hold with metal coordination."""
+    G = _make_graph(NHC_PT_ATOMS, NHC_PT_EDGES)
+    for i, j in NHC_PT_METAL_EDGES:
+        G.edges[i, j]["metal_coord"] = True
+    optimizer.init_kekule(G)
+    optimizer.optimize(G)
+    _assert_nhc_invariants(G, optimizer, carbene=4, n_neighbors=(0, 3), total_charge=0)

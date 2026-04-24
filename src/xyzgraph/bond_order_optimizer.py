@@ -38,7 +38,7 @@ VALENCE_CHECK_LIMITS: Dict[str, float] = {"C": 4}
 VALENCE_CHECK_TOLERANCE = 0.3
 
 # Scoring valence limits (max bond order sum before hard penalty)
-SCORING_VALENCE_LIMITS: Dict[str, float] = {"C": 4, "N": 5, "O": 3, "S": 6, "P": 6}
+SCORING_VALENCE_LIMITS: Dict[str, float] = {"C": 4, "N": 4, "O": 3, "S": 6, "P": 6}
 SCORING_VALENCE_TOLERANCE = 0.1
 
 # Quick valence adjust thresholds
