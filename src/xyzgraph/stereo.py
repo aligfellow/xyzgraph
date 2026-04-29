@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+import networkx as nx
 import numpy as np
 
 from .data_loader import DATA
@@ -982,16 +983,33 @@ def annotate_stereo(graph) -> StereoSummary:
     Each is a list of :class:`StereoEntry` dicts with ``label``,
     ``position``, and type-specific atom references.
     """
+    # Run on a covalent-only view so stereo is agnostic to whether the
+    # caller passed a bare graph, an NCI-decorated graph, or a graph with
+    # TS partial bonds.
+    needs_filter = any(
+        d.get("NCI") or d.get("TS") for _, _, d in graph.edges(data=True)
+    ) or any(graph.nodes[n].get("symbol") == "*" for n in graph.nodes)
+    if needs_filter:
+        g = nx.subgraph_view(
+            graph,
+            filter_node=lambda n: graph.nodes[n].get("symbol") != "*",
+            filter_edge=lambda u, v: not (
+                graph.edges[u, v].get("NCI", False) or graph.edges[u, v].get("TS", False)
+            ),
+        )
+    else:
+        g = graph
+
     # --- point chirality (R/S) ---
-    point_raw = assign_rs(graph)
+    point_raw = assign_rs(g)
     point_list: list[StereoEntry] = [{"label": label, "atom": idx} for idx, label in point_raw.items()]
 
     # --- E/Z ---
-    ez_raw = assign_ez(graph)
+    ez_raw = assign_ez(g)
     ez_list: list[StereoEntry] = [{"label": label, "bond": list(bond)} for bond, label in ez_raw.items()]
 
     # --- axial chirality ---
-    axial_edges, axial_nonedge = assign_axial(graph)
+    axial_edges, axial_nonedge = assign_axial(g)
     axial_all: dict[tuple[int, int], str] = {**axial_edges}
     for i, j, label in axial_nonedge:
         axial_all[(i, j)] = label
@@ -1005,7 +1023,7 @@ def annotate_stereo(graph) -> StereoSummary:
         axial_atoms.update((i, j))
 
     # --- planar chirality ---
-    planar_edges, planar_nonedge = assign_planar(graph)
+    planar_edges, planar_nonedge = assign_planar(g)
 
     def _ring_for_entry(j: int) -> list[int]:
         """Find the aromatic ring containing *j* (the ring atom)."""
@@ -1031,7 +1049,7 @@ def annotate_stereo(graph) -> StereoSummary:
 
     # --- helical chirality ---
     helical_list: list[StereoEntry] = []
-    for i, j, label in assign_helical(graph):
+    for i, j, label in assign_helical(g):
         helical_list.append({"label": label, "atoms": [i, j]})
 
     summary: StereoSummary = {

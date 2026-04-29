@@ -224,6 +224,33 @@ def test_stereo_stored_as_graph_attr() -> None:
     assert summary["point"][0]["atom"] == 0
 
 
+def test_stereo_ignores_nci_and_ts_edges() -> None:
+    """annotate_stereo must be agnostic to NCI/TS decorations and centroid dummies."""
+    G = nx.Graph()
+    _add_node(G, 0, "C", (0.0, 0.0, 0.0))
+    _add_node(G, 1, "F", (0.0, 0.0, -1.0))
+    _add_node(G, 2, "I", (0.0, 0.943, 0.333))
+    _add_node(G, 3, "Cl", (0.816, -0.471, 0.333))
+    _add_node(G, 4, "Br", (-0.816, -0.471, 0.333))
+    for n in [1, 2, 3, 4]:
+        G.add_edge(0, n, bond_order=1.0)
+
+    bare_label = annotate_stereo(G)["point"][0]["label"]
+    assert bare_label == "S"
+
+    # Decorate: π-centroid dummy + NCI edge from the chiral centre, plus
+    # an NCI edge from a substituent (F) to the centroid (CH-π-style),
+    # plus a TS partial bond. None should affect R/S.
+    _add_node(G, 99, "*", (5.0, 5.0, 5.0))
+    G.add_edge(0, 99, bond_order=0.0, NCI=True, nci_type="ch_pi")
+    G.add_edge(1, 99, bond_order=0.0, NCI=True, nci_type="ch_pi")
+    _add_node(G, 100, "H", (3.0, 0.0, 0.0))
+    G.add_edge(0, 100, bond_order=0.5, TS=True)
+
+    decorated_label = annotate_stereo(G)["point"][0]["label"]
+    assert decorated_label == bare_label
+
+
 # ---------------------------------------------------------------------------
 # E/Z tests
 # ---------------------------------------------------------------------------
