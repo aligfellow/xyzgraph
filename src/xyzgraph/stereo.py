@@ -986,16 +986,14 @@ def annotate_stereo(graph) -> StereoSummary:
     # Run on a covalent-only view so stereo is agnostic to whether the
     # caller passed a bare graph, an NCI-decorated graph, or a graph with
     # TS partial bonds.
-    needs_filter = any(
-        d.get("NCI") or d.get("TS") for _, _, d in graph.edges(data=True)
-    ) or any(graph.nodes[n].get("symbol") == "*" for n in graph.nodes)
+    needs_filter = any(d.get("NCI") or d.get("TS") for _, _, d in graph.edges(data=True)) or any(
+        graph.nodes[n].get("symbol") == "*" for n in graph.nodes
+    )
     if needs_filter:
         g = nx.subgraph_view(
             graph,
             filter_node=lambda n: graph.nodes[n].get("symbol") != "*",
-            filter_edge=lambda u, v: not (
-                graph.edges[u, v].get("NCI", False) or graph.edges[u, v].get("TS", False)
-            ),
+            filter_edge=lambda u, v: not (graph.edges[u, v].get("NCI", False) or graph.edges[u, v].get("TS", False)),
         )
     else:
         g = graph

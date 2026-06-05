@@ -25,7 +25,7 @@ import numpy as np
 from .data_loader import MolecularData
 from .geometry import GeometryCalculator
 from .parameters import OptimizerConfig, ScoringWeights
-from .scoring_arrays import ScoringArrays
+from .scoring_arrays import ScoringArrays, _compute_formal_charge_vec
 from .utils import smallest_rings
 
 logger = logging.getLogger(__name__)
@@ -100,21 +100,28 @@ class BondOrderOptimizer:
         return sum(G.edges[node, nbr].get("bond_order", 1.0) for nbr in G.neighbors(node))
 
     @staticmethod
-    def _compute_formal_charge_value(symbol: str, valence_electrons: int, bond_order_sum: float) -> int:
-        """Compute formal charge for an atom.
+    def _compute_formal_charge_value(
+        symbol: str, valence_electrons: int, bond_order_sum: float, degree: Optional[int] = None
+    ) -> int:
+        """Compute formal charge ``V - L - bond_sum``.
 
-        Lone-pair count L is filled to the preferred shell: ``min(8, 2*V)``.
-        That is octet for groups 14-17 and sextet for group 13 (B/Al/Ga/In:
-        V=3 → target 6, no spurious LP).  Hypervalent expansion (P/S/Cl with
-        bond_sum > target/2) is handled by the ``max(0, ...)`` clamp.
+        The lone-pair count ``L`` is the neutral leftover ``V - bond_sum`` when
+        that is a real lone pair (non-negative, even, every bond single), else it
+        completes the preferred shell ``min(8, 2*V)``.  ``degree`` (non-metal
+        neighbour count) gates the all-single test; ``None`` skips it.
         """
         if symbol == "H":
             return valence_electrons - int(bond_order_sum)
 
-        B = 2 * bond_order_sum
         target = min(8, 2 * valence_electrons)
-        L = max(0, target - B)
-        return round(valence_electrons - L - B / 2)
+        l_octet = max(0.0, target - 2 * bond_order_sum)
+        l_neutral = valence_electrons - bond_order_sum
+        all_single = degree is None or abs(bond_order_sum - degree) < 1e-9
+        use_neutral = (
+            all_single and l_neutral >= 0 and abs(l_neutral - round(l_neutral)) < 1e-9 and round(l_neutral) % 2 == 0
+        )
+        L = l_neutral if use_neutral else l_octet
+        return round(valence_electrons - L - bond_order_sum)
 
     # =========================================================================
     # Public API
@@ -193,11 +200,9 @@ class BondOrderOptimizer:
                 continue
 
             # Exclude metal bonds from ligand valence for formal charge calculation
-            bond_sum = sum(
-                G.edges[node, nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(node)
-                if G.nodes[nbr]["symbol"] not in self.data.metals
-            )
+            non_metal_nbrs = [nbr for nbr in G.neighbors(node) if G.nodes[nbr]["symbol"] not in self.data.metals]
+            bond_sum = sum(G.edges[node, nbr].get("bond_order", 1.0) for nbr in non_metal_nbrs)
+            degree = len(non_metal_nbrs)
 
             # Special case: H bonded only to metal(s) is hydride (H⁻)
             if sym == "H" and bond_sum == 0:
@@ -206,7 +211,7 @@ class BondOrderOptimizer:
                     formal.append(fc)
                     continue
 
-            fc = self._compute_formal_charge_value(sym, V, bond_sum)
+            fc = self._compute_formal_charge_value(sym, V, bond_sum, degree)
             formal.append(fc)
 
         # Check if system has metals
@@ -361,42 +366,6 @@ class BondOrderOptimizer:
     # conjugation.
     _EXO_PI_THRESHOLD: ClassVar[Dict[str, int]] = {"N": 3, "O": 2, "S": 2, "P": 3}
 
-    def _estimate_pi_electrons(self, G: nx.Graph, cycle: List[int]) -> int:
-        """Estimate π electrons using metal-bonding as hint.
-
-        Heuristic: 5-membered C-ring bonded to metal → likely Cp⁻ → π=6
-        A ring carbon whose exocyclic neighbour is unsaturated (degree below
-        its typical single-bond valence) has its p-orbital engaged in an
-        exocyclic π bond and contributes 0 π electrons to the ring.
-        """
-        pi_electrons = 0
-        bonded_to_metal = any(any(G.nodes[nbr]["symbol"] in self.data.metals for nbr in G.neighbors(c)) for c in cycle)
-        cycle_set = set(cycle)
-
-        for idx in cycle:
-            sym = G.nodes[idx]["symbol"]
-            if sym == "C":
-                has_exo_pi = any(
-                    G.degree(nbr) < self._EXO_PI_THRESHOLD.get(G.nodes[nbr]["symbol"], 0)
-                    for nbr in G.neighbors(idx)
-                    if nbr not in cycle_set
-                )
-                pi_electrons += 0 if has_exo_pi else 1
-            elif sym == "N":
-                degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]["symbol"] not in self.data.metals)
-                if degree == 3:
-                    pi_electrons += 2  # Pyrrole-like
-                elif degree == 2:
-                    pi_electrons += 1  # Pyridine-like
-            elif sym in ("O", "S"):
-                pi_electrons += 2
-
-        # 5-ring bonded to metal with 5 π electrons → assume Cp⁻ (6 total)
-        if len(cycle) == 5 and bonded_to_metal and pi_electrons == 5:
-            pi_electrons += 1
-
-        return pi_electrons
-
     def init_kekule(self, G: nx.Graph) -> int:
         """Initialize Kekulé patterns for aromatic rings.
 
@@ -412,32 +381,15 @@ class BondOrderOptimizer:
         self._log("KEKULE INITIALIZATION FOR AROMATIC RINGS", 0)
         self._log("=" * 80, 0)
 
-        # --- Phase 0: Precompute edge info ---
-        edge_to_rings: Dict[frozenset, List[int]] = {}
-        ring_edges = []
-        ring_symbols = []
-        for r_idx, cycle in enumerate(cycles):
-            edges = []
-            for k in range(len(cycle)):
-                a, b = cycle[k], cycle[(k + 1) % len(cycle)]
-                edges.append((a, b))
-                key = frozenset((a, b))
-                edge_to_rings.setdefault(key, []).append(r_idx)
-            ring_edges.append(edges)
-            ring_symbols.append({G.nodes[i]["symbol"] for i in cycle})
-
-        ring_adj: Dict[int, set] = {i: set() for i in range(len(cycles))}
-        for _edge_key, rings_list in edge_to_rings.items():
-            if len(rings_list) > 1:
-                for a in rings_list:
-                    for b in rings_list:
-                        if a != b:
-                            ring_adj[a].add(b)
+        # --- Phase 0: per-ring edge lists (used by the matching seed below) ---
+        ring_edges = [[(cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))] for cycle in cycles]
 
         # --- Phase 1: Ring validation / logging ---
+        # Sizes 5-7; real filtering is the planarity / sp2 / exocyclic-pi checks
+        # below, not the ring size.
         valid_rings = set()
         for r_idx, cycle in enumerate(cycles):
-            if len(cycle) not in (5, 6):
+            if len(cycle) not in (5, 6, 7):
                 continue
 
             ring_atoms_str = [f"{G.nodes[i]['symbol']}{i}" for i in cycle]
@@ -482,11 +434,24 @@ class BondOrderOptimizer:
                         3,
                     )
 
-            # Estimate π electrons and Hückel rule
-            pi_electrons = self._estimate_pi_electrons(G, cycle)
-            self._log(f"π electrons estimate: {pi_electrons}", 3)
-            if pi_electrons not in (6, 10):
-                self._log(f"✗ Hückel rule violated (π={pi_electrons})", 3)
+            # A ring carbon already committing its p-orbital to an exocyclic
+            # double bond cannot also contribute to the ring pi, so skip the ring.
+            cycle_set = set(cycle)
+            has_exo_pi = False
+            for idx in cycle:
+                if G.nodes[idx]["symbol"] != "C":
+                    continue
+                for nbr in G.neighbors(idx):
+                    if nbr in cycle_set or G.nodes[nbr]["symbol"] in self.data.metals:
+                        continue
+                    nbr_deg = sum(1 for m in G.neighbors(nbr) if G.nodes[m]["symbol"] not in self.data.metals)
+                    if nbr_deg < self._EXO_PI_THRESHOLD.get(G.nodes[nbr]["symbol"], 0):
+                        has_exo_pi = True
+                        break
+                if has_exo_pi:
+                    break
+            if has_exo_pi:
+                self._log("✗ Ring carbon has exocyclic π; not Kekulé-seeded", 3)
                 continue
 
             valid_rings.add(r_idx)
@@ -524,282 +489,34 @@ class BondOrderOptimizer:
                 and bond_sum(j, ignore_edge=(i, j)) + new_bo <= max_val(j) + 1e-9
             )
 
-        def apply_pattern(r_idx, pattern):
-            if r_idx not in valid_rings:
-                return False
-            edges = ring_edges[r_idx]
-            assigns = []
-            for idx, (i, j) in enumerate(edges):
-                existing = float(G.edges[i, j].get("bond_order", 1.0))
-                desired = float(pattern[idx])
-                if abs(existing - 1.0) > 0.01 and ((existing > 1.5) != (desired > 1.5)):
-                    return False
-                if not can_set_edge(i, j, desired):
-                    if desired > 1.5 and can_set_edge(i, j, 1.0):
-                        desired = 1.0
-                    else:
-                        return False
-                assigns.append((i, j, desired))
-            for i, j, bo in assigns:
-                G.edges[i, j]["bond_order"] = bo
-            return True
+        # --- Phase 2: Kekulé seeding by matching valence-deficient ring atoms ---
+        # Max-cardinality match of adjacent ring atoms below their aromatic
+        # valence; only deficient atoms pair, placing ring doubles from valence.
+        aromatic_target = self.data.max_aromatic_valence
 
-        def alt_patterns(L, start_with_double=True):
-            return (
-                [2.0 if k % 2 == 0 else 1.0 for k in range(L)]
-                if start_with_double
-                else [1.0 if k % 2 == 0 else 2.0 for k in range(L)]
-            )
+        def deficiency(node):
+            return aromatic_target.get(G.nodes[node]["symbol"], 4) - bond_sum(node)
 
-        # --- Priority 1: Cp-like 5-membered rings ---
+        pi_graph = nx.Graph()
         for r_idx in valid_rings:
-            if len(cycles[r_idx]) != 5:
-                continue
-            if not all(G.nodes[i]["symbol"] == "C" for i in cycles[r_idx]):
-                continue
-            # Detect metal-bound Cp
-            metal_map: Dict[int, List[int]] = {}
-            for c in cycles[r_idx]:
-                for nbr in G.neighbors(c):
-                    if G.nodes[nbr]["symbol"] in self.data.metals:
-                        metal_map.setdefault(nbr, []).append(c)
-            if any(len(cs) == 5 for cs in metal_map.values()):
-                # Apply alternating pattern [1,2,1,2,1] rotated to best match existing anchors
-                L = 5
-                base = [1.0, 2.0, 1.0, 2.0, 1.0]
-                applied = False
-                for rot in range(L):
-                    p = base[-rot:] + base[:-rot]
-                    if apply_pattern(r_idx, p):
-                        processed_rings.add(r_idx)
-                        applied = True
-                        self._log(f"✓ Cp-like 5-ring {r_idx} initialized (rotation {rot})", 3)
-                        break
-                if not applied:
-                    self._log(f"✗ Cp-like 5-ring {r_idx} could not be safely applied", 3)
+            for i, j in ring_edges[r_idx]:
+                di, dj = deficiency(i), deficiency(j)
+                if di > 1e-9 and dj > 1e-9 and can_set_edge(i, j, 2.0):
+                    # Weight by combined deficiency so the most-deficient pair
+                    # matches first.
+                    pi_graph.add_edge(i, j, weight=di + dj)
 
-        # --- Priority 2: 5-membered heterocycles (LP-in) ---
-        hetero_initialized = set()
+        seeded_edges = nx.max_weight_matching(pi_graph, maxcardinality=True) if pi_graph.number_of_edges() else set()
+        # Matched edges are vertex-disjoint, so applying all raises each atom by
+        # at most one.
+        for a, b in seeded_edges:
+            G.edges[a, b]["bond_order"] = 2.0
+
+        seeded_keys = {frozenset(e) for e in seeded_edges}
         for r_idx in valid_rings:
-            if len(cycles[r_idx]) != 5:
-                continue
-            if not any(G.nodes[i]["symbol"] in ("N", "O", "S", "B") for i in cycles[r_idx]):
-                continue
-            lp = None
-            for idx in cycles[r_idx]:
-                sym = G.nodes[idx]["symbol"]
-                if sym not in ("N", "O", "S", "B"):
-                    continue
-                neighbors = len(list(G.neighbors(idx)))
-                if sym == "N" and neighbors == 3:
-                    lp = idx
-                    break
-                if sym in ("O", "S") and neighbors == 2:
-                    lp = idx
-                    break
-            if lp is not None:
-                cycle = cycles[r_idx]
-                pos = cycle.index(lp)
-                p = [1.0] * 5
-                p[pos] = 1.0
-                p[(pos + 1) % 5] = 2.0
-                p[(pos + 2) % 5] = 1.0
-                p[(pos + 3) % 5] = 2.0
-                p[(pos + 4) % 5] = 1.0
-                if apply_pattern(r_idx, p):
-                    hetero_initialized.add(r_idx)
-                    processed_rings.add(r_idx)
-                    self._log(f"✓ 5-heterocycle {r_idx} (lp {lp}) initialized", 3)
-                else:
-                    self._log(
-                        f"✗ 5-heterocycle {r_idx} (lp {lp}) could not be safely applied",
-                        3,
-                    )
-
-        # --- Priority 2b: propagate to fused rings ---
-        to_propagate: set = set()
-        for r in hetero_initialized:
-            to_propagate |= ring_adj[r]
-        for r_idx in sorted(to_propagate):
-            if r_idx not in valid_rings or r_idx in hetero_initialized:
-                continue
-            L = len(cycles[r_idx])
-            success = False
-            if L == 6:
-                for start_double in (True, False):
-                    p = alt_patterns(6, start_with_double=start_double)
-                    if apply_pattern(r_idx, p):
-                        processed_rings.add(r_idx)
-                        success = True
-                        self._log(f"✓ Propagated init to fused ring {r_idx} (6-ring)", 3)
-                        break
-            elif L == 5:
-                base = [2.0, 1.0, 2.0, 1.0, 1.0]
-                for rot in range(5):
-                    p = base[-rot:] + base[:-rot]
-                    if apply_pattern(r_idx, p):
-                        processed_rings.add(r_idx)
-                        success = True
-                        self._log(
-                            f"✓ Propagated init to fused ring {r_idx} (5-ring rotation {rot})",
-                            3,
-                        )
-                        break
-            if not success:
-                self._log(f"• Could not propagate safely to fused ring {r_idx}", 4)
-
-        # --- Priority 3 & 4: fused benzene clusters + isolated 6-rings ---
-        six_ring_indices = [i for i in valid_rings if len(cycles[i]) == 6]
-        if six_ring_indices:
-            sub_adj: Dict[int, set] = {i: set() for i in six_ring_indices}
-            for i in six_ring_indices:
-                for j in ring_adj[i]:
-                    if j in sub_adj:
-                        sub_adj[i].add(j)
-            seen: set = set()
-            for start in six_ring_indices:
-                if start in seen:
-                    continue
-                comp: set = set()
-                stack = [start]
-                while stack:
-                    x = stack.pop()
-                    if x in comp:
-                        continue
-                    comp.add(x)
-                    for nb in sub_adj.get(x, ()):
-                        if nb not in comp:
-                            stack.append(nb)
-                seen |= comp
-                if len(comp) == 1:
-                    # isolated 6-ring: handle later
-                    continue
-                comp_sorted = sorted(comp)
-
-                # global propagation with two parity seeds
-                def try_component(seed_parity, comp):
-                    assigned = {comp[0]: alt_patterns(6, start_with_double=seed_parity)}
-                    queue = [comp[0]]
-                    while queue:
-                        r = queue.pop(0)
-                        patt = assigned[r]
-                        for nb in sub_adj[r]:
-                            if nb not in comp:
-                                continue
-                            shared_edges = []
-                            for idx_e, (a, b) in enumerate(ring_edges[r]):
-                                key = frozenset((a, b))
-                                if nb in edge_to_rings.get(key, []):
-                                    shared_edges.append((idx_e, key))
-                            if nb in assigned:
-                                consistent = True
-                                for idx_e, key in shared_edges:
-                                    for idx_nb, (ua, ub) in enumerate(ring_edges[nb]):
-                                        if frozenset((ua, ub)) == key and (assigned[nb][idx_nb] > 1.5) != (
-                                            patt[idx_e] > 1.5
-                                        ):
-                                            consistent = False
-                                            break
-                                    if not consistent:
-                                        break
-                                if not consistent:
-                                    return None
-                                continue
-                            ok = False
-                            for start_bool in (True, False):
-                                candidate = alt_patterns(6, start_with_double=start_bool)
-                                good = True
-                                for idx_e, key in shared_edges:
-                                    for idx_nb, (ua, ub) in enumerate(ring_edges[nb]):
-                                        if frozenset((ua, ub)) == key and (candidate[idx_nb] > 1.5) != (
-                                            patt[idx_e] > 1.5
-                                        ):
-                                            good = False
-                                            break
-                                    if not good:
-                                        break
-                                if good:
-                                    assigned[nb] = candidate
-                                    queue.append(nb)
-                                    ok = True
-                                    break
-                            if not ok:
-                                return None
-                    # valence check and commit (with rollback on failure)
-                    originals: Dict[tuple, float] = {}
-                    for r in comp:
-                        patt = assigned[r]
-                        for idx_edge, (i, j) in enumerate(ring_edges[r]):
-                            bo = patt[idx_edge]
-                            if not can_set_edge(i, j, bo):
-                                # Rollback all changes made so far
-                                for (oi, oj), orig_bo in originals.items():
-                                    G.edges[oi, oj]["bond_order"] = orig_bo
-                                return None
-                            key = (min(i, j), max(i, j))
-                            if key not in originals:
-                                originals[key] = G.edges[i, j].get("bond_order", 1.0)
-                            G.edges[i, j]["bond_order"] = bo
-                    return assigned
-
-                assigned = None
-                for seed in (True, False):
-                    assigned = try_component(seed, comp_sorted)
-                    if assigned is not None:
-                        processed_rings.update(comp_sorted)
-                        self._log(f"✓ Initialized fused benzene block rings {comp_sorted}", 3)
-                        break
-                if assigned is None:
-                    self._log(
-                        f"✗ Could not find consistent Kekulé for fused benzene block {comp_sorted}",
-                        3,
-                    )
-
-        # --- Priority 4: isolated 6-membered rings ---
-        for r_idx in six_ring_indices:
-            if r_idx in processed_rings:
-                continue
-            # Choose parity so double bonds fall on edges that give
-            # the optimizer a head start toward the correct bonding.
-            preferred = True
-            for k, (i, j) in enumerate(ring_edges[r_idx]):
-                if (
-                    G.nodes[i]["symbol"] == "C"
-                    and G.nodes[j]["symbol"] == "C"
-                    and sum(1 for nb in G.neighbors(i) if G.nodes[nb]["symbol"] not in self.data.metals) < 3
-                    and sum(1 for nb in G.neighbors(j) if G.nodes[nb]["symbol"] not in self.data.metals) < 3
-                ):
-                    preferred = k % 2 == 0
-                    break
-
-            applied = False
-            for sd in (preferred, not preferred):
-                if apply_pattern(r_idx, alt_patterns(6, start_with_double=sd)):
-                    processed_rings.add(r_idx)
-                    self._log(f"✓ Initialized isolated 6-ring {r_idx}", 3)
-                    applied = True
-                    break
-            if not applied:
-                self._log(f"• Could not safely init isolated 6-ring {r_idx}", 4)
-
-        # --- Priority 5: remaining carbon-only 5-membered rings ---
-        for r_idx in valid_rings:
-            if len(cycles[r_idx]) != 5:
-                continue
-            if any(G.nodes[i]["symbol"] != "C" for i in cycles[r_idx]):
-                continue
-            if r_idx in processed_rings:
-                continue
-            fused = any(len(edge_to_rings[frozenset((a, b))]) > 1 for a, b in ring_edges[r_idx])
-            if fused:
-                self._log(f"• Skipping fused carbon-5 ring {r_idx}", 4)
-                continue
-            pattern = [2.0, 1.0, 2.0, 1.0, 1.0]
-            if apply_pattern(r_idx, pattern):
+            if any(frozenset((a, b)) in seeded_keys for a, b in ring_edges[r_idx]):
                 processed_rings.add(r_idx)
-                self._log(f"✓ Initialized isolated carbon-5 ring {r_idx}", 3)
-            else:
-                self._log(f"• Could not safely init isolated carbon-5 ring {r_idx}", 4)
+                self._log(f"✓ Seeded {len(cycles[r_idx])}-ring {r_idx} by matching", 3)
 
         self._log("\n" + "-" * 80, 0)
         self._log(f"SUMMARY: Initialized {len(processed_rings)} ring(s) with Kekulé pattern", 1)
@@ -952,7 +669,15 @@ class BondOrderOptimizer:
                 eidx = int(raw_eidx)
                 old_bo = bo[eidx]
 
-                for change in (+1.0, -1.0):
+                # +2 (single->triple) only where a double can't satisfy either
+                # endpoint (both deficient by >= 2); else always rejected, so skip.
+                ei, ej = int(sa.edge_src[eidx]), int(sa.edge_dst[eidx])
+                changes = (
+                    (+1.0, -1.0, +2.0)
+                    if (old_bo <= 1.0 and sa.vmax[ei] - vs[ei] >= 2.0 - 1e-9 and sa.vmax[ej] - vs[ej] >= 2.0 - 1e-9)
+                    else (+1.0, -1.0)
+                )
+                for change in changes:
                     new_bo_val = old_bo + change
                     if new_bo_val < 1.0 or new_bo_val > 3.0:
                         continue
@@ -1014,25 +739,16 @@ class BondOrderOptimizer:
         return stats
 
     # =========================================================================
-    # Kekulé shift along an alternating chain between two deficit atoms
+    # Charge-budget escape (alternating shift path)
     # =========================================================================
 
-    def _find_kekule_shift_path(
-        self,
-        sa,
-        bond_orders,
-        valence_sums,
-    ):
-        """Find an alternating-BO chain between two valence-deficient atoms.
+    def _find_kekule_shift_path(self, sa, bond_orders, valence_sums):
+        """Find an alternating-BO chain (1,2,1,2,...,1) between two deficient atoms.
 
-        The chain has the form (1,2,1,2,...,1) — an odd number of edges
-        starting and ending on a single bond.  Flipping every bond on the
-        chain saturates both endpoints while preserving the bond_sum at every
-        intermediate atom (each loses 1 from one side, gains 1 from the
-        other), escaping Kekulé local-optimum traps where no single-edge
-        move improves the score.
-
-        Returns the list of edge indices on the chain, or None.
+        Flipping every bond saturates both endpoints while leaving bond_sum
+        unchanged at each interior atom (it loses 1 on one side, gains 1 on the
+        other), so it escapes traps no single-edge move can.  Returns the
+        edge-index list, or None.
         """
         deficit_mask = (~sa.is_metal) & (~sa.is_h) & (valence_sums < sa.vmax - 0.01)
         deficit_atoms = [int(a) for a in np.where(deficit_mask)[0]]
@@ -1040,14 +756,11 @@ class BondOrderOptimizer:
             return None
         deficit_set = set(deficit_atoms)
 
-        # Per-atom neighbour/edge lookup (cached on sa to amortise across
-        # the many shift calls during beam search).
         adj = self._atom_adjacency(sa)
 
         for start in deficit_atoms:
-            # BFS state = (atom, expected_BO_for_next_edge).  From ``start``
-            # the next edge must be single (BO=1) so flipping elevates it
-            # and saturates ``start``.
+            # BFS state = (atom, expected_BO_for_next_edge); the first edge
+            # must be single so flipping it elevates and saturates ``start``.
             visited = {(start, 1.0): None}
             q = deque([(start, 1.0)])
             found = None
@@ -1070,7 +783,6 @@ class BondOrderOptimizer:
             if found is None:
                 continue
 
-            # Reconstruct edge-index path from root sentinel
             path = []
             cur = found
             entry = visited[cur]
@@ -1157,6 +869,10 @@ class BondOrderOptimizer:
         best_ever_bo = base_bo.copy()
         best_ever_vs = base_vs.copy()
 
+        # Cache scores by bond-order bytes; beam children recur across iterations.
+        score_cache: Dict[bytes, float] = {}
+        stats["score_cache_hits"] = 0
+
         for iteration in range(self.config.max_iter):
             stats["iterations"] = iteration + 1
             self._log(f"\nIteration {iteration + 1}:", 1)
@@ -1173,7 +889,18 @@ class BondOrderOptimizer:
                     i = int(sa.edge_src[eidx])
                     j = int(sa.edge_dst[eidx])
 
-                    for change in (+1.0, -1.0):
+                    # +2 (single->triple) only where a double can't satisfy either
+                    # endpoint (both deficient by >= 2).
+                    changes = (
+                        (+1.0, -1.0, +2.0)
+                        if (
+                            old_bo <= 1.0
+                            and sa.vmax[i] - parent_vs[i] >= 2.0 - 1e-9
+                            and sa.vmax[j] - parent_vs[j] >= 2.0 - 1e-9
+                        )
+                        else (+1.0, -1.0)
+                    )
+                    for change in changes:
                         new_bo = old_bo + change
                         if new_bo < 1.0 or new_bo > 3.0:
                             continue
@@ -1184,44 +911,50 @@ class BondOrderOptimizer:
                         cand_bo[eidx] = new_bo
                         sa.update_valence_sums(cand_vs, eidx, old_bo, new_bo)
 
-                        new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
-                        stats["beam_explored"] += 1
+                        cand_key = cand_bo.tobytes()
+                        cached = score_cache.get(cand_key)
+                        if cached is None:
+                            new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
+                            score_cache[cand_key] = new_score
+                            stats["beam_explored"] += 1
+                        else:
+                            new_score = cached
+                            stats["score_cache_hits"] += 1
 
                         delta = parent_score - new_score
                         if delta > 0:
                             new_history = [*parent_history, (i, j, change)]
                             candidates.append((new_score, cand_bo, cand_vs, (i, j, change), new_history))
 
-            # Stall fallback: if no single-edge move improves any beam, try a
-            # Kekulé shift — an alternating 1,2,...,1 chain between two deficit
-            # atoms, flipped wholesale.  Resolves fused-ring local-optimum traps
-            # (e.g. BNTD carbanions) that no single-edge change can escape.
-            # Gated on stall so it can't pre-empt legitimate single-edge
-            # solutions (like promoting a double to a triple in benzyne).
             if not candidates:
-                for _beam_idx, (parent_score, parent_bo, parent_vs, parent_history) in enumerate(beam):
+                # Matched net charge means converged; a mismatch needs the shift
+                # path (a charge-forcing valence no single-edge move can fix).
+                for parent_score, parent_bo, parent_vs, parent_history in beam:
+                    net_fc = int(
+                        _compute_formal_charge_vec(sa.is_h, sa.valence_electrons, parent_vs, sa.non_metal_degree).sum()
+                    )
+                    if net_fc == self.charge:
+                        continue
                     path = self._find_kekule_shift_path(sa, parent_bo, parent_vs)
-                    if path is None:
+                    if not path:
                         continue
                     cand_bo = parent_bo.copy()
                     cand_vs = parent_vs.copy()
                     for eidx in path:
                         old = cand_bo[eidx]
                         new = 1.0 if old > 1.5 else 2.0
-                        sa.update_valence_sums(cand_vs, eidx, old, new)
                         cand_bo[eidx] = new
+                        sa.update_valence_sums(cand_vs, eidx, old, new)
                     new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
                     stats["beam_explored"] += 1
                     if new_score < parent_score:
-                        i_a = int(sa.edge_src[path[0]])
-                        j_b = int(sa.edge_dst[path[-1]])
-                        info = (i_a, j_b, float(len(path)))
-                        new_history = [*parent_history, info]
-                        candidates.append((new_score, cand_bo, cand_vs, info, new_history))
+                        ends = (int(sa.edge_src[path[0]]), int(sa.edge_dst[path[-1]]), "shift")
+                        candidates.append((new_score, cand_bo, cand_vs, ends, [*parent_history, ends]))
 
-            if not candidates:
-                self._log("  No improvements (single or Kekulé shift) found, stopping", 2)
-                break
+                if not candidates:
+                    self._log("  No single-edge improvement found, stopping", 2)
+                    break
+                self._log(f"  Stall escape: {len(candidates)} charge-fixing shift path(s)", 2)
 
             # Sort and keep top beam_width
             candidates.sort(key=lambda x: x[0])
@@ -1340,14 +1073,34 @@ class BondOrderOptimizer:
             pi_electrons = 0
             pi_breakdown = []
             contrib, label = 0, None
+            all_ring_atoms: set = set()
+            for r in cycles:
+                all_ring_atoms.update(r)
             for idx in cycle:
                 sym = G.nodes[idx]["symbol"]
                 fc = G.nodes[idx].get("formal_charge", 0)
                 degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]["symbol"] not in self.data.metals)
 
                 if sym == "C":
-                    contrib = max(0, 1 - fc) if fc > 0 else 1 + abs(fc)
-                    label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
+                    # An exocyclic double bond consumes the p-orbital; ring-
+                    # internal doubles don't count.
+                    has_exo_pi = any(
+                        G.edges[idx, nbr].get("bond_order", 1.0) >= 1.8
+                        for nbr in G.neighbors(idx)
+                        if nbr not in all_ring_atoms and G.nodes[nbr]["symbol"] not in self.data.metals
+                    )
+                    has_metal_nbr = any(G.nodes[nbr]["symbol"] in self.data.metals for nbr in G.neighbors(idx))
+                    if has_exo_pi:
+                        contrib = 0
+                        label = f"{sym}{idx}:0(exo_π)"
+                    elif fc < 0 and has_metal_nbr and len(cycle) == 6:
+                        # On a 6-ring a metal-bound negative carbon's charge sits
+                        # on the metal; 5-rings keep that electron in the ring.
+                        contrib = 1
+                        label = f"{sym}{idx}:1(M-bound,fc={fc:+d})"
+                    else:
+                        contrib = max(0, 1 - fc) if fc > 0 else 1 + abs(fc)
+                        label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
 
                 elif sym == "B":
                     contrib = abs(fc) if fc < 0 else 0
@@ -1547,15 +1300,24 @@ class BondOrderOptimizer:
     def _pi_electron_count(self, G: nx.Graph, atoms: List[int]) -> int:
         """Neutral-atom π contribution along the perimeter (Hückel test input).
 
-        B contributes 0 (empty p); pyrrole-like N (degree 3) contributes 2;
-        pyridine-like N (degree 2) contributes 1; O/S always 2; C always 1.
+        B contributes 0 (empty p); N contributes 2 at degree 3 (lone pair into
+        ring) or 1 at degree 2; O/S always 2; C contributes 1 unless it has an
+        exocyclic double bond (then 0).
         """
         metals = self.data.metals
+        all_ring_atoms: set = set()
+        for r in G.graph.get("_rings", []):
+            all_ring_atoms.update(r)
         total = 0
         for idx in atoms:
             sym = G.nodes[idx]["symbol"]
             if sym == "C":
-                total += 1
+                has_exo_pi = any(
+                    G.edges[idx, nb].get("bond_order", 1.0) >= 1.8
+                    for nb in G.neighbors(idx)
+                    if nb not in all_ring_atoms and G.nodes[nb]["symbol"] not in metals
+                )
+                total += 0 if has_exo_pi else 1
             elif sym == "N":
                 degree = sum(1 for nb in G.neighbors(idx) if G.nodes[nb]["symbol"] not in metals)
                 total += 2 if degree == 3 else 1
