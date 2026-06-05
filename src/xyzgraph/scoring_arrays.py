@@ -537,6 +537,8 @@ class ScoringArrays:
 
         A divalent group-14 carbon contributes 0 ring π, and ``expected`` is
         need-based (#atoms with a ring p-electron / 2), not ``ring_size // 2``.
+        A group-14 carbanion's lone pair is sigma: it counts as one ring
+        p-electron, donating the pair to pi only when needed to reach 4n+2.
         """
         penalty = 0.0
 
@@ -547,7 +549,11 @@ class ScoringArrays:
         pi_contrib = np.clip(self.pi_base + self.pi_fc_pos_delta * pos + self.pi_fc_neg_delta * neg, 0.0, 2.0)
         carbene = (self.valence_electrons == 4) & self.non_metal & (valence_sums <= 2.0 + 1e-9)
         pi_contrib = np.where(carbene, 0.0, pi_contrib)
-        pi_int = np.round(pi_contrib).astype(np.int64)
+
+        # Cap a carbanion at one p-electron (sigma); the second is tested per ring.
+        carbanion = (self.valence_electrons == 4) & self.non_metal & (fc < 0)
+        pi_sigma = np.where(carbanion, np.minimum(pi_contrib, 1.0), pi_contrib)
+        pi_int = np.round(pi_sigma).astype(np.int64)
 
         for r_idx, ring_eidx in enumerate(self.ring_edge_indices):
             if not self.ring_aromatic_capable[r_idx]:
@@ -561,8 +567,10 @@ class ScoringArrays:
             penalty += weights.aromatic_ring_bonus
 
             if elevated >= expected:
-                pi_count = round(float(np.sum(pi_contrib[ring_atoms])))
-                if pi_count in _HUCKEL_PI_COUNTS:
+                base_pi = round(float(np.sum(pi_sigma[ring_atoms])))
+                # Each ring carbanion may donate its sigma pair (+1) to reach Hückel.
+                n_donatable = int(np.sum(carbanion[ring_atoms]))
+                if any((base_pi + k) in _HUCKEL_PI_COUNTS for k in range(n_donatable + 1)):
                     penalty -= weights.aromatic_ring_bonus  # redeemed → ring contributes 0
                     continue
 

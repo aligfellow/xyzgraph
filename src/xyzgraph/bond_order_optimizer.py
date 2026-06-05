@@ -1359,14 +1359,15 @@ class BondOrderOptimizer:
     # Metal-ligand classification
     # =========================================================================
 
-    def _get_ligand_unit_info(self, G: nx.Graph, metal_idx: int, start_atom: int) -> Tuple[int, str]:
+    def _get_ligand_unit_info(self, G: nx.Graph, metal_idx: int, start_atom: int, get_fc) -> Tuple[int, str]:
         """Get charge and identity for a ligand unit by following linear chain.
 
         Returns: (charge, ligand_id)
-        Handles: CO, CN⁻, SCN⁻, NO, monatomic ligands
+        Handles: CO, CN⁻, SCN⁻, NO, monatomic ligands.  ``get_fc`` reads the
+        computed charge (not yet written to the graph nodes).
         """
         symbols = [G.nodes[start_atom]["symbol"]]
-        charge = G.nodes[start_atom].get("formal_charge", 0)
+        charge = get_fc(start_atom)
         current = start_atom
         prev = metal_idx
 
@@ -1377,7 +1378,7 @@ class BondOrderOptimizer:
                 break  # Not linear or branch point
             next_atom = neighbors[0]
             symbols.append(G.nodes[next_atom]["symbol"])
-            charge += G.nodes[next_atom].get("formal_charge", 0)
+            charge += get_fc(next_atom)
             prev, current = current, next_atom
 
         # Identify common ligands
@@ -1468,7 +1469,7 @@ class BondOrderOptimizer:
                     ligand_type = f"{donor_sym}"
                 else:
                     # Linear chain ligand (CO, CN⁻, etc.)
-                    ligand_charge, ligand_type = self._get_ligand_unit_info(G, metal_idx, donor_atom)
+                    ligand_charge, ligand_type = self._get_ligand_unit_info(G, metal_idx, donor_atom, get_fc)
 
                 ligand_charge_sum += ligand_charge
 
