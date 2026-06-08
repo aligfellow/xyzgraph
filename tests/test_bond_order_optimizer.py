@@ -579,13 +579,18 @@ NHC_PT_METAL_EDGES = {(4, 9), (9, 10), (9, 11), (9, 12)}
 
 
 def _assert_nhc_invariants(G, optimizer, carbene, n_neighbors, total_charge):
+    fcs = optimizer.compute_formal_charges(G)
     for nb in n_neighbors:
         assert G.edges[carbene, nb]["bond_order"] <= 2.0, (
             f"C{carbene}-N{nb} bond order {G.edges[carbene, nb]['bond_order']} (triple disallowed)"
         )
         nv = BondOrderOptimizer.valence_sum(G, nb)
         assert nv <= 4.0, f"N{nb} valence {nv} > 4"
-    assert sum(optimizer.compute_formal_charges(G)) == total_charge
+    # The carbene carbon is a neutral singlet carbene (a sextet, one lone pair),
+    # not the spurious -2 dicarbanion an octet fill would give.  This falls out
+    # of the general neutral-shell formal-charge rule — no carbene pattern-match.
+    assert fcs[carbene] == 0, f"carbene C{carbene} should be neutral (sextet), got {fcs[carbene]:+d}"
+    assert sum(fcs) == total_charge
 
 
 def test_nhc_free_carbene_no_hypervalent_n(optimizer):
@@ -604,3 +609,32 @@ def test_nhc_pt_carbene_no_hypervalent_n(optimizer):
     optimizer.init_kekule(G)
     optimizer.optimize(G)
     _assert_nhc_invariants(G, optimizer, carbene=4, n_neighbors=(0, 3), total_charge=0)
+
+
+# Acetonitrile CH₃-C≡N: a linear nitrile.  Reaching the C≡N triple needs the
+# optimiser's ±2 promotion to jump single→triple in one step — the single→double
+# intermediate is an fc--1 barrier the strictly-improving beam will not cross.
+# Same mechanism that lets a divalent carbon read as a neutral carbene without
+# starving alkynes/nitriles of their triples.
+ACETONITRILE_ATOMS = [
+    ("C", (0.000, 0.000, 0.000)),  # 0  methyl C
+    ("C", (1.460, 0.000, 0.000)),  # 1  nitrile C
+    ("N", (2.620, 0.000, 0.000)),  # 2  nitrile N
+    ("H", (-0.363, 1.027, 0.000)),  # 3
+    ("H", (-0.363, -0.513, 0.889)),  # 4
+    ("H", (-0.363, -0.513, -0.889)),  # 5
+]
+ACETONITRILE_EDGES = [(0, 1), (1, 2), (0, 3), (0, 4), (0, 5)]
+
+
+def test_nitrile_triple_via_jump(optimizer):
+    """Acetonitrile: the C≡N triple forms (via the single→triple ±2 move), and
+    every atom is neutral."""
+    G = _make_graph(ACETONITRILE_ATOMS, ACETONITRILE_EDGES)
+    optimizer.init_kekule(G)
+    optimizer.optimize(G)
+    assert G.edges[1, 2]["bond_order"] == pytest.approx(3.0), (
+        f"C1≡N2 expected triple, got {G.edges[1, 2]['bond_order']}"
+    )
+    charges = optimizer.compute_formal_charges(G)
+    assert all(c == 0 for c in charges), f"acetonitrile should be all-neutral, got {charges}"

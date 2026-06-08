@@ -57,6 +57,10 @@ class BondDetector:
         logger.debug(line)
         self.log_buffer.append(line)
 
+    def _trace(self, msg: str, level: int = 0):
+        """Per-bond detail: logger only, kept out of the build log buffer."""
+        logger.debug("  " * level + msg)
+
     def get_log(self) -> List[str]:
         """Return accumulated log messages."""
         return self.log_buffer
@@ -293,32 +297,40 @@ class BondDetector:
             1,
         )
 
-        # Add baseline bonds with confidence-based validation
+        # High-confidence additions go to the logger only; the build log keeps
+        # the summary plus the borderline and rejected bonds worth reviewing.
         edge_count = 0
         rejected_count = 0
+        high_conf_count = 0
 
         for confidence, i, j, d, has_metal in baseline_bonds:
             si, sj = symbols[i], symbols[j]
-            self._log(
-                f"  Evaluating bond {si}{i}-{sj}{j} (d={d:.3f} Å, conf={confidence:.2f})",
-                3,
-            )
+            label = f"{si}{i}-{sj}{j} (d={d:.3f} Å, conf={confidence:.2f})"
+            self._trace(f"Evaluating bond {label}", 3)
             if has_metal and not self._should_bond_metal(si, sj):
                 rejected_count += 1
+                self._log(f"✗ Rejected {label}: metal pair not bonded", 3)
                 continue
 
             if confidence > HIGH_CONFIDENCE_THRESHOLD:
                 G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
                 edge_count += 1
-                self._log("  Added high-confidence bond", 4)
+                high_conf_count += 1
+                self._trace("Added high-confidence bond", 4)
             elif self.bond_checker.check(G, i, j, d, confidence, baseline_bonds):
                 G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=has_metal)
                 edge_count += 1
-                self._log("  Added validated bond", 4)
+                self._trace(f"Added geometry-validated {label}", 4)
             else:
                 rejected_count += 1
+                self._log(f"✗ Rejected {label}: failed geometry check", 3)
 
-        self._log(f"Step 1: {edge_count} baseline bonds added, {rejected_count} rejected", 1)
+        self._log(
+            f"Step 1: {edge_count} baseline bonds added "
+            f"({high_conf_count} high-confidence, {edge_count - high_conf_count} geometry-validated), "
+            f"{rejected_count} rejected",
+            1,
+        )
 
         # Compute rings from baseline structure
         non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]

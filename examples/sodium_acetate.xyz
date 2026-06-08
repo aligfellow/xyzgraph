@@ -1,0 +1,10 @@
+8
+Sodium acetate (κ1-O, Na bound to first O). Test #58: without the bonus, optimizer promotes C=O on the first edge index — placing the anion on the wrong O. The bonus must override.
+C   0.000000   0.000000   0.000000
+H  -0.360000   1.030000   0.000000
+H  -0.360000  -0.515000   0.892000
+H  -0.360000  -0.515000  -0.892000
+C   1.510000   0.000000   0.000000
+O   2.135000   1.083000   0.000000
+O   2.135000  -1.083000   0.000000
+Na  4.535000   1.083000   0.000000

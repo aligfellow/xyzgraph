@@ -110,15 +110,18 @@ class ScoringWeights:
     electronegativity_weight: float = 2.0
     """Charge on wrong atoms (e.g., negative on C)."""
 
+    metal_anion_bonus: float = 3.0
+    """Bonus when fc<0 sits on a metal-bonded ligand atom. Tiebreaks carboxylate placement."""
+
     valence_error_weight: float = 5.0
     """Non-standard valences. Soft constraint."""
 
     # Ring conjugation
-    exocyclic_double_penalty: float = 12.0
-    """Double bond outside aromatic ring disrupts aromaticity."""
-
     conjugation_deficit_penalty: float = 5.0
-    """Non-aromatic π-electron count. Hückel rule: 4n+2."""
+    """Gradient toward Kekulé in aromatic-capable rings not yet at 4n+2."""
+
+    aromatic_ring_bonus: float = 12.0
+    """Bonus when an aromatic-capable ring reaches 4n+2 π electrons under current fc."""
 
     invalid_score: float = 1e6
     """Infinite penalty for impossible states."""
