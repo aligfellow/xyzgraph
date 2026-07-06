@@ -224,3 +224,32 @@ def test_alizarin():
         o_edges = [e for e in result["edges"] if oid in (e["idx1"], e["idx2"])]
         assert len(o_edges) == 2
         assert all(e["bond_order"] == pytest.approx(1.0) for e in o_edges)
+
+
+# ===========================================================================
+# Organic: caffeine (C8H10N4O2, charge 0)
+#
+# The imidazole ring is aromatic; the pyrimidine-2,6-dione ring is not. The
+# dione's two carbonyl carbons each donate no p-electron to the ring, so the
+# Hückel count reaches an aromatic total; the cross-conjugation guard (a ring
+# admits at most one such carbon) is what keeps the ring non-aromatic.
+# ===========================================================================
+
+
+def test_caffeine_dione_ring_not_aromatic():
+    """Caffeine: imidazole aromatic, pyrimidinedione ring stays Kekulé."""
+    G = build_graph(str(EXAMPLES / "caffeine.xyz"), charge=0)
+    result = graph_to_dict(G)
+
+    assert result["graph"]["formula"] == "C8H10N4O2"
+
+    # Only the five-membered imidazole ring is aromatic.
+    arom = [sorted(r) for r in result["graph"]["aromatic_rings"]]
+    assert arom == [[0, 2, 4, 9, 10]], f"aromatic rings: {arom}"
+    assert sum(1 for e in result["edges"] if e["bond_order"] == pytest.approx(1.5)) == 5
+
+    # Each carbonyl keeps a localised C=O double bond, not a delocalised 1.5.
+    for cid, oid in ((5, 12), (6, 13)):
+        edge = next(e for e in result["edges"] if {e["idx1"], e["idx2"]} == {cid, oid})
+        assert edge["bond_order"] == pytest.approx(2.0)
+        assert result["nodes"][oid]["formal_charge"] == 0

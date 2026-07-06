@@ -1073,6 +1073,7 @@ class BondOrderOptimizer:
             pi_electrons = 0
             pi_breakdown = []
             contrib, label = 0, None
+            exo_pi_carbons = 0
             all_ring_atoms: set = set()
             for r in cycles:
                 all_ring_atoms.update(r)
@@ -1093,6 +1094,7 @@ class BondOrderOptimizer:
                     if has_exo_pi:
                         contrib = 0
                         label = f"{sym}{idx}:0(exo_π)"
+                        exo_pi_carbons += 1
                     elif fc < 0 and has_metal_nbr and len(cycle) == 6:
                         # On a 6-ring a metal-bound negative carbon's charge sits
                         # on the metal; 5-rings keep that electron in the ring.
@@ -1125,6 +1127,16 @@ class BondOrderOptimizer:
 
             # Hückel rule: 4n+2 π electrons (n = 0, 1, 2, ...)
             is_aromatic = pi_electrons >= 2 and pi_electrons in (2, 6, 10, 14, 18)
+
+            # An exocyclic-π carbon donates no p-electron to the ring and can
+            # only join an aromatic system through a betaine resonance form that
+            # leaves an empty in-ring p-orbital. A neutral ring supports at most
+            # one such form, so two or more exocyclic-π carbons make it
+            # cross-conjugated rather than aromatic, whatever the Hückel total.
+            ring_charge = sum(G.nodes[i].get("formal_charge", 0) for i in cycle)
+            if is_aromatic and exo_pi_carbons >= 2 and ring_charge == 0:
+                self._log(f"✗ Cross-conjugated: {exo_pi_carbons} exocyclic-π carbons, not aromatic", 2)
+                is_aromatic = False
 
             if is_aromatic:
                 n = (pi_electrons - 2) // 4
@@ -1225,6 +1237,11 @@ class BondOrderOptimizer:
             if pi_total not in (2, 6, 10, 14, 18):
                 self._log("✗ Perimeter not Hückel-aromatic", 2)
                 continue
+            # Cross-conjugation guard (see detect_aromatic_rings).
+            perim_charge = sum(G.nodes[i].get("formal_charge", 0) for i in perim_atoms)
+            if self._exocyclic_pi_carbon_count(G, perim_atoms) >= 2 and perim_charge == 0:
+                self._log("✗ Perimeter cross-conjugated (≥2 exocyclic-π carbons)", 2)
+                continue
             # Don't clobber a triple bond the optimizer already found.
             if any(G.has_edge(*e) and G.edges[tuple(e)]["bond_order"] > 2.01 for e in edge_counts):
                 self._log("✗ Component has bond order > 2; keeping Kekulé", 2)
@@ -1324,6 +1341,24 @@ class BondOrderOptimizer:
             elif sym in ("O", "S"):
                 total += 2
         return total
+
+    def _exocyclic_pi_carbon_count(self, G: nx.Graph, atoms: List[int]) -> int:
+        """Count ring carbons whose p-orbital is committed to an exocyclic π bond."""
+        metals = self.data.metals
+        all_ring_atoms: set = set()
+        for r in G.graph.get("_rings", []):
+            all_ring_atoms.update(r)
+        count = 0
+        for idx in atoms:
+            if G.nodes[idx]["symbol"] != "C":
+                continue
+            if any(
+                G.edges[idx, nb].get("bond_order", 1.0) >= 1.8
+                for nb in G.neighbors(idx)
+                if nb not in all_ring_atoms and G.nodes[nb]["symbol"] not in metals
+            ):
+                count += 1
+        return count
 
     @staticmethod
     def _trace_perimeter(perimeter_edges: List[frozenset]) -> Optional[List[int]]:
