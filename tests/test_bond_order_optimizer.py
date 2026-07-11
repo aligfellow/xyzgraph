@@ -638,3 +638,68 @@ def test_nitrile_triple_via_jump(optimizer):
     )
     charges = optimizer.compute_formal_charges(G)
     assert all(c == 0 for c in charges), f"acetonitrile should be all-neutral, got {charges}"
+
+
+# ---- Aromaticity helpers: p-orbital availability ----
+
+# p-Benzoquinone skeleton (heavy atoms only): ring C0-C5, exocyclic O6 on C0
+# and O7 on C3, doubles at C1=C2, C4=C5, C0=O6, C3=O7.
+QUINONE_ATOMS = [
+    ("C", (1.40, 0.00, 0.0)),
+    ("C", (0.70, 1.21, 0.0)),
+    ("C", (-0.70, 1.21, 0.0)),
+    ("C", (-1.40, 0.00, 0.0)),
+    ("C", (-0.70, -1.21, 0.0)),
+    ("C", (0.70, -1.21, 0.0)),
+    ("O", (2.62, 0.00, 0.0)),
+    ("O", (-2.62, 0.00, 0.0)),
+]
+QUINONE_EDGES = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0), (0, 6), (3, 7)]
+QUINONE_DOUBLES = [(1, 2), (4, 5), (0, 6), (3, 7)]
+
+
+def _quinone_graph():
+    G = _make_graph(QUINONE_ATOMS, QUINONE_EDGES)
+    for i, j in QUINONE_DOUBLES:
+        G.edges[i, j]["bond_order"] = 2.0
+    return G
+
+
+def test_exocyclic_pi_ring_bond_vs_substituent(optimizer):
+    """A C=O off the ring is exocyclic π; a ring-internal double is not."""
+    G = _quinone_graph()
+    ring_bonds = optimizer._ring_bond_set(G)
+    assert frozenset((0, 1)) in ring_bonds
+    assert frozenset((0, 6)) not in ring_bonds
+    assert optimizer._has_exocyclic_pi(G, 0, ring_bonds)  # C0=O6
+    assert not optimizer._has_exocyclic_pi(G, 1, ring_bonds)  # C1=C2 is a ring bond
+
+
+def test_exocyclic_pi_partner_inside_another_ring(optimizer):
+    """The exocyclic test is per-bond: a double bond to an atom that belongs
+    to a different ring is still exocyclic (cyclopropylidene case)."""
+    atoms = [
+        *QUINONE_ATOMS[:6],
+        ("C", (2.62, 0.0, 0.0)),
+        ("C", (3.60, 0.7, 0.0)),
+        ("C", (3.60, -0.7, 0.0)),
+    ]
+    edges = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0), (0, 6), (6, 7), (7, 8), (8, 6)]
+    G = _make_graph(atoms, edges)
+    G.edges[0, 6]["bond_order"] = 2.0  # ylidene C=C between the two rings
+    ring_bonds = optimizer._ring_bond_set(G)
+    assert optimizer._has_exocyclic_pi(G, 0, ring_bonds)
+    assert optimizer._is_bare_carbon(G, 7)  # cyclopropane CH2: all singles
+    assert not optimizer._is_bare_carbon(G, 0)
+
+
+def test_no_pi_carbon_count_and_ring_system_charge(optimizer):
+    """Both quinone carbonyl carbons have no π electron for the ring, and the
+    ring-system charge includes direct exocyclic substituents (olates)."""
+    G = _quinone_graph()
+    ring = G.graph["_rings"][0]
+    ring_bonds = optimizer._ring_bond_set(G)
+    assert optimizer._no_pi_carbon_count(G, ring, ring_bonds) == 2
+    assert optimizer._ring_system_charge(G, ring) == 0
+    G.nodes[6]["formal_charge"] = -1  # exocyclic olate oxygen
+    assert optimizer._ring_system_charge(G, ring) == -1

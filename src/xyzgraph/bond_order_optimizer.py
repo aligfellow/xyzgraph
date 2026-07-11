@@ -1028,6 +1028,7 @@ class BondOrderOptimizer:
         aromatic_count = 0
         aromatic_rings = 0
         G.graph["_aromatic_rings"] = []
+        ring_bonds = self._ring_bond_set(G)
 
         for ring_idx, cycle in enumerate(cycles):
             if len(cycle) not in (5, 6):
@@ -1073,22 +1074,15 @@ class BondOrderOptimizer:
             pi_electrons = 0
             pi_breakdown = []
             contrib, label = 0, None
-            all_ring_atoms: set = set()
-            for r in cycles:
-                all_ring_atoms.update(r)
             for idx in cycle:
                 sym = G.nodes[idx]["symbol"]
                 fc = G.nodes[idx].get("formal_charge", 0)
                 degree = sum(1 for nbr in G.neighbors(idx) if G.nodes[nbr]["symbol"] not in self.data.metals)
+                # A p-orbital committed to a non-ring double bond has nothing
+                # left for the ring, whatever the atom.
+                has_exo_pi = self._has_exocyclic_pi(G, idx, ring_bonds)
 
                 if sym == "C":
-                    # An exocyclic double bond consumes the p-orbital; ring-
-                    # internal doubles don't count.
-                    has_exo_pi = any(
-                        G.edges[idx, nbr].get("bond_order", 1.0) >= 1.8
-                        for nbr in G.neighbors(idx)
-                        if nbr not in all_ring_atoms and G.nodes[nbr]["symbol"] not in self.data.metals
-                    )
                     has_metal_nbr = any(G.nodes[nbr]["symbol"] in self.data.metals for nbr in G.neighbors(idx))
                     if has_exo_pi:
                         contrib = 0
@@ -1098,6 +1092,12 @@ class BondOrderOptimizer:
                         # on the metal; 5-rings keep that electron in the ring.
                         contrib = 1
                         label = f"{sym}{idx}:1(M-bound,fc={fc:+d})"
+                    elif fc == 0 and self._is_bare_carbon(G, idx):
+                        # Trigonal carbon with only single bonds: its p-orbital
+                        # is empty (masked cation, e.g. pyrylium's alpha carbon
+                        # when the + is bookkept on oxygen).
+                        contrib = 0
+                        label = f"{sym}{idx}:0(empty_p)"
                     else:
                         contrib = max(0, 1 - fc) if fc > 0 else 1 + abs(fc)
                         label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
@@ -1108,15 +1108,17 @@ class BondOrderOptimizer:
 
                 elif sym == "N":
                     if degree == 3:
-                        contrib = 1 if fc > 0 else 2
-                        label = f"{sym}{idx}:2(LP)" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
+                        contrib = 0 if has_exo_pi else (1 if fc > 0 else 2)
+                        tag = "(exo_π)" if has_exo_pi else "(LP)" if fc == 0 else f"(fc={fc:+d})"
+                        label = f"{sym}{idx}:{contrib}{tag}"
                     else:  # degree == 2
                         contrib = 2 if fc < 0 else 1
                         label = f"{sym}{idx}:1" if fc == 0 else f"{sym}{idx}:{contrib}(fc={fc:+d})"
 
                 elif sym in ("O", "S"):
-                    contrib = 2
-                    label = f"{sym}{idx}:2(LP)" if fc == 0 else f"{sym}{idx}:2(LP,fc={fc:+d})"
+                    contrib = 0 if has_exo_pi else 2
+                    tag = "(exo_π)" if has_exo_pi else "(LP)" if fc == 0 else f"(LP,fc={fc:+d})"
+                    label = f"{sym}{idx}:{contrib}{tag}"
 
                 pi_electrons += contrib
                 pi_breakdown.append(label)
@@ -1125,6 +1127,21 @@ class BondOrderOptimizer:
 
             # Hückel rule: 4n+2 π electrons (n = 0, 1, 2, ...)
             is_aromatic = pi_electrons >= 2 and pi_electrons in (2, 6, 10, 14, 18)
+
+            # A carbon with no π electron to give (p-orbital committed to an
+            # exocyclic double bond, or empty) can only join an aromatic system
+            # through a betaine resonance form. A ring supports at most one such
+            # form, so two or more of these carbons make it cross-conjugated
+            # rather than aromatic, whatever the Hückel total. Anionic ring
+            # systems are exempt: their surplus electrons can fund several
+            # olate forms (oxocarbon di-anions such as croconate), and the
+            # charge is summed over the ring AND its direct substituents
+            # because croconate's -1 charges sit on the exocyclic oxygens.
+            if is_aromatic and self._ring_system_charge(G, cycle) >= 0:
+                no_pi = self._no_pi_carbon_count(G, cycle, ring_bonds)
+                if no_pi >= 2:
+                    self._log(f"✗ Cross-conjugated: {no_pi} carbons with no π electron for the ring", 2)
+                    is_aromatic = False
 
             if is_aromatic:
                 n = (pi_electrons - 2) // 4
@@ -1199,6 +1216,7 @@ class BondOrderOptimizer:
         if len(candidate_rings) < 2:
             return 0, 0
 
+        ring_bonds = self._ring_bond_set(G)
         bonds_set = 0
         rings_set = 0
         for comp in self._fused_components(candidate_rings, cycles):
@@ -1224,6 +1242,13 @@ class BondOrderOptimizer:
             )
             if pi_total not in (2, 6, 10, 14, 18):
                 self._log("✗ Perimeter not Hückel-aromatic", 2)
+                continue
+            # Cross-conjugation guard (see detect_aromatic_rings).
+            if (
+                self._ring_system_charge(G, perim_atoms) >= 0
+                and self._no_pi_carbon_count(G, perim_atoms, ring_bonds) >= 2
+            ):
+                self._log("✗ Perimeter cross-conjugated (≥2 carbons with no π electron)", 2)
                 continue
             # Don't clobber a triple bond the optimizer already found.
             if any(G.has_edge(*e) and G.edges[tuple(e)]["bond_order"] > 2.01 for e in edge_counts):
@@ -1301,28 +1326,79 @@ class BondOrderOptimizer:
         """Neutral-atom π contribution along the perimeter (Hückel test input).
 
         B contributes 0 (empty p); N contributes 2 at degree 3 (lone pair into
-        ring) or 1 at degree 2; O/S always 2; C contributes 1 unless it has an
-        exocyclic double bond (then 0).
+        ring) or 1 at degree 2; O/S contribute 2; any atom whose p-orbital is
+        committed to an exocyclic double bond (and a bare all-single carbon,
+        whose p-orbital is empty) contributes 0.
         """
         metals = self.data.metals
-        all_ring_atoms: set = set()
-        for r in G.graph.get("_rings", []):
-            all_ring_atoms.update(r)
+        ring_bonds = self._ring_bond_set(G)
         total = 0
         for idx in atoms:
             sym = G.nodes[idx]["symbol"]
+            if sym not in ("C", "N", "O", "S") or self._has_exocyclic_pi(G, idx, ring_bonds):
+                continue
             if sym == "C":
-                has_exo_pi = any(
-                    G.edges[idx, nb].get("bond_order", 1.0) >= 1.8
-                    for nb in G.neighbors(idx)
-                    if nb not in all_ring_atoms and G.nodes[nb]["symbol"] not in metals
-                )
-                total += 0 if has_exo_pi else 1
+                total += 0 if self._is_bare_carbon(G, idx) else 1
             elif sym == "N":
                 degree = sum(1 for nb in G.neighbors(idx) if G.nodes[nb]["symbol"] not in metals)
                 total += 2 if degree == 3 else 1
-            elif sym in ("O", "S"):
+            else:
                 total += 2
+        return total
+
+    @staticmethod
+    def _ring_bond_set(G: nx.Graph) -> set:
+        """Bonds that lie on a ring: consecutive pairs of every cached cycle."""
+        bonds: set = set()
+        for cyc in G.graph.get("_rings", []):
+            for k in range(len(cyc)):
+                bonds.add(frozenset((cyc[k], cyc[(k + 1) % len(cyc)])))
+        return bonds
+
+    def _has_exocyclic_pi(self, G: nx.Graph, idx: int, ring_bonds: set) -> bool:
+        """Check whether the atom's p-orbital is committed to a non-ring double bond."""
+        return any(
+            G.edges[idx, nb].get("bond_order", 1.0) >= 1.8
+            for nb in G.neighbors(idx)
+            if frozenset((idx, nb)) not in ring_bonds and G.nodes[nb]["symbol"] not in self.data.metals
+        )
+
+    def _is_bare_carbon(self, G: nx.Graph, idx: int) -> bool:
+        """Check for a carbon with only single bonds: its p-orbital is empty."""
+        return all(
+            G.edges[idx, nb].get("bond_order", 1.0) < 1.3
+            for nb in G.neighbors(idx)
+            if G.nodes[nb]["symbol"] not in self.data.metals
+        )
+
+    def _no_pi_carbon_count(self, G: nx.Graph, atoms: List[int], ring_bonds: set) -> int:
+        """Count ring carbons with no π electron to give the ring.
+
+        Either the p-orbital is committed to an exocyclic double bond (C=O,
+        C=S, C=CR2 ...) or it is empty (bare cation centre). Both can only
+        join an aromatic ring through a betaine resonance form.
+        """
+        return sum(
+            1
+            for idx in atoms
+            if G.nodes[idx]["symbol"] == "C"
+            and (self._has_exocyclic_pi(G, idx, ring_bonds) or self._is_bare_carbon(G, idx))
+        )
+
+    @staticmethod
+    def _ring_system_charge(G: nx.Graph, atoms: List[int]) -> int:
+        """Formal charge of a ring plus its direct exocyclic substituents.
+
+        Charges conjugated into a ring often sit one bond outside it (olate
+        oxygens in croconate/squarate), so the ring atoms alone misrepresent
+        the charge available to the ring π system.
+        """
+        all_ring_atoms: set = set()
+        for r in G.graph.get("_rings", []):
+            all_ring_atoms.update(r)
+        total = sum(G.nodes[i].get("formal_charge", 0) for i in atoms)
+        for idx in atoms:
+            total += sum(G.nodes[nb].get("formal_charge", 0) for nb in G.neighbors(idx) if nb not in all_ring_atoms)
         return total
 
     @staticmethod
