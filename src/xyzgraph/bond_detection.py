@@ -458,8 +458,10 @@ class BondDetector:
         return G
 
     def _prune_crosslinks(self, G: nx.Graph, symbols: List[str]) -> None:
-        """Drop a waived metal bond to an atom bridging >=2 donors and further from M than every
-        confident one -- a chelate backbone atom, not a hapticity."""
+        """Drop waived metal bonds to chelate backbone atoms rather than coordination vertices.
+
+        A bridge to >=2 donors that is further from M than every confident one is backbone.
+        """
         waived = self.bond_checker.waived
         if not waived:
             return
