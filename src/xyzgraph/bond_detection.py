@@ -140,6 +140,8 @@ class BondDetector:
             return True
         if other in ("B", "Si", "Se", "Te"):
             return True
+        if other in ("As", "Sb", "Ge"):  # heavier congeners of the accepted P/Si (Sn is in data.metals)
+            return True
 
         return False
 
@@ -218,6 +220,7 @@ class BondDetector:
             Connectivity graph with bond_order=1.0 on all edges.
         """
         self.log_buffer = []  # Reset log buffer
+        self.bond_checker.waived.clear()  # per-molecule: stale indices would prune the wrong atoms
 
         G = nx.Graph()
 
@@ -421,6 +424,8 @@ class BondDetector:
                 1,
             )
 
+        self._prune_crosslinks(G, symbols)  # before the overrides: a user bond= is final
+
         # Handle user-specified bonds
         if bond:
             for i, j in bond:
@@ -451,3 +456,34 @@ class BondDetector:
         self._log(f"Total bonds in graph: {total_bonds}", 1)
 
         return G
+
+    def _prune_crosslinks(self, G: nx.Graph, symbols: List[str]) -> None:
+        """Drop waived metal bonds to chelate backbone atoms rather than coordination vertices.
+
+        A bridge to >=2 donors that is further from M than every confident one is backbone.
+        """
+        waived = self.bond_checker.waived
+        if not waived:
+            return
+
+        # Flankers are fixed on the pre-prune graph: dropping one bridge must not strip a
+        # sibling of the second flanker that makes it a cross-link (ZOPJOG's paired carbons).
+        cands = {}
+        for m in [n for n in G if symbols[n] in self.data.metals]:
+            bonded = set(G.neighbors(m))
+            for x in bonded:
+                if frozenset((m, x)) in waived:
+                    fl = (set(G.neighbors(x)) & bonded) - {m}
+                    if len(fl) >= 2:
+                        cands[(m, x)] = sorted(fl)
+
+        # _rings is perceived on the metal-free subgraph, so a chelate (closed THROUGH the metal)
+        # never appears in it while a Cp/arene face does. Face-mates cannot anchor each other:
+        # in a slipped ring the near carbons stay confident and would shred their own face.
+        rings = [set(r) for r in G.graph.get("_rings", [])]
+        for (m, x), fl in sorted(cands.items()):
+            anchors = [f for f in fl if (m, f) not in cands and not any({x, f} <= r for r in rings)]
+            d = G.edges[m, x]["distance"]
+            if anchors and all(d > G.edges[m, a]["distance"] for a in anchors):
+                G.remove_edge(m, x)
+                self._log(f"Pruned cross-link {symbols[m]}{m}-{symbols[x]}{x} (d={d:.3f} Å)", 2)
