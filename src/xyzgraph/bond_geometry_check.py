@@ -36,6 +36,7 @@ class BondGeometryChecker:
         self.geometry = geometry
         self.thresholds = thresholds
         self.data = data
+        self.waived: set = set()  # metal bonds admitted only by the 3-ring diagonal waiver
 
     def _log(self, msg: str, *args):
         """Log with indentation matching the calling context."""
@@ -567,6 +568,7 @@ class BondGeometryChecker:
                 sym_k,
                 k,
             )
+            self.waived.add(frozenset((i, j)))
             return True
 
         # Valence fallback check
