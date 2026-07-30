@@ -108,6 +108,43 @@ def _build_helical_backbone(n_residues: int = 12) -> tuple[nx.Graph, list[dict[s
     return g, annotations
 
 
+def _build_backbone_from_ca(ca_coords: list[tuple[float, float, float]]) -> tuple[nx.Graph, list[dict[str, object]]]:
+    """Build a peptide backbone graph from an explicit list of CA positions.
+
+    Same node/annotation layout as :func:`_build_helical_backbone`, but the
+    trace is caller-supplied so a test can lay out strands and hairpins.
+    """
+    g = nx.Graph()
+    annotations: list[dict[str, object]] = []
+    serial = 0
+    prev_c: int | None = None
+    for i, ca in enumerate(ca_coords):
+        seq = i + 1
+        n_pos = (ca[0] - 1.1, ca[1], ca[2])
+        c_pos = (ca[0] + 1.1, ca[1], ca[2])
+        o_pos = (ca[0] + 1.8, ca[1] + 0.7, ca[2])
+        idxs = {}
+        for name, sym, pos in (("N", "N", n_pos), ("CA", "C", ca), ("C", "C", c_pos), ("O", "O", o_pos)):
+            g.add_node(serial, symbol=sym, position=pos)
+            annotations.append(
+                {
+                    "record_type": "ATOM",
+                    "atom_name": name,
+                    "res_name": "ALA",
+                    "res_seq": seq,
+                    "chain_id": "A",
+                    "ss_type": "C",
+                }
+            )
+            idxs[name] = serial
+            serial += 1
+        g.add_edges_from([(idxs["N"], idxs["CA"]), (idxs["CA"], idxs["C"]), (idxs["C"], idxs["O"])])
+        if prev_c is not None:
+            g.add_edge(prev_c, idxs["N"])
+        prev_c = idxs["C"]
+    return g, annotations
+
+
 def test_annotation_extraction_full_ribbon_and_ligand_partition():
     g = nx.Graph()
     # Residue 1: N-CA-C-O
@@ -442,3 +479,44 @@ def test_atom_coded_waters_and_ions_not_forced_to_ligand():
     assert report.semantics.water_indices == {8, 9, 10}
     assert report.semantics.ion_indices == {11}
     assert report.semantics.ligand_indices == set()
+
+
+def _extended_chain(n_residues: int, *, second_strand: bool) -> list[tuple[float, float, float]]:
+    """CA positions for an extended strand, optionally paired with a partner.
+
+    A single extended run is indistinguishable from extended coil on the
+    torsion/distance tests alone; only the presence of a partner strand
+    alongside makes it a beta sheet.
+    """
+    rise = 3.3  # CA-CA rise along an extended strand
+    out = [(i * rise, 0.15 * (-1) ** i, 0.0) for i in range(n_residues)]
+    if second_strand:
+        # Antiparallel partner ~4.8 A away, joined by a short turn.
+        out += [(3.0, 2.0, 2.4), (0.5, 2.6, 4.0)]  # turn
+        out += [((n_residues - 1 - i) * rise, 4.8 + 0.15 * (-1) ** i, 0.0) for i in range(n_residues)]
+    return out
+
+
+def test_lone_extended_run_is_not_called_a_strand():
+    """An unpaired extended run is coil, not a beta strand.
+
+    Guards the strand-pairing filter.  Without it the extension test is
+    satisfied by any extended coil, which is the dominant source of false
+    strands -- and of spurious arrowheads in cartoon renders.
+    """
+    coords = _extended_chain(10, second_strand=False)
+    g, annotations = _build_backbone_from_ca(coords)
+    report = annotate_protein_semantics(g, atom_annotations=annotations, format_hint=".pdb")
+    assert report is not None
+    labels = [r.ss_type for r in report.semantics.chains["A"].residues]
+    assert "E" not in labels, f"unpaired extended run called strand: {labels}"
+
+
+def test_paired_extended_runs_are_called_strands():
+    """A hairpin -- two extended runs alongside each other -- is a sheet."""
+    coords = _extended_chain(10, second_strand=True)
+    g, annotations = _build_backbone_from_ca(coords)
+    report = annotate_protein_semantics(g, atom_annotations=annotations, format_hint=".pdb")
+    assert report is not None
+    labels = [r.ss_type for r in report.semantics.chains["A"].residues]
+    assert labels.count("E") >= 6, f"paired strands not detected: {labels}"

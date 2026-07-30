@@ -37,6 +37,16 @@ _SS_INFERENCE = {
     "sheet_abs_torsion_min": 130.0,
     "sheet_d3_min": 8.0,
     "sheet_d2_min": 6.1,
+    # A beta strand only exists as part of a sheet: an extended residue must
+    # have a partner strand alongside it.  Without this, the extension test
+    # above is satisfied by any extended coil, which is the dominant source of
+    # false strands (and of spurious arrowheads in cartoon renders).
+    # Partner CA within this distance, and at least this far away in sequence
+    # so a residue cannot pair with its own neighbours.
+    "sheet_pair_max_dist": 5.5,
+    "sheet_pair_min_seq_sep": 3,
+    # How far pairing extends along a candidate run from a paired residue.
+    "sheet_pair_propagate": 1,
     "bridge_gap": 1,
     "min_helix_run": 4,
     "min_sheet_run": 3,
@@ -387,6 +397,48 @@ def _infer_missing_ss_in_chain(graph: nx.Graph, residues: list[ProteinResidueSem
         elif sheet_like and not helix_like:
             sheet_votes[i] += 1
             sheet_votes[i + 1] += 1
+
+    # Strand pairing filter.  The extension test above is a single-strand
+    # geometry test, which extended coil also passes; requiring a partner
+    # strand alongside is what makes it specific.  Cheap O(k^2) over strand
+    # candidates only, which is a small fraction of the chain.
+    max_d = _SS_INFERENCE["sheet_pair_max_dist"]
+    min_sep = int(_SS_INFERENCE["sheet_pair_min_seq_sep"])
+    candidates = [i for i in range(n) if sheet_votes[i] > 0 and anchors[i] is not None]
+    paired: set[int] = set()
+    for a_idx, i in enumerate(candidates):
+        if i in paired:
+            continue
+        pi = anchors[i]
+        assert pi is not None
+        for j in candidates[a_idx + 1 :]:
+            if abs(j - i) < min_sep:
+                continue
+            pj = anchors[j]
+            assert pj is not None
+            if _distance(pi, pj) <= max_d:
+                paired.add(i)
+                paired.add(j)
+                break
+    # Pairing is a property of the strand, not of each residue: a residue in
+    # the middle of a paired strand whose own nearest partner is marginally
+    # too far is still strand.  Propagate along runs of strand candidates.
+    # Reach is bounded: extended coil frequently abuts a real strand, so
+    # propagating along the whole candidate run would re-absorb it.
+    cand_set = set(candidates)
+    reach = int(_SS_INFERENCE["sheet_pair_propagate"])
+    for i in sorted(paired):
+        for step in (-1, 1):
+            j = i + step
+            for _ in range(reach):
+                if j not in cand_set:
+                    break
+                paired.add(j)
+                j += step
+
+    for i in range(n):
+        if sheet_votes[i] > 0 and i not in paired:
+            sheet_votes[i] = 0
 
     inferred = ["C"] * n
     for i in range(n):
