@@ -21,6 +21,8 @@ _ANNOTATION_ALIASES: dict[str, tuple[str, ...]] = {
     "res_seq": ("res_seq", "auth_seq_id", "label_seq_id", "residuenumbers"),
     "chain_id": ("chain_id", "auth_asym_id", "label_asym_id", "chainids"),
     "ss_type": ("ss_type", "secondary_structure"),
+    "i_code": ("i_code", "insertion_code", "pdbx_pdb_ins_code", "auth_ins_code"),
+    "b_factor": ("b_factor", "bfactor", "temp_factor", "tempfactor", "b_iso_or_equiv", "plddt"),
 }
 
 _WATER_RESNAMES: frozenset[str] = frozenset({"HOH", "WAT", "DOD", "H2O", "TIP", "TIP3", "SOL"})
@@ -74,6 +76,8 @@ class ProteinResidueSemantics:
     o_index: int | None
     n_index: int | None
     ss_type: str = "C"
+    i_code: str = ""  # PDB insertion code; part of residue identity
+    b_factor: float = 0.0  # temperature factor / AlphaFold pLDDT
 
 
 @dataclass
@@ -215,6 +219,11 @@ def _normalize_annotations(raw: Iterable[dict[str, object]] | None, n_atoms: int
         chain_id = str(_pick_annotation_value(normalized_row, "chain_id", "A")).strip() or "A"
         res_seq = _to_int(_pick_annotation_value(normalized_row, "res_seq", idx + 1), default=idx + 1)
         ss_type = _normalize_ss(_pick_annotation_value(normalized_row, "ss_type", "C"))
+        i_code = str(_pick_annotation_value(normalized_row, "i_code", "") or "").strip()
+        try:
+            b_factor = float(_pick_annotation_value(normalized_row, "b_factor", 0.0))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            b_factor = 0.0
 
         out.append(
             {
@@ -224,10 +233,30 @@ def _normalize_annotations(raw: Iterable[dict[str, object]] | None, n_atoms: int
                 "chain_id": chain_id,
                 "res_seq": res_seq,
                 "ss_type": ss_type,
+                "i_code": i_code,
+                "b_factor": b_factor,
             }
         )
 
     return out
+
+
+def _residue_b_factor(annotations: list[dict[str, object]], idxs: list[int]) -> float:
+    """Per-residue B-factor: the CA value, else the mean over the residue.
+
+    pLDDT is reported on CA, so that atom is preferred where it exists.
+    """
+    vals = []
+    for idx in idxs:
+        row = annotations[idx]
+        try:
+            b = float(row.get("b_factor", 0.0))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if str(row.get("atom_name", "")).upper().strip() == "CA":
+            return b
+        vals.append(b)
+    return sum(vals) / len(vals) if vals else 0.0
 
 
 def _derive_ss_spans(chains: dict[str, ProteinChainSemantics], ss_type: str) -> list[tuple[str, int, int]]:
@@ -525,6 +554,7 @@ def _extract_from_annotations(
         chain_id = str(row["chain_id"]).strip() or "A"
         res_seq = _to_int(row["res_seq"], default=idx + 1)
         ss_type = _normalize_ss(row["ss_type"])
+        i_code = str(row.get("i_code", "") or "")
 
         if rec == "HETATM":
             hetatm_indices.add(idx)
@@ -536,7 +566,7 @@ def _extract_from_annotations(
                 ligand_indices.add(idx)
             continue
 
-        key = (chain_id, int(res_seq), res_name)
+        key = (chain_id, int(res_seq), i_code, res_name)
         if key not in residues:
             residues[key] = []
             residue_order.append(key)
@@ -554,9 +584,10 @@ def _extract_from_annotations(
     backbone_indices: set[int] = set()
     protein_atoms: set[int] = set()
 
-    for chain_id, res_seq, res_name in residue_order:
-        idxs = residues[(chain_id, res_seq, res_name)]
-        names = residue_names[(chain_id, res_seq, res_name)]
+    for key in residue_order:
+        chain_id, res_seq, i_code, res_name = key
+        idxs = residues[key]
+        names = residue_names[key]
 
         ca_index = c_index = o_index = n_index = None
         for idx in idxs:
@@ -594,7 +625,9 @@ def _extract_from_annotations(
             c_index=c_index,
             o_index=o_index,
             n_index=n_index,
-            ss_type=residue_ss[(chain_id, res_seq, res_name)],
+            ss_type=residue_ss[key],
+            i_code=i_code,
+            b_factor=_residue_b_factor(annotations, idxs),
         )
         chains_raw.setdefault(chain_id, []).append(residue)
         protein_atoms.update(idxs)
@@ -863,6 +896,8 @@ def protein_semantics_from_dict(payload: dict[str, object]) -> ProteinSemantics:
                             o_index=(None if o_index_raw is None else _to_int(o_index_raw, 0)),
                             n_index=(None if n_index_raw is None else _to_int(n_index_raw, 0)),
                             ss_type=_normalize_ss(residue_data.get("ss_type", "C")),
+                            i_code=str(residue_data.get("i_code", "") or ""),
+                            b_factor=float(residue_data.get("b_factor", 0.0) or 0.0),
                         )
                     )
             chains[str(cid)] = ProteinChainSemantics(chain_id=str(chain_data.get("chain_id", cid)), residues=residues)
