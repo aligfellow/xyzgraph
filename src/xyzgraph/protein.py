@@ -105,6 +105,7 @@ class ProteinSemantics:
     confidence_reasons: list[str] = field(default_factory=list)
     provenance: list[str] = field(default_factory=list)
     trace_chains: dict[str, list[int]] = field(default_factory=dict)
+    het_chains: dict[str, set[int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -546,6 +547,11 @@ def _extract_from_annotations(
     ligand_indices: set[int] = set()
     water_indices: set[int] = set()
     ion_indices: set[int] = set()
+    # Non-polymer atoms never join a chain's residue list, so their chain would
+    # otherwise be lost here.  Renderers need it to drop a chain's ligands along
+    # with its ribbon.
+    het_chains: dict[str, set[int]] = {}
+    atom_chain: dict[int, str] = {}
 
     for idx, row in enumerate(annotations):
         rec = str(row["record_type"])
@@ -555,9 +561,11 @@ def _extract_from_annotations(
         res_seq = _to_int(row["res_seq"], default=idx + 1)
         ss_type = _normalize_ss(row["ss_type"])
         i_code = str(row.get("i_code", "") or "")
+        atom_chain[idx] = chain_id
 
         if rec == "HETATM":
             hetatm_indices.add(idx)
+            het_chains.setdefault(chain_id, set()).add(idx)
             if res_name in _WATER_RESNAMES:
                 water_indices.add(idx)
             elif res_name in _ION_RESNAMES:
@@ -608,6 +616,7 @@ def _extract_from_annotations(
 
         has_trace_anchor = ca_index is not None or (n_index is not None and c_index is not None)
         if not has_trace_anchor or not _is_peptide_residue(names, res_name):
+            het_chains.setdefault(chain_id, set()).update(idxs)
             if res_name in _WATER_RESNAMES:
                 water_indices.update(idxs)
             elif res_name in _ION_RESNAMES:
@@ -652,6 +661,15 @@ def _extract_from_annotations(
         if idx in protein_atoms or idx in hetatm_indices or idx in water_indices or idx in ion_indices:
             continue
         ligand_indices.add(idx)
+        het_chains.setdefault(atom_chain.get(idx, "A"), set()).add(idx)
+
+    # Residues that failed the >=2-per-chain continuity test are not polymer as
+    # far as the renderer is concerned; keep them addressable by chain.
+    for cid, residues_list in chains_raw.items():
+        if cid in chains:
+            continue
+        for res in residues_list:
+            het_chains.setdefault(cid, set()).update(res.atom_indices)
 
     trace_chains: dict[str, list[int]] = {}
     for cid, chain in chains.items():
@@ -677,6 +695,7 @@ def _extract_from_annotations(
         confidence_reasons=[f"{provenance} annotations parsed"],
         provenance=[provenance],
         trace_chains=trace_chains,
+        het_chains=het_chains,
     )
     has_ca = any(res.ca_index is not None for chain in chains.values() for res in chain.residues)
     inferred_count = _supplement_secondary_structure(graph, semantics)
@@ -855,6 +874,7 @@ def protein_semantics_to_dict(semantics: ProteinSemantics) -> dict[str, object]:
         "confidence_reasons": list(semantics.confidence_reasons),
         "provenance": list(semantics.provenance),
         "trace_chains": {cid: list(idxs) for cid, idxs in semantics.trace_chains.items()},
+        "het_chains": {cid: sorted(idxs) for cid, idxs in semantics.het_chains.items()},
     }
 
 
@@ -922,6 +942,7 @@ def protein_semantics_from_dict(payload: dict[str, object]) -> ProteinSemantics:
         confidence_reasons=_to_str_list(payload.get("confidence_reasons", [])),
         provenance=_to_str_list(payload.get("provenance", [])),
         trace_chains=_to_trace_chains(payload.get("trace_chains", {})),
+        het_chains={cid: set(idxs) for cid, idxs in _to_trace_chains(payload.get("het_chains", {})).items()},
     )
 
 
