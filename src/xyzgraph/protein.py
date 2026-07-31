@@ -653,6 +653,10 @@ def _extract_from_annotations(
         return None
 
     protein_atoms = {idx for chain in chains.values() for res in chain.residues for idx in res.atom_indices}
+    # Backbone names are collected before a residue is diverted to ligand, so a
+    # lone amino acid on its own chain left N/CA/C/O behind here -- and renderers
+    # hide backbone atoms, so it vanished instead of drawing as a ligand.
+    backbone_indices &= protein_atoms
     sidechain_indices = protein_atoms - backbone_indices
 
     # In metadata-driven inputs without HETATM annotations (e.g. MOL2), treat
