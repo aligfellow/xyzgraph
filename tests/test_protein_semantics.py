@@ -207,10 +207,13 @@ def test_annotation_extraction_full_ribbon_and_ligand_partition():
     assert "A" in report.semantics.chains
     assert len(report.semantics.chains["A"].residues) == 2
     assert report.semantics.ligand_indices == {8, 9}
+    # Ligands keep their chain, which is how a renderer drops them with it.
+    assert report.semantics.het_chains == {"A": {8, 9}}
 
     payload = g.graph["protein_semantics"]
     sem2 = protein_semantics_from_dict(payload)
     assert sem2.confidence_tier == ProteinConfidenceTier.FULL_RIBBON
+    assert sem2.het_chains == report.semantics.het_chains
     protein_atoms = {i for ch in sem2.chains.values() for r in ch.residues for i in r.atom_indices}
     assert 8 not in protein_atoms
     assert 9 not in protein_atoms
