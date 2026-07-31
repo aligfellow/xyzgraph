@@ -100,7 +100,7 @@ class ProteinSemantics:
     sheet_spans: list[tuple[str, int, int]]
     ligand_indices: set[int] = field(default_factory=set)
     water_indices: set[int] = field(default_factory=set)
-    ion_indices: set[int] = field(default_factory=set)
+    ion_indices: set[int] = field(default_factory=set)  # incl. inorganic counter-ions (SO4/PO4)
     confidence_tier: ProteinConfidenceTier = ProteinConfidenceTier.FULL_RIBBON
     confidence_reasons: list[str] = field(default_factory=list)
     provenance: list[str] = field(default_factory=list)
