@@ -172,17 +172,14 @@ print(graph_to_ascii(G_cheminf, scale=3.0, include_h=False))
 **Multi-frame trajectory files**:
 
 ```python
-from xyzgraph import read_xyz_file, build_graph
+from xyzgraph import build_graph, read_xyz_file, read_xyz_frames
 
 # Read specific frame from trajectory
 atoms = read_xyz_file("trajectory.xyz", frame=2)
 G = build_graph(atoms, charge=0)
 
-# Process all frames
-from xyzgraph import count_frames_and_atoms
-num_frames, _ = count_frames_and_atoms("trajectory.xyz")
-for i in range(num_frames):
-    atoms = read_xyz_file("trajectory.xyz", frame=i)
+# Process all frames; each record may have its own atom-count header
+for atoms in read_xyz_frames("trajectory.xyz"):
     G = build_graph(atoms, charge=0)
     # ... analyze G
 ```

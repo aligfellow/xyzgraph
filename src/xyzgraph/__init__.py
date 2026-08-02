@@ -20,7 +20,7 @@ from .graph_builders_xtb import build_graph_xtb
 from .nci import NCIAnalyzer, NCIThresholds, detect_ncis
 from .orca_parser import OrcaParseError, parse_orca_output
 from .stereo import StereoSummary, annotate_stereo
-from .utils import count_frames_and_atoms, graph_debug_report, graph_to_dict, read_xyz_file
+from .utils import count_frames_and_atoms, graph_debug_report, graph_to_dict, read_xyz_file, read_xyz_frames
 
 __all__ = [
     "DATA",
@@ -43,4 +43,5 @@ __all__ = [
     "graph_to_dict",
     "parse_orca_output",
     "read_xyz_file",
+    "read_xyz_frames",
 ]
