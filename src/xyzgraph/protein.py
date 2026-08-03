@@ -131,6 +131,13 @@ def _to_int(value: object, default: int = 0) -> int:
         return default
 
 
+def _to_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def _to_int_set(value: object) -> set[int]:
     if not isinstance(value, list):
         return set()
@@ -538,10 +545,10 @@ def _extract_from_annotations(
     if n_atoms == 0:
         return None
 
-    residues: dict[tuple[str, int, str], list[int]] = {}
-    residue_order: list[tuple[str, int, str]] = []
-    residue_names: dict[tuple[str, int, str], set[str]] = {}
-    residue_ss: dict[tuple[str, int, str], str] = {}
+    residues: dict[tuple[str, int, str, str], list[int]] = {}
+    residue_order: list[tuple[str, int, str, str]] = []
+    residue_names: dict[tuple[str, int, str, str], set[str]] = {}
+    residue_ss: dict[tuple[str, int, str, str], str] = {}
 
     hetatm_indices: set[int] = set()
     ligand_indices: set[int] = set()
@@ -921,7 +928,7 @@ def protein_semantics_from_dict(payload: dict[str, object]) -> ProteinSemantics:
                             n_index=(None if n_index_raw is None else _to_int(n_index_raw, 0)),
                             ss_type=_normalize_ss(residue_data.get("ss_type", "C")),
                             i_code=str(residue_data.get("i_code", "") or ""),
-                            b_factor=float(residue_data.get("b_factor", 0.0) or 0.0),
+                            b_factor=_to_float(residue_data.get("b_factor", 0.0)),
                         )
                     )
             chains[str(cid)] = ProteinChainSemantics(chain_id=str(chain_data.get("chain_id", cid)), residues=residues)
