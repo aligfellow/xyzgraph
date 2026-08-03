@@ -16,3 +16,8 @@ def test_core_data_present():
     assert "C" not in DATA.metals
     assert DATA.electronegativity["O"] > DATA.electronegativity["C"]
     assert DATA.aromatic_atoms < DATA.conjugatable_atoms
+
+
+def test_sblock_metals_are_classified_as_metals():
+    """s-block selector set remains a true subset of the metals taxonomy."""
+    assert DATA.sblock_metals <= DATA.metals

@@ -132,6 +132,8 @@ class MolecularData:
             "Sr",
             "Cs",
             "Ba",
+            "Fr",
+            "Ra",
             "Zn",
             "Sc",
             "Ti",
@@ -181,6 +183,9 @@ class MolecularData:
             "Yb",
             "Lu",
         }
+
+        # Common s-block metals (for selector compatibility in downstream tools)
+        sblock_metals = {"Li", "Na", "K", "Rb", "Cs", "Fr", "Be", "Mg", "Ca", "Sr", "Ba", "Ra"}
 
         # Load element mappings
         element_file = data_path / "atom_symbols.json"
