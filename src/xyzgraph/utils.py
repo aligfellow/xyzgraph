@@ -2,7 +2,7 @@
 
 import logging
 from collections import Counter, deque
-from typing import List, Optional, Tuple
+from typing import Iterable, Iterator, List, Optional, Tuple
 
 import networkx as nx
 
@@ -391,73 +391,120 @@ def count_frames_and_atoms(filepath: str) -> tuple[int, int]:
     return frame_count, num_atoms
 
 
+def _parse_xyz_atom_line(
+    line: str, frame_index: int, atom_index: int, bohr_units: bool
+) -> Tuple[str, Tuple[float, float, float]]:
+    """Parse one XYZ atom record into ``(symbol, (x, y, z))``."""
+    parts = line.split()
+    if len(parts) < 4:
+        raise ValueError(f"Frame {frame_index}, atom {atom_index}: expected at least 4 columns")
+
+    elem = parts[0]
+    try:
+        x, y, z = map(float, parts[1:4])
+    except ValueError as e:
+        raise ValueError(f"Frame {frame_index}, atom {atom_index}: invalid coordinates") from e
+
+    if elem.isdigit():
+        atomic_num = int(elem)
+        if atomic_num not in DATA.n2s:
+            raise ValueError(f"Frame {frame_index}, atom {atom_index}: unknown atomic number {atomic_num}")
+        symbol = DATA.n2s[atomic_num]
+    else:
+        symbol = elem
+
+    if symbol not in DATA.s2n:
+        raise ValueError(f"Frame {frame_index}, atom {atom_index}: unknown element symbol '{symbol}'")
+
+    if bohr_units:
+        x, y, z = (
+            x * BOHR_TO_ANGSTROM,
+            y * BOHR_TO_ANGSTROM,
+            z * BOHR_TO_ANGSTROM,
+        )
+
+    return symbol, (x, y, z)
+
+
+def _without_trailing_blank_lines(lines: Iterable[str]) -> Iterator[str]:
+    """Yield lines, dropping any run of blank lines at the end of the input.
+
+    Interior blank lines are passed through unchanged, so only consecutive
+    blank lines are ever buffered.
+    """
+    pending_blank = 0
+    for line in lines:
+        if line.strip():
+            for _ in range(pending_blank):
+                yield ""
+            pending_blank = 0
+            yield line
+        else:
+            pending_blank += 1
+
+
+def _iter_xyz_frames(
+    lines: Iterable[str], bohr_units: bool = False, parse_only: Optional[int] = None
+) -> Iterator[Optional[List[Tuple[str, Tuple[float, float, float]]]]]:
+    """Lazily yield frames from the lines of an XYZ file.
+
+    Parameters
+    ----------
+    lines : Iterable[str]
+        Lines of the XYZ file (e.g. an open file handle).
+    bohr_units : bool
+        Convert coordinates from Bohr to Angstrom.
+    parse_only : int, optional
+        If given, only this frame's atom records are parsed and validated.
+        Other frames are checked for layout only (atom-count header, comment
+        line, number of records) and yielded as ``None``.
+
+    Yields
+    ------
+    list of (symbol, (x, y, z)) or None
+        One item per frame, in file order.
+    """
+    stream = _without_trailing_blank_lines(lines)
+    frame_index = 0
+    line_number = 0
+    for header in stream:
+        line_number += 1
+        try:
+            num_atoms = int(header.strip())
+        except ValueError:
+            raise ValueError(f"Frame {frame_index}: expected atom count at line {line_number}") from None
+        if num_atoms < 0:
+            raise ValueError(f"Frame {frame_index}: atom count must be non-negative")
+        if next(stream, None) is None:
+            raise ValueError(f"Frame {frame_index}: missing comment line")
+        line_number += 1
+
+        parse = parse_only is None or frame_index == parse_only
+        atoms: Optional[List[Tuple[str, Tuple[float, float, float]]]] = [] if parse else None
+        for atom_index in range(num_atoms):
+            line = next(stream, None)
+            if line is None:
+                raise ValueError(f"Frame {frame_index} truncated: expected {num_atoms} atoms, found {atom_index}")
+            line_number += 1
+            if atoms is not None:
+                atoms.append(_parse_xyz_atom_line(line, frame_index, atom_index, bohr_units))
+
+        yield atoms
+        frame_index += 1
+
+    if frame_index == 0:
+        raise ValueError("Empty XYZ file")
+
+
 def read_xyz_frames(filepath: str, bohr_units: bool = False) -> List[List[Tuple[str, Tuple[float, float, float]]]]:
     """Read every frame from an XYZ file.
 
     Each frame is parsed using its own atom-count header and returned in the
     same ``(symbol, (x, y, z))`` atom-list shape as :func:`read_xyz_file`.
+    Every atom record in every frame is validated.
     """
     with open(filepath, "r") as f:
-        lines = f.read().splitlines()
-
-    while lines and not lines[-1].strip():
-        lines.pop()
-    if not lines:
-        raise ValueError("Empty XYZ file")
-
-    frames = []
-    line_index = 0
-    frame_index = 0
-    while line_index < len(lines):
-        try:
-            num_atoms = int(lines[line_index].strip())
-        except ValueError:
-            raise ValueError(f"Frame {frame_index}: expected atom count at line {line_index + 1}") from None
-        if num_atoms < 0:
-            raise ValueError(f"Frame {frame_index}: atom count must be non-negative")
-        if line_index + 1 >= len(lines):
-            raise ValueError(f"Frame {frame_index}: missing comment line")
-
-        line_index += 2
-        atoms = []
-        for atom_index in range(num_atoms):
-            if line_index >= len(lines):
-                raise ValueError(f"Frame {frame_index} truncated: expected {num_atoms} atoms, found {atom_index}")
-            parts = lines[line_index].strip().split()
-            if len(parts) < 4:
-                raise ValueError(f"Frame {frame_index}, atom {atom_index}: expected at least 4 columns")
-
-            elem = parts[0]
-            try:
-                x, y, z = map(float, parts[1:4])
-            except ValueError as e:
-                raise ValueError(f"Frame {frame_index}, atom {atom_index}: invalid coordinates") from e
-
-            if elem.isdigit():
-                atomic_num = int(elem)
-                if atomic_num not in DATA.n2s:
-                    raise ValueError(f"Frame {frame_index}, atom {atom_index}: unknown atomic number {atomic_num}")
-                symbol = DATA.n2s[atomic_num]
-            else:
-                symbol = elem
-
-            if symbol not in DATA.s2n:
-                raise ValueError(f"Frame {frame_index}, atom {atom_index}: unknown element symbol '{symbol}'")
-
-            if bohr_units:
-                x, y, z = (
-                    x * BOHR_TO_ANGSTROM,
-                    y * BOHR_TO_ANGSTROM,
-                    z * BOHR_TO_ANGSTROM,
-                )
-
-            atoms.append((symbol, (x, y, z)))
-            line_index += 1
-
-        frames.append(atoms)
-        frame_index += 1
-
-    return frames
+        return [atoms for atoms in _iter_xyz_frames(f, bohr_units=bohr_units) if atoms is not None]
 
 
 def read_xyz_file(
@@ -465,13 +512,48 @@ def read_xyz_file(
 ) -> List[Tuple[str, Tuple[float, float, float]]]:
     """Read XYZ file and return list of (symbol, (x, y, z)) for specified frame.
 
-    Supports single and multi-frame (trajectory) files.
-    """
-    frames = read_xyz_frames(filepath, bohr_units=bohr_units)
+    Supports single and multi-frame (trajectory) files, including trajectories
+    whose atom count changes between frames.
 
-    if frame < 0 or frame >= len(frames):
-        raise ValueError(f"Frame {frame} out of range. File has {len(frames)} frame(s).")
-    return frames[frame]
+    The file is streamed: frames before ``frame`` are only checked for layout
+    (atom-count header, comment line, number of records) and their atom
+    records are not parsed, and nothing after ``frame`` is read. Use
+    :func:`read_xyz_frames` to validate every frame. Because earlier frames
+    are skipped by counting lines, a numeric but incorrect atom-count header
+    can shift the frame boundaries without raising an error.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to XYZ file.
+    bohr_units : bool
+        Convert coordinates from Bohr to Angstrom.
+    frame : int
+        0-based frame index.
+
+    Returns
+    -------
+    List[Tuple[str, Tuple[float, float, float]]]
+        Atoms of the requested frame.
+
+    Raises
+    ------
+    ValueError
+        If the requested frame is malformed, an earlier frame has a broken
+        layout, or ``frame`` is out of range. An out-of-range index reads the
+        whole file (layout checks only) so the frame count can be reported.
+    """
+    if frame < 0:
+        raise ValueError(f"Frame {frame} out of range. Frame index must be non-negative.")
+
+    num_frames = 0
+    with open(filepath, "r") as f:
+        for atoms in _iter_xyz_frames(f, bohr_units=bohr_units, parse_only=frame):
+            if atoms is not None:
+                return atoms
+            num_frames += 1
+
+    raise ValueError(f"Frame {frame} out of range. File has {num_frames} frame(s).")
 
 
 def _parse_pairs(arg_value: str):
