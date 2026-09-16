@@ -2,6 +2,7 @@
 
 import logging
 from collections import Counter, deque
+from itertools import islice
 from typing import Iterable, Iterator, List, Optional, Tuple
 
 import networkx as nx
@@ -451,7 +452,7 @@ def _iter_xyz_frames(
     Parameters
     ----------
     lines : Iterable[str]
-        Lines of the XYZ file (e.g. an open file handle).
+        Lines of the XYZ file, with any trailing blank lines already removed.
     bohr_units : bool
         Convert coordinates from Bohr to Angstrom.
     parse_only : int, optional
@@ -464,7 +465,7 @@ def _iter_xyz_frames(
     list of (symbol, (x, y, z)) or None
         One item per frame, in file order.
     """
-    stream = _without_trailing_blank_lines(lines)
+    stream = iter(lines)
     frame_index = 0
     line_number = 0
     for header in stream:
@@ -479,15 +480,16 @@ def _iter_xyz_frames(
             raise ValueError(f"Frame {frame_index}: missing comment line")
         line_number += 1
 
-        parse = parse_only is None or frame_index == parse_only
-        atoms: Optional[List[Tuple[str, Tuple[float, float, float]]]] = [] if parse else None
-        for atom_index in range(num_atoms):
-            line = next(stream, None)
-            if line is None:
-                raise ValueError(f"Frame {frame_index} truncated: expected {num_atoms} atoms, found {atom_index}")
-            line_number += 1
-            if atoms is not None:
-                atoms.append(_parse_xyz_atom_line(line, frame_index, atom_index, bohr_units))
+        atom_lines = list(islice(stream, num_atoms))
+        atoms: Optional[List[Tuple[str, Tuple[float, float, float]]]] = None
+        if parse_only is None or frame_index == parse_only:
+            atoms = [
+                _parse_xyz_atom_line(line, frame_index, atom_index, bohr_units)
+                for atom_index, line in enumerate(atom_lines)
+            ]
+        if len(atom_lines) < num_atoms:
+            raise ValueError(f"Frame {frame_index} truncated: expected {num_atoms} atoms, found {len(atom_lines)}")
+        line_number += num_atoms
 
         yield atoms
         frame_index += 1
@@ -504,7 +506,10 @@ def read_xyz_frames(filepath: str, bohr_units: bool = False) -> List[List[Tuple[
     Every atom record in every frame is validated.
     """
     with open(filepath, "r") as f:
-        return [atoms for atoms in _iter_xyz_frames(f, bohr_units=bohr_units) if atoms is not None]
+        lines = f.readlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return [atoms for atoms in _iter_xyz_frames(lines, bohr_units=bohr_units) if atoms is not None]
 
 
 def read_xyz_file(
@@ -548,7 +553,7 @@ def read_xyz_file(
 
     num_frames = 0
     with open(filepath, "r") as f:
-        for atoms in _iter_xyz_frames(f, bohr_units=bohr_units, parse_only=frame):
+        for atoms in _iter_xyz_frames(_without_trailing_blank_lines(f), bohr_units=bohr_units, parse_only=frame):
             if atoms is not None:
                 return atoms
             num_frames += 1
