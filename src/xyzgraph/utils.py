@@ -348,7 +348,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
 
 
 def count_frames_and_atoms(filepath: str) -> tuple[int, int]:
-    """Count frames and atoms in an XYZ trajectory file.
+    """Count frames and atoms in an XYZ trajectory whose frames share one atom count.
 
     Parameters
     ----------
@@ -359,37 +359,19 @@ def count_frames_and_atoms(filepath: str) -> tuple[int, int]:
     -------
     tuple[int, int]
         (num_frames, num_atoms_per_frame)
+
+    Raises
+    ------
+    ValueError
+        If frames have different atom counts; use :func:`read_xyz_frames` instead.
     """
-    with open(filepath, "r") as f:
-        lines = f.read().rstrip().splitlines()
-
-    if not lines:
-        raise ValueError("Empty XYZ file")
-    try:
-        num_atoms = int(lines[0].strip())
-    except ValueError:
-        raise ValueError("Invalid XYZ format: first line should be atom count") from None
-    if num_atoms < 0:
-        raise ValueError("Invalid XYZ format: atom count must be non-negative")
-
-    frame_size = num_atoms + 2
-    frame_count = 0
-    line_index = 0
-    while line_index < len(lines):
-        try:
-            frame_atoms = int(lines[line_index].strip())
-        except ValueError:
-            raise ValueError(f"Invalid XYZ format: frame {frame_count} should start with an atom count") from None
-        if frame_atoms != num_atoms:
-            raise ValueError(
-                "Variable atom counts are not supported by count_frames_and_atoms; use read_xyz_frames instead"
-            )
-        if line_index + frame_size > len(lines):
-            raise ValueError(f"File has {len(lines)} lines, not evenly divisible by frame size {frame_size}")
-        frame_count += 1
-        line_index += frame_size
-
-    return frame_count, num_atoms
+    frames = read_xyz_frames(filepath)
+    num_atoms = len(frames[0])
+    if any(len(atoms) != num_atoms for atoms in frames):
+        raise ValueError(
+            "Variable atom counts are not supported by count_frames_and_atoms; use read_xyz_frames instead"
+        )
+    return len(frames), num_atoms
 
 
 def _parse_xyz_atom_line(
@@ -427,42 +409,25 @@ def _parse_xyz_atom_line(
     return symbol, (x, y, z)
 
 
-def _without_trailing_blank_lines(lines: Iterable[str]) -> Iterator[str]:
-    """Yield lines, dropping any run of blank lines at the end of the input.
-
-    Interior blank lines are passed through unchanged, so only consecutive
-    blank lines are ever buffered.
-    """
-    pending_blank = 0
-    for line in lines:
-        if line.strip():
-            for _ in range(pending_blank):
-                yield ""
-            pending_blank = 0
-            yield line
-        else:
-            pending_blank += 1
-
-
 def _iter_xyz_frames(
-    lines: Iterable[str], bohr_units: bool = False, parse_only: Optional[int] = None
-) -> Iterator[Optional[List[Tuple[str, Tuple[float, float, float]]]]]:
+    lines: Iterable[str], bohr_units: bool = False
+) -> Iterator[List[Tuple[str, Tuple[float, float, float]]]]:
     """Lazily yield frames from the lines of an XYZ file.
+
+    Each frame is parsed using its own atom-count header, so the atom count
+    may change between frames. Blank lines where a header is expected (e.g.
+    trailing newlines) are skipped.
 
     Parameters
     ----------
     lines : Iterable[str]
-        Lines of the XYZ file, with any trailing blank lines already removed.
+        Lines of the XYZ file.
     bohr_units : bool
         Convert coordinates from Bohr to Angstrom.
-    parse_only : int, optional
-        If given, only this frame's atom records are parsed and validated.
-        Other frames are checked for layout only (atom-count header, comment
-        line, number of records) and yielded as ``None``.
 
     Yields
     ------
-    list of (symbol, (x, y, z)) or None
+    list of (symbol, (x, y, z))
         One item per frame, in file order.
     """
     stream = iter(lines)
@@ -470,6 +435,8 @@ def _iter_xyz_frames(
     line_number = 0
     for header in stream:
         line_number += 1
+        if not header.strip():
+            continue
         try:
             num_atoms = int(header.strip())
         except ValueError:
@@ -481,17 +448,14 @@ def _iter_xyz_frames(
         line_number += 1
 
         atom_lines = list(islice(stream, num_atoms))
-        atoms: Optional[List[Tuple[str, Tuple[float, float, float]]]] = None
-        if parse_only is None or frame_index == parse_only:
-            atoms = [
-                _parse_xyz_atom_line(line, frame_index, atom_index, bohr_units)
-                for atom_index, line in enumerate(atom_lines)
-            ]
         if len(atom_lines) < num_atoms:
             raise ValueError(f"Frame {frame_index} truncated: expected {num_atoms} atoms, found {len(atom_lines)}")
         line_number += num_atoms
 
-        yield atoms
+        yield [
+            _parse_xyz_atom_line(line, frame_index, atom_index, bohr_units)
+            for atom_index, line in enumerate(atom_lines)
+        ]
         frame_index += 1
 
     if frame_index == 0:
@@ -503,29 +467,17 @@ def read_xyz_frames(filepath: str, bohr_units: bool = False) -> List[List[Tuple[
 
     Each frame is parsed using its own atom-count header and returned in the
     same ``(symbol, (x, y, z))`` atom-list shape as :func:`read_xyz_file`.
-    Every atom record in every frame is validated.
     """
     with open(filepath, "r") as f:
-        lines = f.readlines()
-    while lines and not lines[-1].strip():
-        lines.pop()
-    return [atoms for atoms in _iter_xyz_frames(lines, bohr_units=bohr_units) if atoms is not None]
+        return list(_iter_xyz_frames(f, bohr_units=bohr_units))
 
 
 def read_xyz_file(
     filepath: str, bohr_units: bool = False, frame: int = 0
 ) -> List[Tuple[str, Tuple[float, float, float]]]:
-    """Read XYZ file and return list of (symbol, (x, y, z)) for specified frame.
+    """Read one frame from an XYZ file as a list of (symbol, (x, y, z)).
 
-    Supports single and multi-frame (trajectory) files, including trajectories
-    whose atom count changes between frames.
-
-    The file is streamed: frames before ``frame`` are only checked for layout
-    (atom-count header, comment line, number of records) and their atom
-    records are not parsed, and nothing after ``frame`` is read. Use
-    :func:`read_xyz_frames` to validate every frame. Because earlier frames
-    are skipped by counting lines, a numeric but incorrect atom-count header
-    can shift the frame boundaries without raising an error.
+    Frames up to ``frame`` are parsed in order; nothing after it is read.
 
     Parameters
     ----------
@@ -540,21 +492,11 @@ def read_xyz_file(
     -------
     List[Tuple[str, Tuple[float, float, float]]]
         Atoms of the requested frame.
-
-    Raises
-    ------
-    ValueError
-        If the requested frame is malformed, an earlier frame has a broken
-        layout, or ``frame`` is out of range. An out-of-range index reads the
-        whole file (layout checks only) so the frame count can be reported.
     """
-    if frame < 0:
-        raise ValueError(f"Frame {frame} out of range. Frame index must be non-negative.")
-
     num_frames = 0
     with open(filepath, "r") as f:
-        for atoms in _iter_xyz_frames(_without_trailing_blank_lines(f), bohr_units=bohr_units, parse_only=frame):
-            if atoms is not None:
+        for atoms in _iter_xyz_frames(f, bohr_units=bohr_units):
+            if num_frames == frame:
                 return atoms
             num_frames += 1
 

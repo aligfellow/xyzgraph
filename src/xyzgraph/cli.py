@@ -597,14 +597,14 @@ def main():
         if args.compare_rdkit:
             print(f"# Building RDKit graph from {args.input_file}...")
             try:
-                G_rdkit = build_graph_rdkit(args.input_file, charge=args.charge, bohr_units=args.bohr)
+                G_rdkit = build_graph_rdkit(atoms, charge=args.charge)
             except ValueError as e:
                 print(f"# Failed to build RDKit graph: {e}")
 
         if args.compare_rdkit_tm:
             print(f"# Building RDKit-TM graph from {args.input_file}...")
             try:
-                G_rdkit_tm = build_graph_rdkit_tm(args.input_file, charge=args.charge, bohr_units=args.bohr)
+                G_rdkit_tm = build_graph_rdkit_tm(atoms, charge=args.charge)
             except (ValueError, ImportError) as e:
                 print(f"# Failed to build RDKit-TM graph: {e}")
 
