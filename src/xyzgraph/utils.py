@@ -2,7 +2,8 @@
 
 import logging
 from collections import Counter, deque
-from typing import List, Optional, Tuple
+from itertools import islice
+from typing import Iterable, Iterator, List, Optional, Tuple
 
 import networkx as nx
 
@@ -347,7 +348,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
 
 
 def count_frames_and_atoms(filepath: str) -> tuple[int, int]:
-    """Count frames and atoms in an XYZ trajectory file.
+    """Count frames and atoms in an XYZ trajectory whose frames share one atom count.
 
     Parameters
     ----------
@@ -358,79 +359,148 @@ def count_frames_and_atoms(filepath: str) -> tuple[int, int]:
     -------
     tuple[int, int]
         (num_frames, num_atoms_per_frame)
+
+    Raises
+    ------
+    ValueError
+        If frames have different atom counts; use :func:`read_xyz_frames` instead.
+    """
+    frames = read_xyz_frames(filepath)
+    num_atoms = len(frames[0])
+    if any(len(atoms) != num_atoms for atoms in frames):
+        raise ValueError(
+            "Variable atom counts are not supported by count_frames_and_atoms; use read_xyz_frames instead"
+        )
+    return len(frames), num_atoms
+
+
+def _parse_xyz_atom_line(
+    line: str, frame_index: int, atom_index: int, bohr_units: bool
+) -> Tuple[str, Tuple[float, float, float]]:
+    """Parse one XYZ atom record into ``(symbol, (x, y, z))``."""
+    parts = line.split()
+    if len(parts) < 4:
+        raise ValueError(f"Frame {frame_index}, atom {atom_index}: expected at least 4 columns")
+
+    elem = parts[0]
+    try:
+        x, y, z = map(float, parts[1:4])
+    except ValueError as e:
+        raise ValueError(f"Frame {frame_index}, atom {atom_index}: invalid coordinates") from e
+
+    if elem.isdigit():
+        atomic_num = int(elem)
+        if atomic_num not in DATA.n2s:
+            raise ValueError(f"Frame {frame_index}, atom {atom_index}: unknown atomic number {atomic_num}")
+        symbol = DATA.n2s[atomic_num]
+    else:
+        symbol = elem
+
+    if symbol not in DATA.s2n:
+        raise ValueError(f"Frame {frame_index}, atom {atom_index}: unknown element symbol '{symbol}'")
+
+    if bohr_units:
+        x, y, z = (
+            x * BOHR_TO_ANGSTROM,
+            y * BOHR_TO_ANGSTROM,
+            z * BOHR_TO_ANGSTROM,
+        )
+
+    return symbol, (x, y, z)
+
+
+def _iter_xyz_frames(
+    lines: Iterable[str], bohr_units: bool = False
+) -> Iterator[List[Tuple[str, Tuple[float, float, float]]]]:
+    """Lazily yield frames from the lines of an XYZ file.
+
+    Each frame is parsed using its own atom-count header, so the atom count
+    may change between frames. Blank lines where a header is expected (e.g.
+    trailing newlines) are skipped.
+
+    Parameters
+    ----------
+    lines : Iterable[str]
+        Lines of the XYZ file.
+    bohr_units : bool
+        Convert coordinates from Bohr to Angstrom.
+
+    Yields
+    ------
+    list of (symbol, (x, y, z))
+        One item per frame, in file order.
+    """
+    stream = iter(lines)
+    frame_index = 0
+    line_number = 0
+    for header in stream:
+        line_number += 1
+        if not header.strip():
+            continue
+        try:
+            num_atoms = int(header.strip())
+        except ValueError:
+            raise ValueError(f"Frame {frame_index}: expected atom count at line {line_number}") from None
+        if num_atoms < 0:
+            raise ValueError(f"Frame {frame_index}: atom count must be non-negative")
+        if next(stream, None) is None:
+            raise ValueError(f"Frame {frame_index}: missing comment line")
+        line_number += 1
+
+        atom_lines = list(islice(stream, num_atoms))
+        if len(atom_lines) < num_atoms:
+            raise ValueError(f"Frame {frame_index} truncated: expected {num_atoms} atoms, found {len(atom_lines)}")
+        line_number += num_atoms
+
+        yield [
+            _parse_xyz_atom_line(line, frame_index, atom_index, bohr_units)
+            for atom_index, line in enumerate(atom_lines)
+        ]
+        frame_index += 1
+
+    if frame_index == 0:
+        raise ValueError("Empty XYZ file")
+
+
+def read_xyz_frames(filepath: str, bohr_units: bool = False) -> List[List[Tuple[str, Tuple[float, float, float]]]]:
+    """Read every frame from an XYZ file.
+
+    Each frame is parsed using its own atom-count header and returned in the
+    same ``(symbol, (x, y, z))`` atom-list shape as :func:`read_xyz_file`.
     """
     with open(filepath, "r") as f:
-        lines = f.read().rstrip().splitlines()
-
-    if not lines:
-        raise ValueError("Empty XYZ file")
-    try:
-        num_atoms = int(lines[0].strip())
-    except ValueError:
-        raise ValueError("Invalid XYZ format: first line should be atom count") from None
-
-    frame_size = num_atoms + 2
-
-    if len(lines) % frame_size != 0:
-        raise ValueError(f"File has {len(lines)} lines, not evenly divisible by frame size {frame_size}")
-
-    return len(lines) // frame_size, num_atoms
+        return list(_iter_xyz_frames(f, bohr_units=bohr_units))
 
 
 def read_xyz_file(
     filepath: str, bohr_units: bool = False, frame: int = 0
 ) -> List[Tuple[str, Tuple[float, float, float]]]:
-    """Read XYZ file and return list of (symbol, (x, y, z)) for specified frame.
+    """Read one frame from an XYZ file as a list of (symbol, (x, y, z)).
 
-    Supports single and multi-frame (trajectory) files. Streams to requested frame.
+    Frames up to ``frame`` are parsed in order; nothing after it is read.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to XYZ file.
+    bohr_units : bool
+        Convert coordinates from Bohr to Angstrom.
+    frame : int
+        0-based frame index.
+
+    Returns
+    -------
+    List[Tuple[str, Tuple[float, float, float]]]
+        Atoms of the requested frame.
     """
-    num_frames, num_atoms = count_frames_and_atoms(filepath)
-
-    if frame < 0 or frame >= num_frames:
-        raise ValueError(f"Frame {frame} out of range. File has {num_frames} frame(s).")
-
-    start_line = frame * (num_atoms + 2)
-
+    num_frames = 0
     with open(filepath, "r") as f:
-        for _ in range(start_line):
-            f.readline()
-        f.readline()  # Skip header
-        f.readline()  # Skip comment
+        for atoms in _iter_xyz_frames(f, bohr_units=bohr_units):
+            if num_frames == frame:
+                return atoms
+            num_frames += 1
 
-        atoms = []
-        for i in range(num_atoms):
-            parts = f.readline().strip().split()
-            if len(parts) < 4:
-                raise ValueError(f"Frame {frame}, atom {i}: expected at least 4 columns")
-
-            elem = parts[0]
-            try:
-                x, y, z = map(float, parts[1:4])
-            except ValueError as e:
-                raise ValueError(f"Frame {frame}, atom {i}: invalid coordinates") from e
-
-            # Convert atomic number to symbol if needed
-            if elem.isdigit():
-                atomic_num = int(elem)
-                if atomic_num not in DATA.n2s:
-                    raise ValueError(f"Frame {frame}, atom {i}: unknown atomic number {atomic_num}")
-                symbol = DATA.n2s[atomic_num]
-            else:
-                symbol = elem
-
-            if symbol not in DATA.s2n:
-                raise ValueError(f"Frame {frame}, atom {i}: unknown element symbol '{symbol}'")
-
-            if bohr_units:
-                x, y, z = (
-                    x * BOHR_TO_ANGSTROM,
-                    y * BOHR_TO_ANGSTROM,
-                    z * BOHR_TO_ANGSTROM,
-                )
-
-            atoms.append((symbol, (x, y, z)))
-
-    return atoms
+    raise ValueError(f"Frame {frame} out of range. File has {num_frames} frame(s).")
 
 
 def _parse_pairs(arg_value: str):

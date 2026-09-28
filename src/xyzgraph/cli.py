@@ -12,7 +12,7 @@ from . import (
     compare_with_rdkit,
     graph_debug_report,
     graph_to_ascii,
-    read_xyz_file,
+    read_xyz_frames,
 )
 from .config import DEFAULT_PARAMS
 from .graph_builders import compute_metadata
@@ -512,16 +512,17 @@ def main():
         stereo=args.stereo,
     )
 
-    # Determine frames to process
-    from .utils import count_frames_and_atoms
-
-    num_frames, _ = count_frames_and_atoms(args.input_file)
+    # Parse once so each trajectory record can use its own atom-count header.
+    xyz_frames = read_xyz_frames(args.input_file, bohr_units=args.bohr)
+    num_frames = len(xyz_frames)
 
     if args.all_frames:
         frames_to_process = list(range(num_frames))
         print_header(args.input_file, metadata, frame_info=f"0-{num_frames - 1}")
         print(f"# Processing all {num_frames} frames from trajectory file...\n")
     else:
+        if args.frame < 0 or args.frame >= num_frames:
+            raise ValueError(f"Frame {args.frame} out of range. File has {num_frames} frame(s).")
         # Show frame info if multi-frame file
         frame_info = args.frame if num_frames > 1 else None
         print_header(args.input_file, metadata, frame_info=frame_info)
@@ -535,7 +536,7 @@ def main():
             print(f"{'=' * 80}\n")
 
         # Build primary graph (cheminf or xtb)
-        atoms = read_xyz_file(args.input_file, bohr_units=args.bohr, frame=frame_idx)
+        atoms = xyz_frames[frame_idx]
         print(f"# Building {args.method} graph from {args.input_file}...")
         G_primary = build_graph(
             atoms=atoms,
@@ -596,14 +597,14 @@ def main():
         if args.compare_rdkit:
             print(f"# Building RDKit graph from {args.input_file}...")
             try:
-                G_rdkit = build_graph_rdkit(args.input_file, charge=args.charge, bohr_units=args.bohr)
+                G_rdkit = build_graph_rdkit(atoms, charge=args.charge)
             except ValueError as e:
                 print(f"# Failed to build RDKit graph: {e}")
 
         if args.compare_rdkit_tm:
             print(f"# Building RDKit-TM graph from {args.input_file}...")
             try:
-                G_rdkit_tm = build_graph_rdkit_tm(args.input_file, charge=args.charge, bohr_units=args.bohr)
+                G_rdkit_tm = build_graph_rdkit_tm(atoms, charge=args.charge)
             except (ValueError, ImportError) as e:
                 print(f"# Failed to build RDKit-TM graph: {e}")
 
