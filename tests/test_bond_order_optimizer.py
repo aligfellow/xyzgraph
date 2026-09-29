@@ -12,7 +12,7 @@ from xyzgraph.bond_order_optimizer import BondOrderOptimizer
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
 from xyzgraph.parameters import OptimizerConfig, ScoringWeights
-from xyzgraph.scoring_arrays import huckel_aromatic, ring_pi_electrons
+from xyzgraph.scoring_arrays import huckel_aromatic, ring_pi_electrons, sigma_bound
 
 
 @pytest.fixture
@@ -574,6 +574,16 @@ def test_nhc_pt_carbene_no_hypervalent_n(optimizer):
     optimizer.seed_pi_bonds(G)
     optimizer.optimize(G)
     _assert_nhc_invariants(G, optimizer, carbene=4, n_neighbors=(0, 3), total_charge=0)
+
+
+def test_sigma_bound_needs_the_metal_on_a_hybrid():
+    """A metal on the hybrid a C's other bonds leave free is a sigma bond; a linear C has none (p orbital only),
+    and a C whose partner is on the metal too is a pi face."""
+    pd, c, a, b = ("Pd", (0.0, 0.0, 0.0)), ("C", (2.0, 0.0, 0.0)), ("C", (2.7, 1.2, 0.0)), ("C", (2.7, -1.2, 0.0))
+    assert sigma_bound(_make_graph([pd, c, a, b], [(0, 1), (1, 2), (1, 3)]), 1, DATA)  # an aryl
+    slipped = [pd, ("C", (0.0, 2.7, 0.0)), ("C", (1.2, 2.7, 0.0)), ("C", (-1.2, 2.7, 0.0))]
+    assert not sigma_bound(_make_graph(slipped, [(0, 1), (1, 2), (1, 3)]), 1, DATA)  # a far alkyne
+    assert not sigma_bound(_make_graph([pd, c, a, b], [(0, 1), (0, 2), (1, 2), (1, 3)]), 1, DATA)  # eta2
 
 
 # Acetonitrile CH₃-C≡N: a linear nitrile.  Reaching the C≡N triple needs the

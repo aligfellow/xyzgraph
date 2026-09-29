@@ -444,8 +444,11 @@ class BondDetector:
         """Drop metal bonds that are chelate ring diagonals (see metal_bond_blocked).
 
         Judged here, on the full graph, because a bond is found before all of its ligand's bonds may
-        be; all at once, so no removal changes another's verdict.
+        be; all at once, so no removal changes another's verdict. These are equilibrium conventions: a
+        transition state keeps every partial bond (a forming M-C next to its migrating H).
         """
+        if self.bond_checker.thresholds.transition_state:
+            return
         metals = self.data.metals
         blocked = [
             (m, x, why)

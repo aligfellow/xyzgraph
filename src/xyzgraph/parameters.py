@@ -11,8 +11,8 @@ from dataclasses import dataclass
 class GeometryThresholds:
     """Thresholds for geometric validation (used in BondValidator).
 
-    Default values are strict mode (for stable molecules).
-    Use relaxed() for transition states with strained geometries.
+    Default values are strict mode (for stable molecules). transition() keeps partial bonds with strict
+    limits; relaxed() adds permissive limits for strained transition-state geometries.
     """
 
     # Acute angle rejection (degrees)
@@ -31,7 +31,8 @@ class GeometryThresholds:
     angle is acute; a right or obtuse apex is a 1,3 contact (a 4-ring diagonal, an azolate C...C)."""
 
     transition_state: bool = False
-    """Set by relaxed(): permissive limits for strained transition-state geometries."""
+    """Keep partial bonds: the equilibrium conventions (hydrogen-bond legs, the agostic filter, the
+    metal-bond post-pass, the strict 3-ring ratio) are off. Set by transition() and relaxed()."""
 
     # 3-ring closure validation
     diagonal_ratio_initial: float = 0.65
@@ -52,15 +53,20 @@ class GeometryThresholds:
     confidence_threshold: float = 0.75
     """Only validate bonds with confidence < threshold."""
 
-    # Planarity and collinearity
-    planarity_tolerance: float = 0.15
-    """Max deviation (Å) from plane for aromatic rings."""
-
+    # Collinearity
     collinearity_angle: float = 160.0
     """Angles > 160° or < 20° are collinear."""
 
     collinearity_dot_threshold: float = 0.9
     """Dot product threshold for parallel vectors. cos(26°) ≈ 0.9."""
+
+    @classmethod
+    def transition(cls) -> "GeometryThresholds":
+        """Strict limits that keep partial bonds (a stretched cutoff, threshold > 1).
+
+        A forming bond may close a 3-ring at an obtuse apex.
+        """
+        return cls(transition_state=True, angle_threshold_base=135.0)
 
     @classmethod
     def relaxed(cls) -> "GeometryThresholds":
@@ -108,7 +114,8 @@ class ScoringWeights:
 
     charged_atoms_weight: float = 10.0
     """Number of charged sites: charged atoms, a pair of opposite charges across a bond (the N+-O- of a
-    nitro, the C-#O+ of CO) counting once, as the polar bond it writes."""
+    nitro, the C-#O+ of CO) counting once, as the polar bond it writes. A metal-bound lone-pair donor is
+    no site: its charge is the ionic bookkeeping of its bond to the metal."""
 
     charge_error_weight: float = 10.0
     """Deviation from target molecular charge."""

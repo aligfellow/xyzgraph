@@ -26,11 +26,15 @@ from .data_loader import MolecularData
 from .geometry import GeometryCalculator
 from .parameters import OptimizerConfig, ScoringWeights
 from .scoring_arrays import (
+    DEFAULT_ELECTRONEGATIVITY,
+    VALENCE_CHECK_LIMITS,
+    VALENCE_CHECK_TOLERANCE,
     ScoringArrays,
     aromatic_capable,
     aromatic_systems,
     huckel_aromatic,
     ring_pi_electrons,
+    sigma_bound,
 )
 from .utils import smallest_rings
 
@@ -39,14 +43,6 @@ logger = logging.getLogger(__name__)
 _DEFAULT_WEIGHTS = ScoringWeights()
 _DEFAULT_CONFIG = OptimizerConfig()
 
-# Valence violation detection (check_valence_violation)
-VALENCE_CHECK_LIMITS: Dict[str, float] = {"C": 4}
-VALENCE_CHECK_TOLERANCE = 0.3
-
-# Scoring valence limits (max bond order sum before hard penalty)
-SCORING_VALENCE_LIMITS: Dict[str, float] = {"C": 4, "N": 4, "O": 3, "S": 6, "P": 6}
-SCORING_VALENCE_TOLERANCE = 0.1
-
 # Quick valence adjust thresholds
 QUICK_PROMOTE_DIST_RATIO = 0.60
 MIN_DEFICIT_FOR_PROMOTION = 0.3
@@ -54,9 +50,6 @@ MIN_BOND_INCREMENT = 0.5
 
 # Greedy optimizer convergence
 MAX_STAGNATION_ITERATIONS = 3
-
-# Default electronegativity for unknown elements
-DEFAULT_ELECTRONEGATIVITY = 2.5
 
 
 class BondOrderOptimizer:
@@ -147,7 +140,13 @@ class BondOrderOptimizer:
     # Public API
     # =========================================================================
 
-    def optimize(self, G: nx.Graph, mode: str = "beam", arrays: Optional[ScoringArrays] = None) -> Dict[str, Any]:
+    def optimize(
+        self,
+        G: nx.Graph,
+        mode: str = "beam",
+        arrays: Optional[ScoringArrays] = None,
+        ligand_target: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Optimize bond orders.
 
         Parameters
@@ -158,6 +157,9 @@ class BondOrderOptimizer:
             Optimizer: "greedy" or "beam".
         arrays : ScoringArrays, optional
             Arrays built for this graph's topology, reused across calls; built here if omitted.
+        ligand_target : int, optional
+            The ligand charge a complex's run is seeded for (see assign_bond_orders); without it the
+            stated charge is the target.
 
         Returns
         -------
@@ -167,7 +169,7 @@ class BondOrderOptimizer:
         if mode == "greedy":
             return self._full_valence_optimize(G, arrays)
         if mode == "beam":
-            return self._beam_search_optimize(G, arrays)
+            return self._beam_search_optimize(G, arrays, ligand_target)
         raise ValueError(f"Unknown optimizer mode: {mode}")
 
     # =========================================================================
@@ -358,28 +360,27 @@ class BondOrderOptimizer:
             self.seed_pi_bonds(G)
             return self.optimize(G, mode)
 
+        charge = self.charge or 0  # a complex's total is not in its geometry: 0, as GraphBuilder assumes
         states = sorted({0, *self.data.valences.get(G.nodes[metals[0]]["symbol"], [])})
         slots, need = self._pi_slots(G)
-        tables = self._slot_tables(G, slots, need, max(0, states[-1] - self.charge))
+        tables = self._slot_tables(G, slots, need, max(0, states[-1] - charge))
         start = {(i, j): d["bond_order"] for i, j, d in G.edges(data=True)}
-        arrays = ScoringArrays.from_graph(G, self.data, self.weights)
-        best, seen = None, set()
+        arrays = ScoringArrays.from_graph(G, self.data)
+        runs, seen = [], set()
         for state in states:
             nx.set_edge_attributes(G, start, "bond_order")
-            self._apply_pairs(G, self._pick_pairs(tables, max(0, state - self.charge)))
+            self._apply_pairs(G, self._pick_pairs(tables, max(0, state - charge)))
             seed = tuple(d["bond_order"] for _, _, d in G.edges(data=True))
             if seed in seen:  # the ligands could not take more electrons: same seed, same result
                 continue
             seen.add(seed)
             mark = len(self.log_buffer)
-            stats = self.optimize(G, mode, arrays=arrays)
+            stats = self.optimize(G, mode, arrays=arrays, ligand_target=charge - state)
             log = self.log_buffer[mark:]
             del self.log_buffer[mark:]
-            orders = {(i, j): d["bond_order"] for i, j, d in G.edges(data=True)}
-            if best is None or (stats["final_score"], state) < (best[0]["final_score"], best[1]):
-                best = (stats, state, orders, log)
+            runs.append((stats, state, {(i, j): d["bond_order"] for i, j, d in G.edges(data=True)}, log))
             self._log(f"Oxidation state {state:+d}: score {stats['final_score']:.2f}", 1)
-        stats, state, orders, log = best
+        stats, state, orders, log = min(runs, key=lambda run: (run[0]["final_score"], run[1]))
         nx.set_edge_attributes(G, orders, "bond_order")
         self._log(f"Kept the structure seeded at oxidation state {state:+d}", 1)
         self.log_buffer.extend(log)
@@ -439,6 +440,9 @@ class BondOrderOptimizer:
             spare[n] = max(allowed) - valence if len(allowed) > 1 else onium
             if self.data.electrons.get(sym, 0) <= 4 and need[n] >= 2 and degree[n] < G.degree(n):
                 loose[n], need[n] = need[n], 0  # sigma pair on the metal, p orbital free: bonds optional
+            if degree[n] < G.degree(n) and sigma_bound(G, n, self.data):  # three bonds to non-metals at most
+                room = max(0, 3 - degree[n])
+                loose[n], need[n] = min(loose.get(n, 0), room), min(need[n], room)
 
         slots = nx.Graph()
         slots.add_nodes_from((n, a) for n, k in need.items() for a in range(k))  # a lone donor is a piece too
@@ -608,7 +612,7 @@ class BondOrderOptimizer:
             self._log(f"Locked {metal_count} metal bonds", 1)
 
         # Build array representation
-        sa = arrays if arrays is not None else ScoringArrays.from_graph(G, self.data, self.weights)
+        sa = arrays if arrays is not None else ScoringArrays.from_graph(G, self.data)
         bo = sa.read_bond_orders(G)
         vs = sa.compute_valence_sums(bo)
 
@@ -642,7 +646,7 @@ class BondOrderOptimizer:
 
             for raw_eidx in top_eidxs:
                 eidx = int(raw_eidx)
-                old_bo = bo[eidx]
+                old_bo = float(bo[eidx])
 
                 # +2 (single->triple) only where a double can't satisfy either
                 # endpoint (both deficient by >= 2); else always rejected, so skip.
@@ -674,7 +678,7 @@ class BondOrderOptimizer:
 
             if best_move and best_delta > 1e-6:
                 best_eidx, change = best_move
-                old_bo = bo[best_eidx]
+                old_bo = float(bo[best_eidx])
                 new_bo_val = old_bo + change
                 bo[best_eidx] = new_bo_val
                 sa.update_valence_sums(vs, best_eidx, old_bo, new_bo_val)
@@ -712,62 +716,49 @@ class BondOrderOptimizer:
         return stats
 
     # =========================================================================
-    # Charge-budget escape (alternating shift path)
+    # Charge shifts (alternating chains)
     # =========================================================================
 
-    def _find_kekule_shift_path(self, sa, bond_orders, valence_sums):
-        """Find an alternating-BO chain (1,2,1,2,...,1) between two deficient atoms.
+    def _charge_shifts(self, sa, bond_orders, valence_sums):
+        """Alternating chains (1,2,1,...,1) from an anion to another atom with a lone pair to give.
 
-        Flipping every bond saturates both endpoints while leaving bond_sum
-        unchanged at each interior atom (it loses 1 on one side, gains 1 on the
-        other), so it escapes traps no single-edge move can.  Returns the
-        edge-index list, or None.
+        Flipping every bond gives both ends a bond and leaves each interior atom's bond sum unchanged,
+        which no single-edge change reaches. Each end turns a lone pair into its new bond, so the chain
+        raises the ligand charge by two: the far end is another anion (both become neutral) or a neutral
+        atom, which becomes an onium (the pyridinium N+ of a ring left one bond short). Both lone pairs
+        are the ligand's own: a donor's is its bond to the metal, whose charge the seeded oxidation state
+        sets. Returns one shortest chain per pair of ends.
         """
-        deficit_mask = (~sa.is_metal) & (~sa.is_h) & (valence_sums < sa.vmax - 0.01)
-        deficit_atoms = [int(a) for a in np.where(deficit_mask)[0]]
-        if len(deficit_atoms) < 2:
-            return None
-        deficit_set = set(deficit_atoms)
-
+        own = (~sa.is_metal) & (~sa.is_h) & ~sa.has_metal_neighbor
+        fc = sa.formal_charges(valence_sums)
+        anion = own & (fc < 0)
+        lone_pair = own & (fc == 0) & (sa.valence_electrons - valence_sums >= 2 - 0.01)
+        ends = anion | lone_pair
         adj = self._atom_adjacency(sa)
-
-        for start in deficit_atoms:
-            # BFS state = (atom, expected_BO_for_next_edge); the first edge
-            # must be single so flipping it elevates and saturates ``start``.
-            visited = {(start, 1.0): None}
+        chains = []
+        for start in (int(a) for a in np.where(anion)[0]):
+            # BFS state = (atom, order the next edge must have); the first edge is single, so flipping
+            # it gives ``start`` its bond.
+            parent = {(start, 1.0): None}
             q = deque([(start, 1.0)])
-            found = None
-            while q and found is None:
+            while q:
                 atom, expect = q.popleft()
                 for nb, eidx in adj[atom]:
-                    bo = bond_orders[eidx]
-                    if abs(bo - expect) > 0.01:
-                        continue  # wrong BO for alternation
-                    next_expect = 2.0 if expect < 1.5 else 1.0
-                    state = (nb, next_expect)
-                    if state in visited:
+                    if abs(bond_orders[eidx] - expect) > 0.01:
                         continue
-                    visited[state] = (atom, expect, eidx)
-                    # Endpoint: another deficit atom reached via a single bond
-                    if nb in deficit_set and nb != start and expect < 1.5:
-                        found = state
-                        break
+                    state = (nb, 2.0 if expect < 1.5 else 1.0)
+                    if state in parent:
+                        continue
+                    parent[state] = (atom, expect, eidx)
+                    if expect < 1.5 and ends[nb] and nb != start and (nb > start or not anion[nb]):
+                        chain, cur = [], state
+                        while (step := parent[cur]) is not None:
+                            patom, pexpect, e = step
+                            chain.append(e)
+                            cur = (patom, pexpect)
+                        chains.append(chain[::-1])
                     q.append(state)
-            if found is None:
-                continue
-
-            path = []
-            cur = found
-            entry = visited[cur]
-            while entry is not None:
-                patom, pexpect, eidx = entry
-                path.append(int(eidx))
-                cur = (patom, pexpect)
-                entry = visited[cur]
-            path.reverse()
-            return path
-
-        return None
+        return chains
 
     @staticmethod
     def _atom_adjacency(sa):
@@ -788,7 +779,9 @@ class BondOrderOptimizer:
     # Beam search optimizer
     # =========================================================================
 
-    def _beam_search_optimize(self, G: nx.Graph, arrays: Optional[ScoringArrays] = None) -> Dict[str, Any]:
+    def _beam_search_optimize(
+        self, G: nx.Graph, arrays: Optional[ScoringArrays] = None, ligand_target: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Beam search using vectorised numpy scoring.
 
         Each beam hypothesis is a (bond_orders, valence_sums) pair of
@@ -812,7 +805,7 @@ class BondOrderOptimizer:
             self._log(f"Locked {metal_count} metal bonds", 1)
 
         # Build array representation (topology is immutable after this)
-        sa = arrays if arrays is not None else ScoringArrays.from_graph(G, self.data, self.weights)
+        sa = arrays if arrays is not None else ScoringArrays.from_graph(G, self.data)
         base_bo = sa.read_bond_orders(G)
         base_vs = sa.compute_valence_sums(base_bo)
 
@@ -897,31 +890,33 @@ class BondOrderOptimizer:
                         parent_bo[eidx] = old_bo
 
             if not candidates:
-                # A met charge means converged; a missed one needs the shift path
-                # (a charge-forcing valence no single-edge move can fix).
+                # No single-edge move improves. A ligand charge below its target (the complex's seeded
+                # state, else the stated charge) needs a charge shift, which no single edge reaches.
                 for parent_score, parent_bo, parent_vs, parent_history in beam:
-                    if not any(sa.charge_terms(sa.formal_charges(parent_vs), self.charge)):
+                    fc = sa.formal_charges(parent_vs)
+                    if ligand_target is not None:
+                        if int(np.sum(fc[sa.non_metal])) >= ligand_target:
+                            continue
+                    elif not any(sa.charge_terms(fc, self.charge)):
                         continue
-                    path = self._find_kekule_shift_path(sa, parent_bo, parent_vs)
-                    if not path:
-                        continue
-                    cand_bo = parent_bo.copy()
-                    cand_vs = parent_vs.copy()
-                    for eidx in path:
-                        old = cand_bo[eidx]
-                        new = 1.0 if old > 1.5 else 2.0
-                        cand_bo[eidx] = new
-                        sa.update_valence_sums(cand_vs, eidx, old, new)
-                    new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
-                    stats["beam_explored"] += 1
-                    if new_score < parent_score:
-                        ends = (int(sa.edge_src[path[0]]), int(sa.edge_dst[path[-1]]), "shift")
-                        candidates.append((new_score, cand_bo, cand_vs, ends, [*parent_history, ends]))
+                    for path in self._charge_shifts(sa, parent_bo, parent_vs):
+                        cand_bo = parent_bo.copy()
+                        cand_vs = parent_vs.copy()
+                        for eidx in path:
+                            old = cand_bo[eidx]
+                            new = 1.0 if old > 1.5 else 2.0
+                            cand_bo[eidx] = new
+                            sa.update_valence_sums(cand_vs, eidx, old, new)
+                        new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
+                        stats["beam_explored"] += 1
+                        if new_score < parent_score:
+                            ends = (int(sa.edge_src[path[0]]), int(sa.edge_dst[path[-1]]), "shift")
+                            candidates.append((new_score, cand_bo, cand_vs, ends, [*parent_history, ends]))
 
                 if not candidates:
                     self._log("  No single-edge improvement found, stopping", 2)
                     break
-                self._log(f"  Stall escape: {len(candidates)} charge-fixing shift path(s)", 2)
+                self._log(f"  Stall escape: {len(candidates)} improving charge shift(s)", 2)
 
             # Sort and keep top beam_width
             candidates.sort(key=lambda x: x[0])

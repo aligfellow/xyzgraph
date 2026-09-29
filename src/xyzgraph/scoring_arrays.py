@@ -23,7 +23,6 @@ from .geometry import GeometryCalculator
 if TYPE_CHECKING:
     from .parameters import ScoringWeights
 
-# Re-use the same constants as the main optimizer module.
 VALENCE_CHECK_LIMITS: Dict[str, float] = {"C": 4}
 VALENCE_CHECK_TOLERANCE = 0.3
 SCORING_VALENCE_LIMITS: Dict[str, float] = {"C": 4, "N": 4, "O": 3, "S": 6, "P": 6}
@@ -33,6 +32,9 @@ DEFAULT_ELECTRONEGATIVITY = 2.5
 SINGLE_BOND_VDW_FRACTION = 0.40
 # Neighbouring p orbitals twisted past this (degrees) have lost a quarter of their overlap (cos^2).
 MAX_PI_TWIST = 30.0
+# A sigma bond to a metal lies along the hybrid a carbon's other bonds leave free (projection 1); a p
+# orbital is perpendicular to it (0). Halfway between the two.
+SIGMA_MIN_HYBRID = 0.5
 
 # Symbol sets used in scoring (as frozensets for fast lookup)
 _NOS_SYMS = frozenset(("N", "O", "S"))
@@ -101,6 +103,32 @@ def aromatic_capable(G: nx.Graph, ring, data) -> bool:
         if sum(1 for nb in G.neighbors(i) if G.nodes[nb]["symbol"] not in metals) > 3:
             return False
     return GeometryCalculator.max_ring_twist(list(ring), G) <= MAX_PI_TWIST
+
+
+def sigma_bound(G: nx.Graph, i: int, data) -> bool:
+    """Test whether a group-14 atom is sigma-bonded to a metal, rather than through its p orbital.
+
+    A sigma donor keeps the pair it gives the metal, so three bonds to non-metals at most (an aryl C-,
+    not a neutral C with four and M-C). The bond takes the hybrid the atom's other bonds leave free,
+    along minus the sum of their unit vectors (length 1 for an sp3, sp2 or sp atom one bond short;
+    0 for a planar sp2 or linear sp atom with none free). A metal must lie along it, at SIGMA_MIN_HYBRID
+    or more; otherwise it meets the p orbital. A pi face (a heavy neighbour on the same metal: an
+    alkene, Cp, an arene) is pi-bound whatever its shape.
+    """
+    if data.electrons.get(G.nodes[i]["symbol"]) != 4:
+        return False
+    metals = [m for m in G.neighbors(i) if G.nodes[m]["symbol"] in data.metals]
+    others = [x for x in G.neighbors(i) if G.nodes[x]["symbol"] not in data.metals]
+    if not metals or any(G.has_edge(m, x) for m in metals for x in others if G.nodes[x]["symbol"] != "H"):
+        return False
+    at = np.asarray(G.nodes[i]["position"])
+
+    def unit(k: int) -> np.ndarray:
+        v = np.asarray(G.nodes[k]["position"]) - at
+        return v / np.linalg.norm(v)
+
+    free = -sum((unit(x) for x in others), np.zeros(3))
+    return all(float(free @ unit(m)) >= SIGMA_MIN_HYBRID for m in metals)
 
 
 def _compute_formal_charge_vec(
@@ -207,7 +235,6 @@ class ScoringArrays:
         cls,
         G: nx.Graph,
         data,  # MolecularData
-        weights: ScoringWeights,
     ) -> ScoringArrays:
         """Build array representation from an nx.Graph."""
         nodes = sorted(G.nodes())
@@ -261,6 +288,9 @@ class ScoringArrays:
         for sym, lim in SCORING_VALENCE_LIMITS.items():
             mask = symbol_strs == sym
             scoring_vlim[mask] = lim
+        for i in {j for m in np.where(is_metal)[0] for j in G.neighbors(int(m))}:
+            if sigma_bound(G, i, data):
+                scoring_vlim[i] = min(scoring_vlim[i], 3.0)
         for sym, lim in VALENCE_CHECK_LIMITS.items():
             mask = symbol_strs == sym
             check_vlim[mask] = lim
@@ -526,9 +556,13 @@ class ScoringArrays:
         # (an oxo O2-, an imido NR2-), so it costs q.
         charge_cost = np.where(self.donor_full_shell, abs_fc, abs_fc**2)
         fc_sum = float(np.sum(charge_cost[non_metal]))
-        # Opposite charges across a bond (N+-O-, C-#O+) write one polar bond, not two separate charges.
-        polar = int(np.count_nonzero(fc[self.edge_src] * fc[self.edge_dst] < 0))
-        n_charged = int(np.count_nonzero(fc[non_metal])) - polar
+        # Charged sites exclude donors, whose charge is their bond to the metal. Opposite charges across a
+        # bond (N+-O-, C-#O+) write one polar bond, not two separate charges.
+        site = non_metal & ~self.donor_full_shell & (fc != 0)
+        polar = int(
+            np.count_nonzero(site[self.edge_src] & site[self.edge_dst] & (fc[self.edge_src] * fc[self.edge_dst] < 0))
+        )
+        n_charged = int(np.count_nonzero(site)) - polar
 
         valence_err = float(np.sum(self._valence_gap(valence_sums, fc, gap)[self.vi_mask] ** 2))
 

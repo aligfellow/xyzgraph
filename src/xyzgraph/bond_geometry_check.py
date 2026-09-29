@@ -10,11 +10,20 @@ from typing import List, Optional, Tuple
 import networkx as nx
 import numpy as np
 
-from .data_loader import DATA, MolecularData
+from .data_loader import MolecularData
 from .geometry import GeometryCalculator
 from .parameters import GeometryThresholds
 
 logger = logging.getLogger(__name__)
+
+
+def has_lone_pair(G: nx.Graph, a: int, data: MolecularData) -> bool:
+    """Test whether non-metal ``a`` keeps a lone pair: valence electrons exceeding its sigma bonds to non-metals by two.
+
+    A bond to a metal is not counted, so an amido N on a metal still has the pair it could give a proton.
+    """
+    sigma = sum(1 for n in G.neighbors(a) if G.nodes[n]["symbol"] not in data.metals)
+    return data.electrons.get(G.nodes[a]["symbol"], 0) - sigma >= 2
 
 
 class BondGeometryChecker:
@@ -91,8 +100,9 @@ class BondGeometryChecker:
         is_metal_j = sym_j in self.data.metals
         has_metal = is_metal_i or is_metal_j
 
-        # Agostic H-M / F-M bond filtering: reject weak H-M or F-M bonds
-        if has_metal and baseline_bonds is not None:
+        # Agostic H-M / F-M bond filtering: reject weak H-M or F-M bonds. An equilibrium convention: in a
+        # transition state the H may be in flight to the metal.
+        if has_metal and baseline_bonds is not None and not self.thresholds.transition_state:
             if self._check_agostic_rejection(G, i, j, sym_i, sym_j, confidence, baseline_bonds):
                 return False
 
@@ -496,10 +506,9 @@ class BondGeometryChecker:
 
         return True
 
-    @staticmethod
-    def _ring_ratio(G: nx.Graph, i: int, j: int, k: int, distance: float) -> float:
+    def _ring_ratio(self, G: nx.Graph, i: int, j: int, k: int, distance: float) -> float:
         """Length of i-j over the i-k-j path, each normalised by its vdW sum (a bond is short against the path)."""
-        vdw = {n: DATA.vdw[G.nodes[n]["symbol"]] for n in (i, j, k)}
+        vdw = {n: self.data.vdw[G.nodes[n]["symbol"]] for n in (i, j, k)}
         path = G[i][k]["distance"] / (vdw[i] + vdw[k]) + G[k][j]["distance"] / (vdw[k] + vdw[j])
         return distance / (vdw[i] + vdw[j]) / path
 
@@ -680,7 +689,7 @@ class BondGeometryChecker:
           atom instead: x keeps its bond when a ring holds it and those donors (Cp, cyclo-P5), and
           an eta3 face's centre lies nearer.
 
-        An atom has a lone pair when its valence electrons exceed its sigma bonds to non-metals by two.
+        Lone pairs as in has_lone_pair.
         """
         metals = self.data.metals
 
@@ -688,7 +697,7 @@ class BondGeometryChecker:
             return sum(1 for nbr in G.neighbors(a) if G.nodes[nbr]["symbol"] not in metals)
 
         def lone_pair(a: int) -> bool:
-            return self.data.electrons.get(G.nodes[a]["symbol"], 0) - sigma(a) >= 2
+            return has_lone_pair(G, a, self.data)
 
         partners = [d for d in G.neighbors(x) if d != m and G.has_edge(d, m) and G.nodes[d]["symbol"] not in metals]
         if not partners or G.nodes[x]["symbol"] == "H":
