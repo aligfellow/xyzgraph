@@ -191,7 +191,12 @@ class MolecularData:
         # Pauling electronegativity (determines which atom carries charge)
         electronegativity = {
             "H": 2.2,
+            "B": 2.0,
+            "Al": 1.6,
+            "Ga": 1.8,
             "C": 2.5,
+            "Si": 1.9,
+            "Ge": 2.0,
             "N": 3.0,
             "O": 3.5,
             "F": 4.0,
