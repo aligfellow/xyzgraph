@@ -127,7 +127,7 @@ class GraphBuilder:
     def __init__(
         self,
         atoms: List[Tuple[str, Tuple[float, float, float]]],
-        charge: int = DEFAULT_PARAMS["charge"],
+        charge: Optional[int] = DEFAULT_PARAMS["charge"],
         multiplicity: Optional[int] = DEFAULT_PARAMS["multiplicity"],
         method: str = DEFAULT_PARAMS["method"],
         quick: bool = DEFAULT_PARAMS["quick"],
@@ -155,6 +155,15 @@ class GraphBuilder:
         period_scaling_sblock_bonds: float = DEFAULT_PARAMS["period_scaling_sblock_bonds"],
     ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
+        # charge=None: a metal-free molecule takes the total of its best closed-shell Lewis structure.
+        # A complex's total cannot be read from its geometry (any oxidation state fits), nor can xTB
+        # run without one, so those assume 0.
+        if charge is None and (quick or method != "cheminf" or any(s in DATA.metals for s, _ in atoms)):
+            if not quick:
+                logger.warning("No charge given; assuming 0 (a complex's total charge is not in its geometry)")
+            charge = 0
+        if charge is None and multiplicity is not None and multiplicity % 2 == 0:
+            raise ValueError(f"charge=None infers a closed-shell charge; pass charge= for multiplicity {multiplicity}")
         self.charge = charge
         self.method = method
         self.optimizer = optimizer.lower()
@@ -170,8 +179,8 @@ class GraphBuilder:
         if self.optimizer not in ("greedy", "beam"):
             raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam'")
 
-        # Auto-detect multiplicity
-        if multiplicity is None:
+        # Auto-detect multiplicity (an inferred charge is closed shell: set once inferred)
+        if multiplicity is None and charge is not None:
             total_electrons = sum(DATA.s2n[symbol] for symbol, _ in atoms) - charge
             self.multiplicity = 1 if total_electrons % 2 == 0 else 2
         else:
@@ -270,7 +279,8 @@ class GraphBuilder:
         mode = "QUICK" if self.quick else "FULL"
         self.log(f"\n{'=' * 80}")
         self.log(f"BUILDING GRAPH ({self.method.upper()}, {mode} MODE)")
-        self.log(f"Atoms: {len(self.atoms)}, Charge: {self.charge}, Multiplicity: {self.multiplicity}")
+        charge = "inferred" if self.charge is None else self.charge
+        self.log(f"Atoms: {len(self.atoms)}, Charge: {charge}, Multiplicity: {self.multiplicity or 'inferred'}")
         self.log(f"{'=' * 80}\n")
 
         if self.method == "cheminf":
@@ -343,6 +353,9 @@ class GraphBuilder:
 
         # Compute formal charges BEFORE aromatic detection
         formal_charges = self._optimizer.compute_formal_charges(G)
+        if self.charge is None:
+            self.charge = self._optimizer.charge
+            self.multiplicity = self.multiplicity or 1
 
         # Store formal charges in nodes for aromatic detection to use
         for i, fc in enumerate(formal_charges):
@@ -405,7 +418,7 @@ class GraphBuilder:
 
 def build_graph(
     atoms: List[Tuple[str, Tuple[float, float, float]]] | str,
-    charge: int = DEFAULT_PARAMS["charge"],
+    charge: Optional[int] = DEFAULT_PARAMS["charge"],
     multiplicity: Optional[int] = DEFAULT_PARAMS["multiplicity"],
     method: str = DEFAULT_PARAMS["method"],
     quick: bool = DEFAULT_PARAMS["quick"],
@@ -437,6 +450,8 @@ def build_graph(
     """Build molecular graph using GraphBuilder.
 
     atoms: Either a list of (symbol, (x,y,z)) tuples, or a filepath to read.
+    charge: Total charge. None infers it for a metal-free molecule (the charge of its best
+        closed-shell Lewis structure, so pass it for a radical); a complex assumes 0.
     metadata: Pre-computed metadata dict (for CLI to avoid duplication).
     stereo: If True, annotate stereochemistry labels on the returned graph.
     """

@@ -7,7 +7,7 @@ class DefaultParamsType(TypedDict):
     """Type definition for DEFAULT_PARAMS."""
 
     method: str
-    charge: int
+    charge: int | None
     multiplicity: int | None
     quick: bool
     optimizer: str
@@ -38,7 +38,7 @@ class DefaultParamsType(TypedDict):
 
 DEFAULT_PARAMS: DefaultParamsType = {
     "method": "cheminf",
-    "charge": 0,
+    "charge": None,
     "multiplicity": None,
     "quick": False,
     "optimizer": "beam",

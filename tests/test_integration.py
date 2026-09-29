@@ -41,6 +41,13 @@ def _load_fixture(name: str) -> dict:
 # ===========================================================================
 
 
+def test_charge_inferred_when_not_given():
+    """charge=None reads a metal-free molecule's closed-shell total; a complex assumes 0."""
+    G = build_graph(str(EXAMPLES / "isothio.xyz"))
+    assert (G.graph["total_charge"], G.graph["multiplicity"]) == (1, 1)
+    assert build_graph(str(EXAMPLES / "mnh.xyz")).graph["total_charge"] == 0
+
+
 def test_isothio():
     """Full pipeline match for charged organic molecule."""
     result = graph_to_dict(build_graph(str(EXAMPLES / "isothio.xyz"), charge=1))

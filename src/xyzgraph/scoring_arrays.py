@@ -13,7 +13,7 @@ a single ``bond_orders.copy()`` instead of deep-copying an nx.Graph.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
@@ -470,15 +470,18 @@ class ScoringArrays:
                 gap[i] = float(np.min(np.abs(iso - valence_sums[i])))
         return gap
 
-    def charge_terms(self, fc: np.ndarray, charge: int) -> Tuple[float, float]:
+    def charge_terms(self, fc: np.ndarray, charge: Optional[int]) -> Tuple[float, float]:
         """Impossible and soft deviations from the stated total ``charge``.
 
         The metals take whatever the non-metals leave: beyond their valence electrons is impossible,
         a total no combination of their usual oxidation states reaches is soft. Without metals the
         total must be met, bar the one electron an odd count leaves unpaired (the octet rule reads it
-        as a charge).
+        as a charge). An unknown (None) charge of a metal-free molecule aims, softly, for the least a
+        closed shell allows: 0, or 1 either way for an odd electron count.
         """
         nonmetal_charge = int(np.sum(fc[self.non_metal]))
+        if charge is None:
+            return 0.0, float(max(0, abs(nonmetal_charge) - int(self.atomic_numbers.sum()) % 2))
         if self.n_metals:
             metal_charge = charge - nonmetal_charge
             impossible = max(0.0, metal_charge - self.metal_cap)
@@ -506,7 +509,7 @@ class ScoringArrays:
         self,
         valence_sums: np.ndarray,
         bond_orders: np.ndarray,
-        charge: int,
+        charge: Optional[int],
         weights: ScoringWeights,
     ) -> Tuple[float, np.ndarray]:
         """Vectorised scoring — replaces ``_score_assignment``."""

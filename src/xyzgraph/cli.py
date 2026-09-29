@@ -219,8 +219,8 @@ def main():
         "-c",
         "--charge",
         type=int,
-        default=0,
-        help="Total molecular charge (default: 0)",
+        default=None,
+        help="Total molecular charge (default: inferred for a metal-free closed-shell molecule, 0 for a complex)",
     )
     common.add_argument(
         "-m",
@@ -597,14 +597,14 @@ def main():
         if args.compare_rdkit:
             print(f"# Building RDKit graph from {args.input_file}...")
             try:
-                G_rdkit = build_graph_rdkit(atoms, charge=args.charge)
+                G_rdkit = build_graph_rdkit(atoms, charge=G_primary.graph["total_charge"])
             except ValueError as e:
                 print(f"# Failed to build RDKit graph: {e}")
 
         if args.compare_rdkit_tm:
             print(f"# Building RDKit-TM graph from {args.input_file}...")
             try:
-                G_rdkit_tm = build_graph_rdkit_tm(atoms, charge=args.charge)
+                G_rdkit_tm = build_graph_rdkit_tm(atoms, charge=G_primary.graph["total_charge"])
             except (ValueError, ImportError) as e:
                 print(f"# Failed to build RDKit-TM graph: {e}")
 

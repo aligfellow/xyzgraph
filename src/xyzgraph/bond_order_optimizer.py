@@ -71,7 +71,7 @@ class BondOrderOptimizer:
         self,
         geometry: GeometryCalculator,
         data: MolecularData,
-        charge: int,
+        charge: Optional[int],
         weights: ScoringWeights = _DEFAULT_WEIGHTS,
         config: OptimizerConfig = _DEFAULT_CONFIG,
     ):
@@ -230,6 +230,11 @@ class BondOrderOptimizer:
             allowed = tuple(sorted(self.data.valences.get(sym, ())))[: 1 if degree == 1 else None]  # see ScoringArrays
             fc = self._compute_formal_charge_value(sym, V, bond_sum, degree, allowed, full_shell=donor)
             formal.append(fc)
+
+        if self.charge is None:  # to infer: the structure's own total, closed shell by construction
+            self.charge = sum(formal)
+            self._log(f"\nInferred charge {self.charge:+d} from the Lewis structure", 2)
+            return formal
 
         metals = [i for i in G.nodes() if G.nodes[i]["symbol"] in self.data.metals]
         # The structure is scored with every atom at an octet. When that cannot reach the stated charge, the
@@ -406,7 +411,7 @@ class BondOrderOptimizer:
         """
         if electrons is None:
             has_metal = any(G.nodes[n]["symbol"] in self.data.metals for n in G)
-            electrons = -self.charge if not has_metal and self.charge < 0 else 0
+            electrons = max(0, -(self.charge or 0)) if not has_metal else 0
         slots, need = self._pi_slots(G)
         pairs = self._pick_pairs(self._slot_tables(G, slots, need, electrons), electrons)
         bonds = self._apply_pairs(G, pairs)
