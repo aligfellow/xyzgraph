@@ -7,7 +7,7 @@ class DefaultParamsType(TypedDict):
     """Type definition for DEFAULT_PARAMS."""
 
     method: str
-    charge: int
+    charge: int | None
     multiplicity: int | None
     quick: bool
     optimizer: str
@@ -38,7 +38,7 @@ class DefaultParamsType(TypedDict):
 
 DEFAULT_PARAMS: DefaultParamsType = {
     "method": "cheminf",
-    "charge": 0,
+    "charge": None,
     "multiplicity": None,
     "quick": False,
     "optimizer": "beam",
@@ -63,7 +63,7 @@ DEFAULT_PARAMS: DefaultParamsType = {
     # Heavy element and metal bonding:
     "allow_metal_metal_bonds": True,
     "period_scaling_h_bonds": 0.05,
-    "period_scaling_nonmetal_bonds": 0.00,
+    "period_scaling_nonmetal_bonds": 0.05,
     "period_scaling_sblock_bonds": 0.05,
     "stereo": False,
     # ORCA-specific parameters:

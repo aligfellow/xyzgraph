@@ -11,8 +11,8 @@ from dataclasses import dataclass
 class GeometryThresholds:
     """Thresholds for geometric validation (used in BondValidator).
 
-    Default values are strict mode (for stable molecules).
-    Use relaxed() for transition states with strained geometries.
+    Default values are strict mode (for stable molecules). transition() keeps partial bonds with strict
+    limits; relaxed() adds permissive limits for strained transition-state geometries.
     """
 
     # Acute angle rejection (degrees)
@@ -26,18 +26,22 @@ class GeometryThresholds:
     angle_threshold_h_ring: float = 95.0
     """Min angle for H in rings. Based on tetrahedral geometry."""
 
-    angle_threshold_base: float = 110.0
-    """Base threshold for ring closure. Z-adjusted for heavier elements if enabled."""
+    angle_threshold_base: float = 90.0
+    """Largest angle of a non-H, non-metal 3-ring. Every side of a real 3-ring is a bond, so every
+    angle is acute; a right or obtuse apex is a 1,3 contact (a 4-ring diagonal, an azolate C...C)."""
 
-    apply_z_adjustment: bool = True
-    """Add (avg_Z - 6) * 2.0° to thresholds for heavier elements."""
+    transition_state: bool = False
+    """Keep partial bonds: the equilibrium conventions (hydrogen-bond legs, the agostic filter, the
+    metal-bond post-pass, the strict 3-ring ratio) are off. Set by transition() and relaxed()."""
 
-    # 4-ring diagonal validation
+    # 3-ring closure validation
     diagonal_ratio_initial: float = 0.65
-    """Initial diagonal/bond ratio for 4-rings. Square has ratio ~1.41."""
+    """A bond closing a 3-ring must be short against the two-bond path around it (each length over
+    its vdW sum; an equilateral ring gives 0.5). Accepted outright up to this ratio; through a metal
+    apex (an eta2-S2, a P-P ring) no further."""
 
     diagonal_ratio_max: float = 0.75
-    """Max ratio after confidence adjustment."""
+    """Upper ratio for a confident bond, interpolated by confidence from diagonal_ratio_initial."""
 
     diagonal_ratio_hard: float = 0.80
     """Absolute cutoff regardless of other factors."""
@@ -49,15 +53,20 @@ class GeometryThresholds:
     confidence_threshold: float = 0.75
     """Only validate bonds with confidence < threshold."""
 
-    # Planarity and collinearity
-    planarity_tolerance: float = 0.15
-    """Max deviation (Å) from plane for aromatic rings."""
-
+    # Collinearity
     collinearity_angle: float = 160.0
     """Angles > 160° or < 20° are collinear."""
 
     collinearity_dot_threshold: float = 0.9
     """Dot product threshold for parallel vectors. cos(26°) ≈ 0.9."""
+
+    @classmethod
+    def transition(cls) -> "GeometryThresholds":
+        """Strict limits that keep partial bonds (a stretched cutoff, threshold > 1).
+
+        A forming bond may close a 3-ring at an obtuse apex.
+        """
+        return cls(transition_state=True, angle_threshold_base=135.0)
 
     @classmethod
     def relaxed(cls) -> "GeometryThresholds":
@@ -67,7 +76,7 @@ class GeometryThresholds:
             acute_threshold_nonmetal=20.0,
             angle_threshold_h_ring=115.0,
             angle_threshold_base=135.0,
-            apply_z_adjustment=False,
+            transition_state=True,
             diagonal_ratio_initial=0.75,
             diagonal_ratio_max=0.85,
             diagonal_ratio_hard=0.90,
@@ -92,17 +101,21 @@ class ScoringWeights:
     violation_weight: float = 1000.0
     """Valence violations (e.g., 5-coordinate C). Highest priority."""
 
-    conjugation_weight: float = 12.0
-    """Disrupted aromatic conjugation. Tuned on benzene, naphthalene."""
+    conjugation_weight: float = 144.0
+    """Per ring that could be aromatic (planar, sp2) and is not 4n+2 under the Lewis structure."""
 
     protonation_weight: float = 8.0
     """Incorrect protonation states for N, O, S."""
 
     formal_charge_weight: float = 10.0
-    """Magnitude of formal charges. Prefer neutral."""
+    """Squared formal charges: prefer neutral, and two unit charges over one double charge
+    (a CO ligand as C≡O, not C2-=O). A metal-bound lone-pair donor counts its charge linearly:
+    an oxo O2- or imido NR2- is the ionic convention, not a localised charge."""
 
     charged_atoms_weight: float = 10.0
-    """Number of charged atoms. Prefer localized charges."""
+    """Number of charged sites: charged atoms, a pair of opposite charges across a bond (the N+-O- of a
+    nitro, the C-#O+ of CO) counting once, as the polar bond it writes. A metal-bound lone-pair donor is
+    no site: its charge is the ionic bookkeeping of its bond to the metal."""
 
     charge_error_weight: float = 10.0
     """Deviation from target molecular charge."""
@@ -116,12 +129,10 @@ class ScoringWeights:
     valence_error_weight: float = 5.0
     """Non-standard valences. Soft constraint."""
 
-    # Ring conjugation
-    conjugation_deficit_penalty: float = 5.0
-    """Gradient toward Kekulé in aromatic-capable rings not yet at 4n+2."""
-
-    aromatic_ring_bonus: float = 12.0
-    """Bonus when an aromatic-capable ring reaches 4n+2 π electrons under current fc."""
+    geometry_weight: float = 10.0
+    """Per π bond, how far its bond's distance over the vdW sum is from a single bond's 0.40: a
+    shortened bond (C=C 0.35, C#O 0.30) gains, a single-length one pays, so π goes on the shorter
+    bonds (the N+=C of a thiazolium over C=S+) without costing π bonds as such."""
 
     invalid_score: float = 1e6
     """Infinite penalty for impossible states."""
@@ -189,8 +200,10 @@ class BondThresholds:
     period_scaling_h_bonds: float = 0.05
     """Add per period for H-X. H-Si = 0.42+0.05, H-Ge = 0.42 + 0.10."""
 
-    period_scaling_nonmetal_bonds: float = 0.0
-    """No scaling for nonmetal-nonmetal. VDW radii already account for size."""
+    period_scaling_nonmetal_bonds: float = 0.05
+    """Per-period scaling for a nonmetal pair, by its lighter atom: a bond between two heavy atoms
+    (As-As, S-S, Cl-S) is long against the vdW sum, while a light partner keeps it short (so an
+    S...O chalcogen contact stays an NCI)."""
 
     period_scaling_sblock_bonds: float = 0.05
     """Per-period scaling for s-block M-L. Heavier s-block metals bond longer."""

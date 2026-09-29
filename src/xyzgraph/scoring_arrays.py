@@ -13,60 +13,148 @@ a single ``bond_orders.copy()`` instead of deep-copying an nx.Graph.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
+import networkx as nx
 import numpy as np
 
-if TYPE_CHECKING:
-    import networkx as nx
+from .geometry import GeometryCalculator
 
+if TYPE_CHECKING:
     from .parameters import ScoringWeights
 
-# Re-use the same constants as the main optimizer module.
 VALENCE_CHECK_LIMITS: Dict[str, float] = {"C": 4}
 VALENCE_CHECK_TOLERANCE = 0.3
 SCORING_VALENCE_LIMITS: Dict[str, float] = {"C": 4, "N": 4, "O": 3, "S": 6, "P": 6}
 SCORING_VALENCE_TOLERANCE = 0.1
 DEFAULT_ELECTRONEGATIVITY = 2.5
+# A single bond is about 0.40 of the vdW sum (C-C: 1.54 over 2 x 1.91 A); a π bond shortens it.
+SINGLE_BOND_VDW_FRACTION = 0.40
+# Neighbouring p orbitals twisted past this (degrees) have lost a quarter of their overlap (cos^2).
+MAX_PI_TWIST = 30.0
+# A sigma bond to a metal lies along the hybrid a carbon's other bonds leave free (projection 1); a p
+# orbital is perpendicular to it (0). Halfway between the two.
+SIGMA_MIN_HYBRID = 0.5
 
 # Symbol sets used in scoring (as frozensets for fast lookup)
 _NOS_SYMS = frozenset(("N", "O", "S"))
 _PROTONATION_HEAVY = frozenset(("N", "O"))
 
-# Geometry-based aromatic-capability checks (no bond orders required).
-# Sub-degree neighbour with one of these symbols signals an exo-π bond
-# that consumes a ring carbon's p-orbital. Matches BondOrderOptimizer._EXO_PI_THRESHOLD.
-_EXO_PI_DEGREE_THRESHOLD: Dict[str, int] = {"N": 3, "O": 2, "S": 2, "P": 3}
-# Max non-metal degree for a ring atom to remain sp²-capable.
-_RING_SP2_MAX_DEGREE: Dict[str, int] = {"C": 3, "N": 3, "O": 2, "S": 2, "P": 3}
-# Hückel-aromatic π electron counts (4n+2).
-_HUCKEL_PI_COUNTS = frozenset((2, 6, 10, 14, 18))
+
+def ring_pi_electrons(valence_electrons, formal_charge, bond_order_sum, degree, ring_pi, exo_pi):
+    """π electrons each atom gives a ring under a Lewis structure, the same rule for every element.
+
+    An atom in a ring π bond gives one; one whose π bond leaves the ring gives none. Otherwise its
+    ``V - fc - bond_order_sum`` unshared electrons fill the sp2 hybrids its ``degree`` sigma bonds
+    leave free first, and the rest (up to a pair) is its p orbital: two for a pyrrole N, a furan O
+    or a Cp- carbon, none for a borane B or a carbene C. Bond sums and degrees exclude metals.
+    """
+    lone = np.asarray(valence_electrons) - formal_charge - bond_order_sum
+    p_orbital = np.clip(lone - 2 * np.maximum(0, 3 - np.asarray(degree)), 0, 2)
+    return np.rint(np.where(ring_pi, 1, np.where(exo_pi, 0, p_orbital))).astype(np.int64)
+
+
+def huckel_aromatic(pi: np.ndarray, system_charge: int) -> bool:
+    """Test for 4n+2 π electrons in a ring that is not cross-conjugated.
+
+    An atom with no π electron joins the ring only through a betaine form, and a ring supports one
+    such form, so two make it cross-conjugated (a quinone) unless the ring carries a negative charge,
+    whose surplus electrons fund more (croconate's olates, counted in ``system_charge`` with the
+    ring's direct substituents).
+    """
+    return int(pi.sum()) % 4 == 2 and (system_charge < 0 or int(np.count_nonzero(pi == 0)) < 2)
+
+
+def aromatic_systems(rings: List[List[int]]) -> List[Tuple[Tuple[int, ...], List[int]]]:
+    """Each capable ring alone, each bicycle, and each larger fused system, as (ring indices, atoms).
+
+    A ring is aromatic if any system holding it has 4n+2 π electrons. Counted ring by ring, a bridgehead
+    lone pair (indolizine's N, indenyl's C-) lands in both rings, so a bicycle (two rings fused on one
+    bond, every atom on its perimeter) is judged whole: indolizine's 10π. A macrocycle (a ring beyond
+    seven atoms) carries its fused rings in one π system, judged whole too: a porphyrin's 26π, of which
+    a pyrrole and the macrocycle (sharing two bonds) are no bicycle. Fused small rings stay local.
+    """
+    sets = [set(r) for r in rings]
+    fused = nx.Graph()
+    fused.add_nodes_from(range(len(rings)))
+    fused.add_edges_from(
+        (a, b) for a in range(len(rings)) for b in range(a + 1, len(rings)) if len(sets[a] & sets[b]) >= 2
+    )
+    systems: List[Tuple[Tuple[int, ...], List[int]]] = [((r,), list(ring)) for r, ring in enumerate(rings)]
+    systems += [((a, b), sorted(sets[a] | sets[b])) for a, b in fused.edges() if len(sets[a] & sets[b]) == 2]
+    for component in nx.connected_components(fused):
+        if len(component) > 2 and any(len(rings[r]) > 7 for r in component):
+            systems.append((tuple(sorted(component)), sorted(set().union(*(sets[r] for r in component)))))
+    return systems
+
+
+def aromatic_capable(G: nx.Graph, ring, data) -> bool:
+    """Test whether a ring of five or more atoms can be aromatic: every atom can hold a ring p orbital.
+
+    Aromatic elements with three or fewer non-metal neighbours, whose neighbouring p orbitals stay
+    within MAX_PI_TWIST of parallel: fixed by the geometry, so checked once.
+    """
+    if len(ring) < 5:
+        return False
+    metals = data.metals
+    for i in ring:
+        if G.nodes[i]["symbol"] not in data.aromatic_atoms:
+            return False
+        if sum(1 for nb in G.neighbors(i) if G.nodes[nb]["symbol"] not in metals) > 3:
+            return False
+    return GeometryCalculator.max_ring_twist(list(ring), G) <= MAX_PI_TWIST
+
+
+def sigma_bound(G: nx.Graph, i: int, data) -> bool:
+    """Test whether a group-14 atom is sigma-bonded to a metal, rather than through its p orbital.
+
+    A sigma donor keeps the pair it gives the metal, so three bonds to non-metals at most (an aryl C-,
+    not a neutral C with four and M-C). The bond takes the hybrid the atom's other bonds leave free,
+    along minus the sum of their unit vectors (length 1 for an sp3, sp2 or sp atom one bond short;
+    0 for a planar sp2 or linear sp atom with none free). A metal must lie along it, at SIGMA_MIN_HYBRID
+    or more; otherwise it meets the p orbital. A pi face (a heavy neighbour on the same metal: an
+    alkene, Cp, an arene) is pi-bound whatever its shape.
+    """
+    if data.electrons.get(G.nodes[i]["symbol"]) != 4:
+        return False
+    metals = [m for m in G.neighbors(i) if G.nodes[m]["symbol"] in data.metals]
+    others = [x for x in G.neighbors(i) if G.nodes[x]["symbol"] not in data.metals]
+    if not metals or any(G.has_edge(m, x) for m in metals for x in others if G.nodes[x]["symbol"] != "H"):
+        return False
+    at = np.asarray(G.nodes[i]["position"])
+
+    def unit(k: int) -> np.ndarray:
+        v = np.asarray(G.nodes[k]["position"]) - at
+        return v / np.linalg.norm(v)
+
+    free = -sum((unit(x) for x in others), np.zeros(3))
+    return all(float(free @ unit(m)) >= SIGMA_MIN_HYBRID for m in metals)
 
 
 def _compute_formal_charge_vec(
-    is_h: np.ndarray,
     valence_electrons: np.ndarray,
     bond_order_sums: np.ndarray,
     degree: np.ndarray | None = None,
+    at_allowed: np.ndarray | None = None,
+    full_shell: np.ndarray | None = None,
 ) -> np.ndarray:
     """Vectorised formal-charge computation.
 
-    Must match ``BondOrderOptimizer._compute_formal_charge_value`` exactly.
+    Must match ``BondOrderOptimizer._compute_formal_charge_value`` exactly;
+    ``at_allowed`` marks atoms whose bond sum is one of their allowed valences,
+    ``full_shell`` atoms that may not stay neutral short of their shell
+    and keep the lone pair they give the metal.
     """
-    fc = np.zeros(len(is_h), dtype=np.int64)
-
-    # H atoms: fc = V - bond_sum
-    h_mask = is_h
-    fc[h_mask] = valence_electrons[h_mask] - np.round(bond_order_sums[h_mask]).astype(np.int64)
-
-    # Vectorised twin of BondOrderOptimizer._compute_formal_charge_value.
-    nh = ~h_mask
-    bos = bond_order_sums[nh]
-    V = valence_electrons[nh].astype(np.float64)
-    target = np.minimum(8.0, 2.0 * V)
+    bos = bond_order_sums
+    V = valence_electrons.astype(np.float64)
+    target = np.minimum(8.0, 2.0 * V)  # an octet, a duet for H
     l_octet = np.maximum(0.0, target - 2.0 * bos)
     l_neutral = V - bos
-    all_single = True if degree is None else np.abs(bos - degree[nh]) < 1e-9
+    all_single = True if degree is None else np.abs(bos - degree) < 1e-9
+    if at_allowed is not None:
+        all_single = all_single | at_allowed
+    if full_shell is not None:
+        all_single = all_single & ~(full_shell & (V + bos < target))
     use_neutral = (
         all_single
         & (l_neutral >= 0)
@@ -74,9 +162,9 @@ def _compute_formal_charge_vec(
         & (np.round(l_neutral).astype(np.int64) % 2 == 0)
     )
     L = np.where(use_neutral, l_neutral, l_octet)
-    fc[nh] = np.round(V - L - bos).astype(np.int64)
-
-    return fc
+    if full_shell is not None:
+        L = np.where(full_shell, np.maximum(L, 2.0), L)
+    return np.round(V - L - bos).astype(np.int64)
 
 
 @dataclass
@@ -89,6 +177,12 @@ class ScoringArrays:
 
     # --- Node arrays (length N) ---
     n_atoms: int
+    atomic_numbers: np.ndarray  # int [N]
+    valences_by_z: Dict[int, np.ndarray]  # allowed valences per element, for isoelectronic lookups
+    terminal: np.ndarray  # bool [N], one non-metal neighbour: only the lowest valence
+    n_metals: int
+    metal_cap: float  # total valence electrons of the metals: they cannot give up more
+    metal_state_sums: np.ndarray  # totals the metals reach at their usual oxidation states (or 0) each
     is_metal: np.ndarray  # bool [N]
     is_h: np.ndarray  # bool [N]
     non_metal: np.ndarray  # bool [N]
@@ -110,12 +204,8 @@ class ScoringArrays:
     check_vlim_thresh: np.ndarray  # float [N]
     has_h_neighbor: np.ndarray  # bool [N]
     has_metal_neighbor: np.ndarray  # bool [N]
+    donor_full_shell: np.ndarray  # bool [N], metal-bound lone-pair donors (>= 5 valence electrons)
     non_metal_degree: np.ndarray  # int [N]
-
-    # Per-atom π contribution lookups (neutral baseline + fc adjustment).
-    pi_base: np.ndarray  # float [N]
-    pi_fc_pos_delta: np.ndarray  # float [N], applied as delta * fc when fc > 0
-    pi_fc_neg_delta: np.ndarray  # float [N], applied as delta * |fc| when fc < 0
 
     # --- Edge arrays (length E) ---
     n_edges: int
@@ -123,17 +213,18 @@ class ScoringArrays:
     edge_dst: np.ndarray  # intp [E]
     bond_orders: np.ndarray  # float [E]
     is_metal_coord: np.ndarray  # bool [E]
+    fixed_order: np.ndarray  # bool [E], a bond to a metal (ionic convention) or to H (one orbital): order stays 1
     edge_has_metal: np.ndarray  # bool [E]
+    pi_stretch: np.ndarray  # float [E], a π-capable bond's distance / vdW sum beyond a single bond's, else 0
 
     # --- CSR adjacency ---
     node_edge_neighbor: np.ndarray  # intp [2*E]
     csr_owners: np.ndarray  # intp [2*E]
 
     # --- Ring data ---
-    ring_edge_indices: List[np.ndarray]
-    ring_atoms: List[np.ndarray]
-    conjugatable_ring_mask: List[bool]
-    ring_aromatic_capable: List[bool]
+    edge_in_ring: np.ndarray  # bool [E], the bond lies on a ring
+    n_aromatic_rings: int  # rings that could be aromatic
+    ring_systems: List[Tuple[Tuple[int, ...], np.ndarray, np.ndarray]]  # aromatic_systems: rings, atoms, + substituents
 
     # =====================================================================
     # Construction
@@ -144,7 +235,6 @@ class ScoringArrays:
         cls,
         G: nx.Graph,
         data,  # MolecularData
-        weights: ScoringWeights,
     ) -> ScoringArrays:
         """Build array representation from an nx.Graph."""
         nodes = sorted(G.nodes())
@@ -167,8 +257,12 @@ class ScoringArrays:
             dtype=np.float64,
         )
 
-        # Allowed valences (padded 2-D array built without per-atom loops)
-        raw_vals = [data.valences.get(s, []) for s in sym_list]
+        # Allowed valences (padded 2-D array built without per-atom loops). An expanded valence needs
+        # partners to bond: an atom with one non-metal neighbour keeps its lowest (a Br is Br-C, never C#Br).
+        terminal = np.array(
+            [sum(1 for nb in G.neighbors(i) if sym_list[nb] not in data.metals) == 1 for i in range(n)], dtype=bool
+        )
+        raw_vals = [sorted(data.valences.get(s, []))[: 1 if terminal[i] else None] for i, s in enumerate(sym_list)]
         lengths = np.array([len(v) for v in raw_vals], dtype=np.intp)
         max_v = max(int(np.max(lengths)) if n > 0 else 0, 1)
 
@@ -194,13 +288,16 @@ class ScoringArrays:
         for sym, lim in SCORING_VALENCE_LIMITS.items():
             mask = symbol_strs == sym
             scoring_vlim[mask] = lim
+        for i in {j for m in np.where(is_metal)[0] for j in G.neighbors(int(m))}:
+            if sigma_bound(G, i, data):
+                scoring_vlim[i] = min(scoring_vlim[i], 3.0)
         for sym, lim in VALENCE_CHECK_LIMITS.items():
             mask = symbol_strs == sym
             check_vlim[mask] = lim
 
         # --- Edge arrays (extract from nx.Graph into numpy) ---
         raw_edges = [
-            (min(ei, ej), max(ei, ej), d.get("bond_order", 1.0), bool(d.get("metal_coord", False)))
+            (min(ei, ej), max(ei, ej), d.get("bond_order", 1.0), bool(d.get("metal_coord", False)), d.get("distance"))
             for ei, ej, d in G.edges(data=True)
         ]
         raw_edges.sort()
@@ -218,6 +315,18 @@ class ScoringArrays:
             bond_orders_arr = np.empty(0, dtype=np.float64)
             is_metal_coord = np.empty(0, dtype=bool)
         edge_has_metal = is_metal[edge_src] | is_metal[edge_dst] if n_edges > 0 else np.empty(0, dtype=bool)
+
+        metal_syms = [s for s in sym_list if s in data.metals]
+        state_sums = {0}
+        for s in metal_syms:
+            state_sums = {total + q for total in state_sums for q in {0, *data.valences.get(s, [])}}
+
+        # Bond-length evidence for π-capable bonds (no metal, no H): distance over the vdW sum.
+        vdw = np.array([data.vdw.get(s, 2.0) for s in sym_list], dtype=np.float64)
+        dist = np.array([np.nan if e[4] is None else e[4] for e in raw_edges], dtype=np.float64)
+        pi_capable = ~edge_has_metal & ~is_h[edge_src] & ~is_h[edge_dst] if n_edges > 0 else np.empty(0, dtype=bool)
+        stretch = dist / (vdw[edge_src] + vdw[edge_dst]) - SINGLE_BOND_VDW_FRACTION
+        pi_stretch = np.where(pi_capable & ~np.isnan(dist), stretch, 0.0)
 
         edge_index_map: Dict[Tuple[int, int], int] = {(int(edge_src[i]), int(edge_dst[i])): i for i in range(n_edges)}
 
@@ -261,87 +370,21 @@ class ScoringArrays:
 
         # --- Ring data ---
         rings = G.graph.get("_rings", [])
-        ring_edge_indices_list: List[np.ndarray] = []
-        ring_atoms_list: List[np.ndarray] = []
-        conjugatable_ring_mask: List[bool] = []
-        ring_aromatic_capable_list: List[bool] = []
-
+        edge_in_ring = np.zeros(n_edges, dtype=bool)
         for ring in rings:
-            ring_arr = np.array(ring, dtype=np.intp)
-            ring_atoms_list.append(ring_arr)
-
-            r_edge_idx = []
             for k in range(len(ring)):
                 a, b = ring[k], ring[(k + 1) % len(ring)]
-                key = (min(a, b), max(a, b))
-                eidx = edge_index_map.get(key)
+                eidx = edge_index_map.get((min(a, b), max(a, b)))
                 if eidx is not None:
-                    r_edge_idx.append(eidx)
-            ring_edge_indices_list.append(np.array(r_edge_idx, dtype=np.intp))
-
-            is_conj = len(ring) in (5, 6) and all(sym_list[i] in data.scoring_conjugatable_atoms for i in ring)
-            conjugatable_ring_mask.append(is_conj)
-
-            # Aromatic-capable: every ring atom can contribute a ring p-orbital.
-            # Depends only on symbols + degrees, so computed once at construction.
-            aromatic_capable = is_conj
-            if aromatic_capable:
-                ring_set = set(ring)
-                for atom_i in ring:
-                    sym = sym_list[atom_i]
-                    if non_metal_degree[atom_i] > _RING_SP2_MAX_DEGREE.get(sym, 0):
-                        aromatic_capable = False
-                        break
-                    if sym == "C":
-                        # Carbon's p-orbital consumed by an exocyclic double bond,
-                        # detected by the neighbour being sub-valent for its element.
-                        s_ptr, e_ptr = node_edge_ptr[atom_i], node_edge_ptr[atom_i + 1]
-                        for pos in range(s_ptr, e_ptr):
-                            nbr = int(node_edge_neighbor[pos])
-                            if nbr in ring_set:
-                                continue
-                            nbr_sym = sym_list[nbr]
-                            if nbr_sym in data.metals:
-                                continue
-                            if non_metal_degree[nbr] < _EXO_PI_DEGREE_THRESHOLD.get(nbr_sym, 0):
-                                aromatic_capable = False
-                                break
-                        if not aromatic_capable:
-                            break
-            ring_aromatic_capable_list.append(aromatic_capable)
-
-        # Per-atom π lookup, applied at score time as pi_base
-        # + (fc>0: pi_fc_pos_delta*fc) + (fc<0: pi_fc_neg_delta*|fc|), matching
-        # detect_aromatic_rings.
-        pi_base = np.zeros(n, dtype=np.float64)
-        pi_fc_pos_delta = np.zeros(n, dtype=np.float64)
-        pi_fc_neg_delta = np.zeros(n, dtype=np.float64)
-        for i, sym in enumerate(sym_list):
-            deg = int(non_metal_degree[i])
-            # +fc removes a ring electron (delta -1), -fc adds one (delta +1);
-            # 3-coord N/P donate their lone pair (base 2), 2-coord contribute one.
-            if sym == "C":
-                pi_base[i] = 1.0
-                pi_fc_pos_delta[i] = -1.0
-                pi_fc_neg_delta[i] = 1.0
-            elif sym == "N":
-                if deg >= 3:
-                    pi_base[i] = 2.0
-                    pi_fc_pos_delta[i] = -1.0
-                else:
-                    pi_base[i] = 1.0
-                    pi_fc_neg_delta[i] = 1.0
-            elif sym in ("O", "S"):
-                pi_base[i] = 2.0  # lone pair into ring
-            elif sym == "P":
-                if deg >= 3:
-                    pi_base[i] = 2.0
-                    pi_fc_pos_delta[i] = -1.0
-                else:
-                    pi_base[i] = 1.0
-                    pi_fc_neg_delta[i] = 1.0
-            elif sym == "B":
-                pi_base[i] = 0.0  # empty p
+                    edge_in_ring[eidx] = True
+        in_a_ring = {i for ring in rings for i in ring}
+        capable = [ring for ring in rings if aromatic_capable(G, ring, data)]
+        systems = []
+        for members, atoms in aromatic_systems(capable):
+            substituents = {
+                nb for i in atoms for nb in G.neighbors(i) if nb not in in_a_ring and sym_list[nb] not in data.metals
+            }
+            systems.append((members, np.array(atoms, dtype=np.intp), np.array([*atoms, *sorted(substituents)])))
 
         non_metal = ~is_metal
         vi_mask = has_valence_info & non_metal
@@ -363,22 +406,29 @@ class ScoringArrays:
             check_vlim_thresh=check_vlim + VALENCE_CHECK_TOLERANCE,
             has_h_neighbor=has_h_neighbor,
             has_metal_neighbor=has_metal_neighbor,
+            donor_full_shell=has_metal_neighbor & ~is_metal & (valence_electrons >= 5),
             non_metal_degree=non_metal_degree,
-            pi_base=pi_base,
-            pi_fc_pos_delta=pi_fc_pos_delta,
-            pi_fc_neg_delta=pi_fc_neg_delta,
             n_edges=n_edges,
             edge_src=edge_src,
             edge_dst=edge_dst,
             bond_orders=bond_orders_arr,
             is_metal_coord=is_metal_coord,
+            fixed_order=is_metal_coord | is_h[edge_src] | is_h[edge_dst] if n_edges else np.empty(0, dtype=bool),
             edge_has_metal=edge_has_metal,
             node_edge_neighbor=node_edge_neighbor,
             csr_owners=csr_owners,
-            ring_edge_indices=ring_edge_indices_list,
-            ring_atoms=ring_atoms_list,
-            conjugatable_ring_mask=conjugatable_ring_mask,
-            ring_aromatic_capable=ring_aromatic_capable_list,
+            edge_in_ring=edge_in_ring,
+            n_aromatic_rings=len(capable),
+            ring_systems=systems,
+            pi_stretch=pi_stretch,
+            atomic_numbers=np.array([data.s2n.get(s, 0) for s in sym_list], dtype=np.int64),
+            terminal=terminal,
+            valences_by_z={
+                data.s2n[s]: np.array(v, dtype=np.float64) for s, v in data.valences.items() if s in data.s2n
+            },
+            n_metals=len(metal_syms),
+            metal_cap=float(sum(data.electrons.get(s, 0) for s in metal_syms)),
+            metal_state_sums=np.array(sorted(state_sums)),
         )
 
     # =====================================================================
@@ -428,11 +478,68 @@ class ScoringArrays:
     # Scoring
     # =====================================================================
 
+    def _allowed_valence_gap(self, valence_sums: np.ndarray) -> np.ndarray:
+        """Per atom, distance from its bond sum to the nearest allowed valence (inf without valence data)."""
+        gap = np.full(self.n_atoms, np.inf)
+        if self.vi_mask.any():
+            diffs = np.abs(valence_sums[self.vi_mask, np.newaxis] - self.vi_allowed)
+            diffs[~self.vi_allowed_mask] = np.inf
+            gap[self.vi_mask] = np.min(diffs, axis=1)
+        return gap
+
+    def _valence_gap(self, valence_sums: np.ndarray, fc: np.ndarray, neutral_gap: np.ndarray) -> np.ndarray:
+        """Per atom, distance to its nearest allowed valence, as the score counts it.
+
+        A charged atom has the valences of the element it is isoelectronic with (N+ as C, O- as F).
+        """
+        gap = neutral_gap.copy()
+        for i in np.flatnonzero((fc != 0) & self.vi_mask):
+            iso = self.valences_by_z.get(int(self.atomic_numbers[i] - fc[i]))
+            if iso is not None:
+                iso = iso[:1] if self.terminal[i] else iso
+                gap[i] = float(np.min(np.abs(iso - valence_sums[i])))
+        return gap
+
+    def charge_terms(self, fc: np.ndarray, charge: Optional[int]) -> Tuple[float, float]:
+        """Impossible and soft deviations from the stated total ``charge``.
+
+        The metals take whatever the non-metals leave: beyond their valence electrons is impossible,
+        a total no combination of their usual oxidation states reaches is soft. Without metals the
+        total must be met, bar the one electron an odd count leaves unpaired (the octet rule reads it
+        as a charge). An unknown (None) charge of a metal-free molecule aims, softly, for the least a
+        closed shell allows: 0, or 1 either way for an odd electron count.
+        """
+        nonmetal_charge = int(np.sum(fc[self.non_metal]))
+        if charge is None:
+            return 0.0, float(max(0, abs(nonmetal_charge) - int(self.atomic_numbers.sum()) % 2))
+        if self.n_metals:
+            metal_charge = charge - nonmetal_charge
+            impossible = max(0.0, metal_charge - self.metal_cap)
+            soft = 0.0 if impossible else float(np.min(np.abs(self.metal_state_sums - metal_charge)))
+            return impossible, soft
+        mismatch = abs(nonmetal_charge - charge)
+        impossible = max(0, mismatch - int(self.atomic_numbers.sum() - charge) % 2)
+        return float(impossible), float(mismatch - impossible)
+
+    def formal_charges(self, valence_sums: np.ndarray, gap: np.ndarray | None = None) -> np.ndarray:
+        """Formal charges under ``valence_sums``; a metal reads 0 here."""
+        if gap is None:
+            gap = self._allowed_valence_gap(valence_sums)
+        fc = _compute_formal_charge_vec(
+            self.valence_electrons,
+            valence_sums,
+            self.non_metal_degree,
+            at_allowed=gap < 1e-9,
+            full_shell=self.donor_full_shell,
+        )
+        fc[self.is_metal] = 0
+        return fc
+
     def score(
         self,
         valence_sums: np.ndarray,
         bond_orders: np.ndarray,
-        charge: int,
+        charge: Optional[int],
         weights: ScoringWeights,
     ) -> Tuple[float, np.ndarray]:
         """Vectorised scoring — replaces ``_score_assignment``."""
@@ -440,27 +547,28 @@ class ScoringArrays:
         if self.check_valence_violation(valence_sums):
             return 1e9, np.zeros(self.n_atoms, dtype=np.int64)
 
-        # Formal charges (vectorised); non_metal_degree gates the all-single
-        # lone-pair test, consistent with valence_sums.
-        fc = _compute_formal_charge_vec(self.is_h, self.valence_electrons, valence_sums, self.non_metal_degree)
-        fc[self.is_metal] = 0
+        gap = self._allowed_valence_gap(valence_sums)
+        fc = self.formal_charges(valence_sums, gap)
 
         non_metal = self.non_metal
         abs_fc = np.abs(fc)
-        fc_sum = float(np.sum(abs_fc[non_metal]))
-        n_charged = int(np.count_nonzero(fc[non_metal]))
+        # A localised charge costs q^2; a donor's charge is the bookkeeping of its bond to the metal
+        # (an oxo O2-, an imido NR2-), so it costs q.
+        charge_cost = np.where(self.donor_full_shell, abs_fc, abs_fc**2)
+        fc_sum = float(np.sum(charge_cost[non_metal]))
+        # Charged sites exclude donors, whose charge is their bond to the metal. Opposite charges across a
+        # bond (N+-O-, C-#O+) write one polar bond, not two separate charges.
+        site = non_metal & ~self.donor_full_shell & (fc != 0)
+        polar = int(
+            np.count_nonzero(site[self.edge_src] & site[self.edge_dst] & (fc[self.edge_src] * fc[self.edge_dst] < 0))
+        )
+        n_charged = int(np.count_nonzero(site)) - polar
 
-        # Valence error (pre-sliced arrays, no re-indexing)
-        valence_err = 0.0
-        vi_mask = self.vi_mask
-        if vi_mask.any():
-            diffs = np.abs(valence_sums[vi_mask, np.newaxis] - self.vi_allowed)
-            diffs[~self.vi_allowed_mask] = np.inf
-            valence_err = float(np.sum(np.min(diffs, axis=1) ** 2))
+        valence_err = float(np.sum(self._valence_gap(valence_sums, fc, gap)[self.vi_mask] ** 2))
 
         # Scoring valence limit violations (pre-computed threshold)
         over_limit = non_metal & (valence_sums > self.scoring_vlim_thresh)
-        violation = float(np.sum(over_limit)) * weights.violation_weight
+        violation = float(np.sum(over_limit))
 
         # Electronegativity penalty (vectorised over all non-metal atoms)
         # Operate on full arrays — branchless, avoids np.any guard overhead
@@ -500,11 +608,15 @@ class ScoringArrays:
                 penalty_vals = np.where(self.is_protonation_heavy[qual], 8.0, 3.0)
                 protonation = float(np.sum(penalty_vals * pos_nbr_count[qual]))
 
-        # Conjugation penalty (deficit gradient + Hückel-aromatic bonus).
-        conjugation = self._ring_conjugation_penalty(bond_orders, fc, valence_sums, weights)
+        # Rings that could be aromatic and are not.
+        conjugation = self._ring_conjugation_penalty(bond_orders, fc, valence_sums)
 
-        # Total
-        charge_error = abs(int(np.sum(fc)) - charge)
+        # A π bond on a bond shorter than a single one gains, on a longer one pays.
+        geometry = float(np.dot(bond_orders - 1.0, self.pi_stretch))
+
+        impossible, charge_error = self.charge_terms(fc, charge)
+        violation = (violation + impossible) * weights.violation_weight  # squared in the total: effectively hard
+
         total = (
             weights.violation_weight * violation
             + weights.conjugation_weight * conjugation
@@ -514,6 +626,7 @@ class ScoringArrays:
             + weights.charge_error_weight * charge_error
             + weights.electronegativity_weight * en_penalty
             + weights.valence_error_weight * valence_err
+            + weights.geometry_weight * geometry
         )
         return total, fc
 
@@ -521,63 +634,24 @@ class ScoringArrays:
     # Ring conjugation penalty
     # =====================================================================
 
-    def _ring_conjugation_penalty(
-        self,
-        bond_orders: np.ndarray,
-        fc: np.ndarray,
-        valence_sums: np.ndarray,
-        weights: ScoringWeights,
-    ) -> float:
-        """Ring scoring: deficit gradient + Hückel-aromatic redemption, floored at 0.
-
-        Each aromatic-capable ring *owes* ``aromatic_ring_bonus``; reaching the
-        aromatic state — Kekulé (``elevated >= expected``) AND 4n+2 π — redeems
-        it to 0, else it keeps the baseline plus any sub-Kekulé deficit.
-        Penalty-only, so the optimum tends to 0 from above.
-
-        A divalent group-14 carbon contributes 0 ring π, and ``expected`` is
-        need-based (#atoms with a ring p-electron / 2), not ``ring_size // 2``.
-        A group-14 carbanion's lone pair is sigma: it counts as one ring
-        p-electron, donating the pair to pi only when needed to reach 4n+2.
-        """
-        penalty = 0.0
-
-        # Per-atom π contribution under current fc (vectorised, capped at 2).
-        fc_f = fc.astype(np.float64)
-        pos = np.maximum(fc_f, 0.0)
-        neg = -np.minimum(fc_f, 0.0)
-        pi_contrib = np.clip(self.pi_base + self.pi_fc_pos_delta * pos + self.pi_fc_neg_delta * neg, 0.0, 2.0)
-        carbene = (self.valence_electrons == 4) & self.non_metal & (valence_sums <= 2.0 + 1e-9)
-        pi_contrib = np.where(carbene, 0.0, pi_contrib)
-
-        # Cap a carbanion at one p-electron (sigma); the second is tested per ring.
-        carbanion = (self.valence_electrons == 4) & self.non_metal & (fc < 0)
-        pi_sigma = np.where(carbanion, np.minimum(pi_contrib, 1.0), pi_contrib)
-        pi_int = np.round(pi_sigma).astype(np.int64)
-
-        for r_idx, ring_eidx in enumerate(self.ring_edge_indices):
-            if not self.ring_aromatic_capable[r_idx]:
-                continue
-
-            ring_atoms = self.ring_atoms[r_idx]
-            elevated = int(np.sum(bond_orders[ring_eidx] > 1.3))
-            expected = int(np.sum(pi_int[ring_atoms] == 1)) // 2
-
-            # Baseline owed by every capable ring (floors the optimum at 0).
-            penalty += weights.aromatic_ring_bonus
-
-            if elevated >= expected:
-                base_pi = round(float(np.sum(pi_sigma[ring_atoms])))
-                # Each ring carbanion may donate its sigma pair (+1) to reach Hückel.
-                n_donatable = int(np.sum(carbanion[ring_atoms]))
-                if any((base_pi + k) in _HUCKEL_PI_COUNTS for k in range(n_donatable + 1)):
-                    penalty -= weights.aromatic_ring_bonus  # redeemed → ring contributes 0
-                    continue
-
-            # Not aromatic: keep the baseline + gradient toward full Kekulé.
-            penalty += max(0, expected - elevated) * weights.conjugation_deficit_penalty
-
-        return penalty
+    def _ring_conjugation_penalty(self, bond_orders: np.ndarray, fc: np.ndarray, valence_sums: np.ndarray) -> int:
+        """Rings that could be aromatic but are not under this Lewis structure (see huckel_aromatic)."""
+        if not self.n_aromatic_rings:
+            return 0
+        has_pi = (bond_orders > 1.3) & ~self.edge_has_metal
+        ring_pi = np.zeros(self.n_atoms, dtype=bool)
+        exo_pi = np.zeros(self.n_atoms, dtype=bool)
+        for flags, edges in ((ring_pi, has_pi & self.edge_in_ring), (exo_pi, has_pi & ~self.edge_in_ring)):
+            flags[self.edge_src[edges]] = True
+            flags[self.edge_dst[edges]] = True
+        pi = ring_pi_electrons(self.valence_electrons, fc, valence_sums, self.non_metal_degree, ring_pi, exo_pi)
+        aromatic = {
+            r
+            for members, atoms, system in self.ring_systems
+            if huckel_aromatic(pi[atoms], int(fc[system].sum()))
+            for r in members
+        }
+        return self.n_aromatic_rings - len(aromatic)
 
     # =====================================================================
     # Edge candidate selection
@@ -585,15 +659,9 @@ class ScoringArrays:
 
     def eligible_edges_mask(self, bond_orders: np.ndarray) -> np.ndarray:
         """Bool mask [E] of edges eligible for bond-order changes."""
-        return ~self.is_metal_coord & (bond_orders < 3.0)
+        return ~self.fixed_order & (bond_orders < 3.0)
 
-    def top_candidate_edges(
-        self,
-        bond_orders: np.ndarray,
-        valence_sums: np.ndarray,
-        valences_data: Dict,
-        k: int,
-    ) -> np.ndarray:
+    def top_candidate_edges(self, bond_orders: np.ndarray, valence_sums: np.ndarray, k: int) -> np.ndarray:
         """Return indices of top-k candidate edges by valence-error pressure.
 
         Ranks by each endpoint's distance to its nearest allowed valence (what
@@ -607,13 +675,10 @@ class ScoringArrays:
         if len(eidxs) == 0:
             return np.empty(0, dtype=np.intp)
 
-        # Per-atom valence error: distance to nearest allowed valence (0 if
-        # satisfied).  Atoms with no valence info contribute 0 pressure.
-        verr = np.zeros(self.n_atoms, dtype=np.float64)
-        if self.vi_mask.any():
-            diffs = np.abs(valence_sums[self.vi_mask, np.newaxis] - self.vi_allowed)
-            diffs[~self.vi_allowed_mask] = np.inf
-            verr[self.vi_mask] = np.min(diffs, axis=1)
+        # Search pressure, not the score: a charged atom sits off its neutral valences, so moves that
+        # could neutralise or shift its charge stay candidates. The score uses the isoelectronic gap.
+        verr = self._allowed_valence_gap(valence_sums)
+        verr[~self.vi_mask] = 0.0
 
         src = self.edge_src[eidxs]
         dst = self.edge_dst[eidxs]
@@ -632,6 +697,12 @@ class ScoringArrays:
     # =====================================================================
     # Write back to nx.Graph
     # =====================================================================
+
+    def read_bond_orders(self, G: nx.Graph) -> np.ndarray:
+        """Read the graph's current bond orders in this array's edge order."""
+        return np.array(
+            [G[int(i)][int(j)].get("bond_order", 1.0) for i, j in zip(self.edge_src, self.edge_dst)], dtype=np.float64
+        )
 
     def write_bond_orders_to_graph(self, G: nx.Graph, bond_orders: np.ndarray) -> None:
         """Apply array bond orders back to the nx.Graph edge attributes."""

@@ -6,13 +6,13 @@ from typing import Any, Dict, List, Optional, Tuple
 import networkx as nx
 
 from .bond_detection import BondDetector
-from .bond_geometry_check import BondGeometryChecker
+from .bond_geometry_check import BondGeometryChecker, has_lone_pair
 from .bond_order_optimizer import BondOrderOptimizer
 from .config import DEFAULT_PARAMS
 from .data_loader import DATA
 from .geometry import GeometryCalculator
 from .parameters import BondThresholds, GeometryThresholds, OptimizerConfig, ScoringWeights
-from .utils import configure_debug_logging, read_xyz_file
+from .utils import configure_debug_logging, read_xyz_file, smallest_rings
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def compute_metadata(
     method: str,
-    charge: int,
+    charge: Optional[int],
     multiplicity: Optional[int],
     quick: bool,
     optimizer: str,
@@ -127,7 +127,7 @@ class GraphBuilder:
     def __init__(
         self,
         atoms: List[Tuple[str, Tuple[float, float, float]]],
-        charge: int = DEFAULT_PARAMS["charge"],
+        charge: Optional[int] = DEFAULT_PARAMS["charge"],
         multiplicity: Optional[int] = DEFAULT_PARAMS["multiplicity"],
         method: str = DEFAULT_PARAMS["method"],
         quick: bool = DEFAULT_PARAMS["quick"],
@@ -155,6 +155,15 @@ class GraphBuilder:
         period_scaling_sblock_bonds: float = DEFAULT_PARAMS["period_scaling_sblock_bonds"],
     ):
         self.atoms = atoms  # List of (symbol, (x,y,z))
+        # charge=None: a metal-free molecule takes the total of its best closed-shell Lewis structure.
+        # A complex's total cannot be read from its geometry (any oxidation state fits), nor can xTB
+        # run without one, so those assume 0.
+        if charge is None and (quick or method != "cheminf" or any(s in DATA.metals for s, _ in atoms)):
+            if not quick:
+                logger.warning("No charge given; assuming 0 (a complex's total charge is not in its geometry)")
+            charge = 0
+        if charge is None and multiplicity is not None and multiplicity % 2 == 0:
+            raise ValueError(f"charge=None infers a closed-shell charge; pass charge= for multiplicity {multiplicity}")
         self.charge = charge
         self.method = method
         self.optimizer = optimizer.lower()
@@ -170,8 +179,8 @@ class GraphBuilder:
         if self.optimizer not in ("greedy", "beam"):
             raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam'")
 
-        # Auto-detect multiplicity
-        if multiplicity is None:
+        # Auto-detect multiplicity (an inferred charge is closed shell: set once inferred)
+        if multiplicity is None and charge is not None:
             total_electrons = sum(DATA.s2n[symbol] for symbol, _ in atoms) - charge
             self.multiplicity = 1 if total_electrons % 2 == 0 else 2
         else:
@@ -207,7 +216,13 @@ class GraphBuilder:
         self._geometry = GeometryCalculator()
 
         # Geometry thresholds and bond validator
-        self._geom_thresholds = GeometryThresholds.relaxed() if relaxed else GeometryThresholds.strict()
+        # A stretched cutoff (threshold > 1) asks for partial bonds, as relaxed does, with strict limits.
+        if relaxed:
+            self._geom_thresholds = GeometryThresholds.relaxed()
+        elif threshold > 1:
+            self._geom_thresholds = GeometryThresholds.transition()
+        else:
+            self._geom_thresholds = GeometryThresholds.strict()
         self._bond_checker = BondGeometryChecker(
             geometry=self._geometry,
             thresholds=self._geom_thresholds,
@@ -270,7 +285,8 @@ class GraphBuilder:
         mode = "QUICK" if self.quick else "FULL"
         self.log(f"\n{'=' * 80}")
         self.log(f"BUILDING GRAPH ({self.method.upper()}, {mode} MODE)")
-        self.log(f"Atoms: {len(self.atoms)}, Charge: {self.charge}, Multiplicity: {self.multiplicity}")
+        charge = "inferred" if self.charge is None else self.charge
+        self.log(f"Atoms: {len(self.atoms)}, Charge: {charge}, Multiplicity: {self.multiplicity or 'inferred'}")
         self.log(f"{'=' * 80}\n")
 
         if self.method == "cheminf":
@@ -316,16 +332,32 @@ class GraphBuilder:
         self.log_buffer.extend(self._bond_detector.get_log())
         return G
 
+    def _hydrogen_bond_legs(self, G: nx.Graph) -> List[Tuple[int, int, Dict[str, Any]]]:
+        """Every H's non-metal legs but the nearest that end on a lone pair, with their edge data.
+
+        A hydrogen bond needs an acceptor with a lone pair (has_lone_pair); a leg to an atom without one
+        (the B of a B-H-B bridge) stays a bond.
+        """
+        forced = {frozenset(b) for b in self.bond or []}
+
+        legs = []
+        for h in (n for n in G if G.nodes[n]["symbol"] == "H" and G.degree(n) > 1):
+            near = sorted(
+                (G.edges[h, x]["distance"], x) for x in G.neighbors(h) if G.nodes[x]["symbol"] not in DATA.metals
+            )
+            legs += [
+                (h, x, dict(G.edges[h, x]))
+                for _, x in near[1:]
+                if has_lone_pair(G, x, DATA) and frozenset((h, x)) not in forced
+            ]
+        return legs
+
     # =============================================================================
     # MAIN BUILD FUNCTIONS
     # =============================================================================
 
     def _build_cheminf(self) -> nx.Graph:
         """Build molecular graph using cheminformatics approach."""
-        if self.multiplicity is None:
-            total_electrons = sum(self.atomic_numbers) - self.charge
-            self.multiplicity = 1 if total_electrons % 2 == 0 else 2
-
         # Build initial graph (with inline geometric validation)
         G = self._build_initial_graph()
 
@@ -339,17 +371,26 @@ class GraphBuilder:
             G.graph["method"] = "cheminf-detect"
             return G
 
+        # H has one valence orbital: at equilibrium its longer contacts to lone pairs are hydrogen bonds.
+        # They stay out of the Lewis structure and return as NCI edges. A transition state keeps a proton
+        # in flight bonded (no geometry tells it from a strong H-bond), as does a bond the caller gave.
+        hbonds = [] if self._geom_thresholds.transition_state else self._hydrogen_bond_legs(G)
+        if hbonds:
+            G.remove_edges_from((h, x) for h, x, _ in hbonds)
+            non_metal = [n for n in G if G.nodes[n]["symbol"] not in DATA.metals]
+            G.graph["_rings"] = smallest_rings(G.subgraph(non_metal).copy())
+
         # Bond order optimization (delegates to BondOrderOptimizer)
         self._optimizer.log_buffer.clear()
 
-        # Initialize Kekulé patterns for aromatic rings (gives optimizer a head start)
-        self._optimizer.init_kekule(G)
-
-        # Valence adjustment
-        self._optimizer.optimize(G, mode=self.optimizer)
+        # Seed π bonds by matching, then refine (per oxidation state for a single metal)
+        self._optimizer.assign_bond_orders(G, mode=self.optimizer)
 
         # Compute formal charges BEFORE aromatic detection
         formal_charges = self._optimizer.compute_formal_charges(G)
+        if self.charge is None:
+            self.charge = self._optimizer.charge
+            self.multiplicity = self.multiplicity or 1
 
         # Store formal charges in nodes for aromatic detection to use
         for i, fc in enumerate(formal_charges):
@@ -366,6 +407,10 @@ class GraphBuilder:
         ligand_classification = self._optimizer.classify_metal_ligands(G)
         self.log_buffer.extend(self._optimizer.get_log())
         G.graph["ligand_classification"] = ligand_classification
+
+        for h, x, data in hbonds:
+            G.add_edge(h, x, **{**data, "bond_order": 0.0, "NCI": True, "nci_type": "hbond"})
+            self.log(f"H{h}...{G.nodes[x]['symbol']}{x} is a hydrogen bond (NCI edge)", 1)
 
         # Store oxidation states on metal nodes
         for metal_idx, ox_state in ligand_classification.get("metal_ox_states", {}).items():
@@ -404,7 +449,7 @@ class GraphBuilder:
 
         return build_graph_xtb(
             atoms=self.atoms,
-            charge=self.charge,
+            charge=self.charge or 0,  # never None here: __init__ assumes 0 for xTB
             multiplicity=self.multiplicity,
             clean_up=self.clean_up,
         )
@@ -412,7 +457,7 @@ class GraphBuilder:
 
 def build_graph(
     atoms: List[Tuple[str, Tuple[float, float, float]]] | str,
-    charge: int = DEFAULT_PARAMS["charge"],
+    charge: Optional[int] = DEFAULT_PARAMS["charge"],
     multiplicity: Optional[int] = DEFAULT_PARAMS["multiplicity"],
     method: str = DEFAULT_PARAMS["method"],
     quick: bool = DEFAULT_PARAMS["quick"],
@@ -444,6 +489,8 @@ def build_graph(
     """Build molecular graph using GraphBuilder.
 
     atoms: Either a list of (symbol, (x,y,z)) tuples, or a filepath to read.
+    charge: Total charge. None infers it for a metal-free molecule (the charge of its best
+        closed-shell Lewis structure, so pass it for a radical); a complex assumes 0.
     metadata: Pre-computed metadata dict (for CLI to avoid duplication).
     stereo: If True, annotate stereochemistry labels on the returned graph.
     """

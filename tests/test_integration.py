@@ -41,6 +41,63 @@ def _load_fixture(name: str) -> dict:
 # ===========================================================================
 
 
+def test_second_hydrogen_contact_is_a_hydrogen_bond():
+    """At equilibrium an H's longer contact to an O is an NCI hydrogen bond; a transition state keeps it bonded."""
+    atoms = [
+        ("O", (0.0, 0.0, 0.0)),
+        ("H", (1.0, 0.0, 0.0)),
+        ("H", (-0.33, 0.94, 0.0)),
+        ("O", (2.4, 0.0, 0.0)),
+        ("H", (2.73, 0.94, 0.0)),
+        ("H", (2.73, -0.47, 0.82)),
+    ]
+    G = build_graph(atoms, charge=0)
+    assert G.edges[1, 3]["NCI"]
+    assert G.edges[1, 3]["bond_order"] == 0.0
+    assert not any(G.nodes[n]["formal_charge"] for n in G)
+    assert not build_graph(atoms, charge=0, relaxed=True).edges[1, 3].get("NCI")
+
+
+def test_agostic_hydrogen_bonds_only_in_a_transition_state():
+    """A C-H pointing at a metal is agostic at equilibrium; a transition state keeps the M-H, an H in flight."""
+    atoms = [("Pd", (0.0, 0.0, 0.0)), ("Cl", (-2.3, 0.0, 0.0)), ("H", (1.9, 0.0, 0.0)), ("C", (3.02, 0.0, 0.0))]
+    atoms += [("H", (3.38, 1.03, 0.0)), ("H", (3.38, -0.51, 0.89)), ("H", (3.38, -0.51, -0.89))]
+    assert not build_graph(atoms, charge=0).has_edge(0, 2)
+    assert build_graph(atoms, charge=0, relaxed=True).has_edge(0, 2)
+
+
+def test_cation_takes_the_lone_pair_across_the_ring():
+    """4-Aminobenzyl cation: the charge sits on the iminium N+, four bonds from the CH2, not on a carbocation."""
+    atoms = [
+        ("N", (-2.825, 0.132, -0.117)),
+        ("C", (-1.433, -0.004, -0.071)),
+        ("C", (-0.664, 0.228, -1.213)),
+        ("C", (0.734, 0.21, -1.15)),
+        ("C", (1.383, 0.001, 0.068)),
+        ("C", (2.836, -0.017, 0.136)),
+        ("C", (0.618, -0.172, 1.223)),
+        ("C", (-0.779, -0.153, 1.154)),
+        ("H", (-3.226, -0.078, -1.026)),
+        ("H", (-3.307, -0.346, 0.637)),
+        ("H", (-1.145, 0.426, -2.166)),
+        ("H", (1.305, 0.376, -2.061)),
+        ("H", (3.335, -0.166, 1.086)),
+        ("H", (3.425, 0.132, -0.76)),
+        ("H", (1.096, -0.31, 2.189)),
+        ("H", (-1.353, -0.257, 2.071)),
+    ]
+    G = build_graph(atoms, charge=1)
+    assert [n for n in G if G.nodes[n]["formal_charge"]] == [0]
+    assert G.edges[0, 1]["bond_order"] == 2.0
+
+
+def test_charge_inferred_when_not_given():
+    """charge=None reads a metal-free molecule's closed-shell total; a complex assumes 0."""
+    G = build_graph(str(EXAMPLES / "isothio.xyz"))
+    assert (G.graph["total_charge"], G.graph["multiplicity"]) == (1, 1)
+    assert build_graph(str(EXAMPLES / "mnh.xyz")).graph["total_charge"] == 0
+
+
 def test_isothio():
     """Full pipeline match for charged organic molecule."""
     result = graph_to_dict(build_graph(str(EXAMPLES / "isothio.xyz"), charge=1))

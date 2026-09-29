@@ -1,18 +1,21 @@
 """Aromaticity perception tests.
 
 One integration case per rule branch of the aromaticity model, which asks a
-single question per ring atom: is its p-orbital available to the ring
-(contributing 1 electron from a ring π bond or 2 from a lone pair), or is it
-committed elsewhere / empty (contributing 0)?
+single question per ring atom, whatever the element: how many electrons does
+its p orbital give the ring (scoring_arrays.ring_pi_electrons)?
 
-  * a carbon with an exocyclic double bond contributes 0 (masked cation);
-  * a trigonal carbon with only single bonds contributes 0 (empty p);
-  * a lone-pair donor (N, O, S) with an exocyclic double bond contributes 0;
-  * >= 2 zero-contribution carbons on a non-anionic ring system means
-    cross-conjugation, never aromaticity, whatever the Hückel total —
-    exactly one is allowed (betaine resonance: pyridones, pyranones);
+  * an atom in a ring π bond gives 1;
+  * an atom whose π bond leaves the ring gives 0 (masked cation, sulfonyl S);
+  * otherwise its unshared electrons fill its free sp2 hybrids first and the
+    rest is its p orbital: 2 for a pyrrole N, furan O or Cp- carbon;
+  * >= 2 atoms giving 0 on a non-anionic ring system means cross-conjugation,
+    never aromaticity, whatever the Hückel total — exactly one is allowed
+    (betaine resonance: pyridones, pyranones);
   * anionic ring systems (charge summed over ring + direct substituents,
-    e.g. croconate's exocyclic olate oxygens) are left to the Hückel count.
+    e.g. croconate's exocyclic olate oxygens) are left to the Hückel count;
+  * a ring is aromatic alone or fused on one bond with a neighbour, so a
+    bridgehead lone pair (indolizine) or a non-alternant pair (azulene) is
+    judged as the 10π bicycle.
 
 This is the classical model — caffeine's pyrimidinedione ring is NOT
 aromatic — and deliberately disagrees with RDKit's default on the
@@ -51,9 +54,11 @@ CASES = [
     ("benzene",             "c1ccccc1",                          ["C6"],           6,  None),
     ("imidazole",           "c1c[nH]cn1",                        ["C3N2"],         5,  None),
     ("benzaldehyde",        "O=Cc1ccccc1",                       ["C6"],           6,  1),
-    # fused systems: SSSR path (naphthalene) and perimeter path (azulene 5-7)
+    # fused systems: each ring alone (naphthalene), or only as the fused pair
+    # (azulene 5-7; indolizine, whose bridgehead N pair counts once)
     ("naphthalene",         "c1ccc2ccccc2c1",                    ["C6", "C6"],     11, None),
     ("azulene",             "c1ccc2cccc2cc1",                    ["C5", "C7"],     11, None),
+    ("indolizine",          "c1ccn2cccc2c1",                     ["C4N1", "C5N1"], 10, None),
     # exactly one exocyclic-π carbon: betaine form allowed, ring aromatic
     # (behaviour change vs v1.6.10, which called the pyridones non-aromatic)
     ("2-pyridone",          "O=c1cccc[nH]1",                     ["C5N1"],         6,  1),
@@ -72,7 +77,7 @@ CASES = [
     ("5-nitrouracil",       "O=c1[nH]cc(c(=O)[nH]1)[N+](=O)[O-]", [],              0,  2),
     ("caffeine",            "Cn1cnc2c1c(=O)n(C)c(=O)n2C",        ["C3N2"],         5,  2),  # imidazole ring survives
     # fused: benzo rings keep aromaticity, the dione ring is excluded;
-    # acenaphthenequinone exercises the perimeter-path guard, indigo the
+    # acenaphthenequinone exercises the fused-pair guard, indigo the
     # inter-ring C=C (partner atom lives in another ring)
     ("anthraquinone",       "O=C1c2ccccc2C(=O)c2ccccc21",        ["C6", "C6"],     12, 2),
     ("acenaphthenequinone", "O=C1C(=O)c2cccc3cccc1c23",          ["C6", "C6"],     11, 2),
@@ -88,6 +93,7 @@ CASES = [
     # charged rings: empty-p carbon counted for pyrylium (aromatic cation);
     # anionic ring systems escape the cross-conjugation guard
     ("pyrylium",            "c1cc[o+]cc1",                       ["C5O1"],         6,  None),
+    ("tropylium",           "[cH+]1cccccc1",                     ["C7"],           7,  None),  # C+ empty p
     ("cyclopentadienide",   "[cH-]1cccc1",                       ["C5"],           5,  None),
     ("croconate_dianion",   "[O-]C1=C([O-])C(=O)C(=O)C1=O",      ["C5"],           5,  3),
 ]
