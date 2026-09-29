@@ -1,4 +1,4 @@
-"""XYZGraph package."""
+"""xyzgraph package."""
 
 from importlib.metadata import version
 
