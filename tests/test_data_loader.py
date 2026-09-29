@@ -15,7 +15,6 @@ def test_core_data_present():
     assert "Fe" in DATA.metals
     assert "C" not in DATA.metals
     assert DATA.electronegativity["O"] > DATA.electronegativity["C"]
-    assert DATA.aromatic_atoms < DATA.conjugatable_atoms
     # The radius table is keyed by real element symbols (Gd and Ho were once misspelt).
     assert set(DATA.vdw) <= set(DATA.s2n)
     # A metal's usual oxidation states never exceed the electrons it has to give.

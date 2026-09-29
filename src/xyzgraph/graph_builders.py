@@ -322,10 +322,6 @@ class GraphBuilder:
 
     def _build_cheminf(self) -> nx.Graph:
         """Build molecular graph using cheminformatics approach."""
-        if self.multiplicity is None:
-            total_electrons = sum(self.atomic_numbers) - self.charge
-            self.multiplicity = 1 if total_electrons % 2 == 0 else 2
-
         # Build initial graph (with inline geometric validation)
         G = self._build_initial_graph()
 
@@ -342,11 +338,8 @@ class GraphBuilder:
         # Bond order optimization (delegates to BondOrderOptimizer)
         self._optimizer.log_buffer.clear()
 
-        # Initialize Kekulé patterns for aromatic rings (gives optimizer a head start)
-        self._optimizer.init_kekule(G)
-
-        # Valence adjustment
-        self._optimizer.optimize(G, mode=self.optimizer)
+        # Seed π bonds by matching, then refine (per oxidation state for a single metal)
+        self._optimizer.assign_bond_orders(G, mode=self.optimizer)
 
         # Compute formal charges BEFORE aromatic detection
         formal_charges = self._optimizer.compute_formal_charges(G)

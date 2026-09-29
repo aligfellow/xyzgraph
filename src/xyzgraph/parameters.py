@@ -95,17 +95,20 @@ class ScoringWeights:
     violation_weight: float = 1000.0
     """Valence violations (e.g., 5-coordinate C). Highest priority."""
 
-    conjugation_weight: float = 12.0
-    """Disrupted aromatic conjugation. Tuned on benzene, naphthalene."""
+    conjugation_weight: float = 144.0
+    """Per ring that could be aromatic (planar, sp2) and is not 4n+2 under the Lewis structure."""
 
     protonation_weight: float = 8.0
     """Incorrect protonation states for N, O, S."""
 
     formal_charge_weight: float = 10.0
-    """Magnitude of formal charges. Prefer neutral."""
+    """Squared formal charges: prefer neutral, and two unit charges over one double charge
+    (a CO ligand as C≡O, not C2-=O). A metal-bound lone-pair donor counts its charge linearly:
+    an oxo O2- or imido NR2- is the ionic convention, not a localised charge."""
 
     charged_atoms_weight: float = 10.0
-    """Number of charged atoms. Prefer localized charges."""
+    """Number of charged sites: charged atoms, a pair of opposite charges across a bond (the N+-O- of a
+    nitro, the C-#O+ of CO) counting once, as the polar bond it writes."""
 
     charge_error_weight: float = 10.0
     """Deviation from target molecular charge."""
@@ -119,12 +122,10 @@ class ScoringWeights:
     valence_error_weight: float = 5.0
     """Non-standard valences. Soft constraint."""
 
-    # Ring conjugation
-    conjugation_deficit_penalty: float = 5.0
-    """Gradient toward Kekulé in aromatic-capable rings not yet at 4n+2."""
-
-    aromatic_ring_bonus: float = 12.0
-    """Bonus when an aromatic-capable ring reaches 4n+2 π electrons under current fc."""
+    geometry_weight: float = 10.0
+    """Per π bond, how far its bond's distance over the vdW sum is from a single bond's 0.40: a
+    shortened bond (C=C 0.35, C#O 0.30) gains, a single-length one pays, so π goes on the shorter
+    bonds (the N+=C of a thiazolium over C=S+) without costing π bonds as such."""
 
     invalid_score: float = 1e6
     """Infinite penalty for impossible states."""

@@ -74,43 +74,22 @@ class GeometryCalculator:
         return angle_sum
 
     @staticmethod
-    def check_planarity(ring: List[int], graph: nx.Graph, tolerance: float = 0.15) -> bool:
-        """Check if ring atoms lie approximately in a plane.
+    def max_ring_twist(ring: List[int], graph: nx.Graph) -> float:
+        """Largest twist, in degrees, between neighbouring p orbitals around a ring.
 
-        Uses SVD to find best-fit plane and measures deviations.
-
-        Parameters
-        ----------
-        ring : List[int]
-            Node indices forming the ring
-        graph : nx.Graph
-            Graph containing node positions
-        tolerance : float
-            Maximum allowed deviation from plane (Angstroms)
-
-        Returns
-        -------
-        bool
-            True if all atoms within tolerance of best-fit plane
+        Across a ring bond a-b the p orbitals of a and b stand normal to the planes (a', a, b) and
+        (a, b, b'), so their misalignment is the ring dihedral a'-a-b-b', folded into 0-90 (a large
+        planar ring may run trans through a bond). Conjugation is local: a ruffled porphyrin keeps
+        it, a folded phenothiazine does not.
         """
-        if len(ring) < 3:
-            return True  # 3-rings always planar
-
-        coords = np.array([graph.nodes[i]["position"] for i in ring])
-
-        # Fit plane using SVD
-        centroid = coords.mean(axis=0)
-        centered = coords - centroid
-
-        # Plane normal is smallest singular vector
-        _, _, vh = np.linalg.svd(centered)
-        normal = vh[-1]
-
-        # Check distance of each point to plane
-        distances = np.abs(centered @ normal)
-        max_deviation = distances.max()
-
-        return max_deviation < tolerance
+        P = np.array([graph.nodes[i]["position"] for i in ring], dtype=float)
+        p0, p1, p2, p3 = (np.roll(P, -k, axis=0) for k in (-1, 0, 1, 2))
+        axis = p2 - p1
+        axis /= np.linalg.norm(axis, axis=1, keepdims=True)
+        v = p0 - p1 - np.sum((p0 - p1) * axis, axis=1, keepdims=True) * axis
+        w = p3 - p2 - np.sum((p3 - p2) * axis, axis=1, keepdims=True) * axis
+        cos = np.abs(np.sum(v * w, axis=1)) / (np.linalg.norm(v, axis=1) * np.linalg.norm(w, axis=1))
+        return float(np.degrees(np.arccos(np.clip(cos, 0.0, 1.0))).max())
 
     @staticmethod
     def is_collinear(

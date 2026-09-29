@@ -5,12 +5,14 @@ formal charge computation, and aromatic detection.
 """
 
 import networkx as nx
+import numpy as np
 import pytest
 
 from xyzgraph.bond_order_optimizer import BondOrderOptimizer
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
 from xyzgraph.parameters import OptimizerConfig, ScoringWeights
+from xyzgraph.scoring_arrays import huckel_aromatic, ring_pi_electrons
 
 
 @pytest.fixture
@@ -44,10 +46,8 @@ def _make_graph(atoms, edges):
         pj = G.nodes[j]["position"]
         d = GeometryCalculator.distance(pi, pj)
         G.add_edge(i, j, bond_order=1.0, distance=d, metal_coord=False)
-    # Compute rings (needed by init_kekule / detect_aromatic_rings)
+    # Compute rings (needed by detect_aromatic_rings)
     G.graph["_rings"] = nx.cycle_basis(G)
-    G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
-    G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
     return G
 
 
@@ -78,44 +78,13 @@ def test_formal_charge_value():
     # must come out as fc=0 — the octet-only formula gave fc=-2 here.
     assert fc("B", 3, 3.0) == 0  # BF3
     assert fc("B", 3, 4.0) == -1  # BF4-
-    # Hydrogen duet
+    # Hydrogen duet: bonded H is neutral, a bare H completes its duet (a hydride), as a bare Cl is Cl-
     assert fc("H", 1, 1.0) == 0
-    assert fc("H", 1, 0.0) == 1
-
-
-def test_trace_perimeter_single_cycle():
-    """Perimeter edge set of a fused 6+5 system walks to a single closed atom sequence."""
-    # Atoms 0..8; 6-ring = 0-1-2-3-4-5-0, 5-ring shares edge 0-5 with vertices 0,5,6,7,8
-    perimeter_edges = [
-        frozenset((0, 1)),
-        frozenset((1, 2)),
-        frozenset((2, 3)),
-        frozenset((3, 4)),
-        frozenset((4, 5)),  # on the 6-ring
-        frozenset((5, 6)),
-        frozenset((6, 7)),
-        frozenset((7, 8)),
-        frozenset((8, 0)),  # closes via 5-ring's outer edges
-    ]
-    path = BondOrderOptimizer._trace_perimeter(perimeter_edges)
-    assert path is not None
-    assert len(path) == 9
-    # Every atom appears once; consecutive atoms share a perimeter edge
-    assert set(path) == {0, 1, 2, 3, 4, 5, 6, 7, 8}
-    for k in range(len(path)):
-        a, b = path[k], path[(k + 1) % len(path)]
-        assert frozenset((a, b)) in perimeter_edges
-
-
-def test_trace_perimeter_degenerate():
-    """A degenerate edge set (not a single cycle) returns None."""
-    # A vertex with 3 perimeter neighbours cannot form a single cycle
-    perimeter_edges = [
-        frozenset((0, 1)),
-        frozenset((0, 2)),
-        frozenset((0, 3)),
-    ]
-    assert BondOrderOptimizer._trace_perimeter(perimeter_edges) is None
+    assert fc("H", 1, 0.0) == -1
+    # At an allowed valence the leftover electrons stay lone pairs: a sulfoxide S
+    # (one S=O, valence 4) is neutral, a three-bonded sulfonium S is not.
+    assert fc("S", 6, 4.0, degree=3, allowed=(2, 4, 6)) == 0
+    assert fc("S", 6, 3.0, degree=3, allowed=(2, 4, 6)) == 1
 
 
 # ---- Valence violation ----
@@ -256,11 +225,11 @@ def test_invalid_optimizer_mode(optimizer):
         optimizer.optimize(G, mode="invalid")
 
 
-# ---- Kekulé initialisation & aromatic detection ----
+# ---- π seeding & aromatic detection ----
 #
 # Two-step process tested separately:
-#   1. init_kekule:  assigns alternating single/double (1.0/2.0) Kekulé
-#      pattern to validated aromatic rings.  This is a *localised* picture.
+#   1. seed_pi_bonds:  matches atoms that lack valence, placing a Kekulé
+#      (1.0/2.0/3.0) structure.  This is a *localised* picture.
 #   2. detect_aromatic_rings:  converts Kekulé bonds to aromatic BO=1.5
 #      using Hückel 4n+2 π-electron counting.
 #
@@ -269,7 +238,7 @@ def test_invalid_optimizer_mode(optimizer):
 
 
 # Indole: fused 6+5 bicyclic (benzene + pyrrole).
-# 10 ring bonds, all should become BO=1.5 after Kekulé init.
+# 10 ring bonds, all should become BO=1.5 after aromatic detection.
 INDOLE_ATOMS = [
     ("C", (-1.204, -0.695, 0.0)),  # 0  C3a (junction)
     ("C", (-1.204, 0.695, 0.0)),  # 1  C4
@@ -312,7 +281,7 @@ INDOLE_EDGES = [
 ]
 
 # Anthracene: three linearly fused 6-rings (C14H10).
-# 16 ring bonds, all should become BO=1.5 after Kekulé init.
+# 16 ring bonds, all should become BO=1.5 after aromatic detection.
 ANTHRACENE_ATOMS = [
     ("C", (0.000, 1.399, 0.0)),  # 0  (centre ring, top-left)
     ("C", (1.212, 0.700, 0.0)),  # 1  junction (centre-right)
@@ -374,7 +343,7 @@ ANTHRACENE_EDGES = [
 
 
 def test_indole_kekule_then_aromatic(optimizer):
-    """Indole: Kekulé init then aromatic detection on a single graph.
+    """Indole: π seeding then aromatic detection on a single graph.
 
     The pyrrole N (idx 8) needs valence 3, so both N-ring bonds must be
     single.  This forces C3=C2 double (6,7) and C3a-C3 single (0,6).
@@ -383,9 +352,8 @@ def test_indole_kekule_then_aromatic(optimizer):
     """
     G = _make_graph(INDOLE_ATOMS, INDOLE_EDGES)
 
-    # -- Step 1: Kekulé init --
-    n_init = optimizer.init_kekule(G)
-    assert n_init == 2  # one 6-ring + one 5-ring
+    # -- Step 1: π seeding --
+    assert optimizer.seed_pi_bonds(G) == 4  # C3=C2 plus three benzene doubles
 
     # Pyrrole bonds forced by N valence
     assert G.edges[7, 8]["bond_order"] == pytest.approx(1.0), "C2-N1 must be single"
@@ -411,7 +379,7 @@ def test_indole_kekule_then_aromatic(optimizer):
 def test_kekule_flag_skips_aromatic_bo(optimizer):
     """With kekule=True, rings are detected but bond orders stay Kekule."""
     G = _make_graph(INDOLE_ATOMS, INDOLE_EDGES)
-    optimizer.init_kekule(G)
+    optimizer.seed_pi_bonds(G)
     charges = optimizer.compute_formal_charges(G)
     for i, fc in enumerate(charges):
         G.nodes[i]["formal_charge"] = fc
@@ -435,7 +403,7 @@ def test_kekule_flag_skips_aromatic_bo(optimizer):
 
 
 def test_anthracene_kekule_then_aromatic(optimizer):
-    """Anthracene: Kekulé init then aromatic detection on a single graph.
+    """Anthracene: π seeding then aromatic detection on a single graph.
 
     Three fused 6-rings, all C.  Kekulé gives alternating 1.0/2.0 with
     all FC=0.  Then detect_aromatic_rings converts to BO=1.5.
@@ -443,9 +411,8 @@ def test_anthracene_kekule_then_aromatic(optimizer):
     G = _make_graph(ANTHRACENE_ATOMS, ANTHRACENE_EDGES)
     ring_edges = [(i, j) for i, j in ANTHRACENE_EDGES if i < 14 and j < 14]
 
-    # -- Step 1: Kekulé init --
-    n_init = optimizer.init_kekule(G)
-    assert n_init == 3  # three 6-rings
+    # -- Step 1: π seeding --
+    assert optimizer.seed_pi_bonds(G) == 7  # one double per pair of ring carbons
     assert len(ring_edges) == 16
 
     # Valid Kekulé => all formal charges are 0
@@ -491,25 +458,23 @@ BENZYNE_EDGES = [
 
 
 def test_benzyne_kekule_and_aromatic(optimizer):
-    """Benzyne: smart Kekulé init + optimisation + aromatic guard.
+    """Benzyne: π seeding + optimisation + aromatic guard.
 
-    The smart parity in init_kekule should place a double bond on the
-    edge between the two undercoordinated carbons (C3, C4), so the
-    beam search only needs one promotion (2→3).  The aromatic detector
-    flags the ring (6π, Hückel-valid) but keeps the Kekulé+triple
-    structure because the triple bond cannot be represented at 1.5.
+    The two undercoordinated carbons (C3, C4) each lack two bonds, so the
+    matching seeds the C3≡C4 triple directly and the beam search has nothing
+    left to improve.  The aromatic detector flags the ring (6π, Hückel-valid)
+    but keeps the Kekulé+triple structure because the triple bond cannot be
+    represented at 1.5.
     """
     G = _make_graph(BENZYNE_ATOMS, BENZYNE_EDGES)
 
-    # -- Step 1: Kekulé init --
-    n_init = optimizer.init_kekule(G)
-    assert n_init == 1
-    # Smart parity should place double bond on the undercoordinated edge
-    assert G.edges[3, 4]["bond_order"] == pytest.approx(2.0), "C3-C4 should be double after Kekulé init"
+    # -- Step 1: π seeding --
+    assert optimizer.seed_pi_bonds(G) == 4  # the triple's two π bonds plus two ring doubles
+    assert G.edges[3, 4]["bond_order"] == pytest.approx(3.0), "C3≡C4 should be seeded as a triple"
 
     # -- Step 2: beam search optimisation --
     stats = optimizer.optimize(G, mode="beam")
-    assert stats["improvements"] == 1, "Only one promotion (C3-C4: 2→3) needed"
+    assert stats["improvements"] == 0, "the seed is already the optimum"
 
     # Final bond orders: 1 triple, 2 doubles, 3 singles
     ring_bos = sorted(G.edges[i, j]["bond_order"] for i, j in BENZYNE_EDGES[:6])
@@ -596,7 +561,7 @@ def _assert_nhc_invariants(G, optimizer, carbene, n_neighbors, total_charge):
 def test_nhc_free_carbene_no_hypervalent_n(optimizer):
     """Free NHC: optimiser must not produce C≡N or pentavalent N."""
     G = _make_graph(NHC_ATOMS, NHC_EDGES)
-    optimizer.init_kekule(G)
+    optimizer.seed_pi_bonds(G)
     optimizer.optimize(G)
     _assert_nhc_invariants(G, optimizer, carbene=4, n_neighbors=(0, 3), total_charge=0)
 
@@ -606,7 +571,7 @@ def test_nhc_pt_carbene_no_hypervalent_n(optimizer):
     G = _make_graph(NHC_PT_ATOMS, NHC_PT_EDGES)
     for i, j in NHC_PT_METAL_EDGES:
         G.edges[i, j]["metal_coord"] = True
-    optimizer.init_kekule(G)
+    optimizer.seed_pi_bonds(G)
     optimizer.optimize(G)
     _assert_nhc_invariants(G, optimizer, carbene=4, n_neighbors=(0, 3), total_charge=0)
 
@@ -631,7 +596,7 @@ def test_nitrile_triple_via_jump(optimizer):
     """Acetonitrile: the C≡N triple forms (via the single→triple ±2 move), and
     every atom is neutral."""
     G = _make_graph(ACETONITRILE_ATOMS, ACETONITRILE_EDGES)
-    optimizer.init_kekule(G)
+    optimizer.seed_pi_bonds(G)
     optimizer.optimize(G)
     assert G.edges[1, 2]["bond_order"] == pytest.approx(3.0), (
         f"C1≡N2 expected triple, got {G.edges[1, 2]['bond_order']}"
@@ -665,41 +630,40 @@ def _quinone_graph():
     return G
 
 
-def test_exocyclic_pi_ring_bond_vs_substituent(optimizer):
-    """A C=O off the ring is exocyclic π; a ring-internal double is not."""
-    G = _quinone_graph()
-    ring_bonds = optimizer._ring_bond_set(G)
-    assert frozenset((0, 1)) in ring_bonds
-    assert frozenset((0, 6)) not in ring_bonds
-    assert optimizer._has_exocyclic_pi(G, 0, ring_bonds)  # C0=O6
-    assert not optimizer._has_exocyclic_pi(G, 1, ring_bonds)  # C1=C2 is a ring bond
+@pytest.mark.parametrize(
+    ("case", "V", "fc", "bos", "degree", "ring_pi", "exo_pi", "expected"),
+    [
+        ("pyridine N, in a ring double bond", 5, 0, 3, 2, True, False, 1),
+        ("quinone C, pi bond off the ring", 4, 0, 4, 3, False, True, 0),
+        ("pyrrole NH, lone pair in p", 5, 0, 3, 3, False, False, 2),
+        ("furan O, one pair in plane, one in p", 6, 0, 2, 2, False, False, 2),
+        ("Cp- carbon", 4, -1, 3, 3, False, False, 2),
+        ("carbene C, pair in plane, empty p", 4, 0, 2, 2, False, False, 0),
+        ("borane B, empty p", 3, 0, 3, 3, False, False, 0),
+    ],
+)
+def test_ring_pi_electrons(case, V, fc, bos, degree, ring_pi, exo_pi, expected):
+    """One element-free rule gives every ring atom's π electrons."""
+    assert ring_pi_electrons(V, fc, bos, degree, ring_pi, exo_pi) == expected, case
 
 
-def test_exocyclic_pi_partner_inside_another_ring(optimizer):
-    """The exocyclic test is per-bond: a double bond to an atom that belongs
-    to a different ring is still exocyclic (cyclopropylidene case)."""
-    atoms = [
-        *QUINONE_ATOMS[:6],
-        ("C", (2.62, 0.0, 0.0)),
-        ("C", (3.60, 0.7, 0.0)),
-        ("C", (3.60, -0.7, 0.0)),
-    ]
-    edges = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0), (0, 6), (6, 7), (7, 8), (8, 6)]
-    G = _make_graph(atoms, edges)
-    G.edges[0, 6]["bond_order"] = 2.0  # ylidene C=C between the two rings
-    ring_bonds = optimizer._ring_bond_set(G)
-    assert optimizer._has_exocyclic_pi(G, 0, ring_bonds)
-    assert optimizer._is_bare_carbon(G, 7)  # cyclopropane CH2: all singles
-    assert not optimizer._is_bare_carbon(G, 0)
-
-
-def test_no_pi_carbon_count_and_ring_system_charge(optimizer):
-    """Both quinone carbonyl carbons have no π electron for the ring, and the
-    ring-system charge includes direct exocyclic substituents (olates)."""
+def test_quinone_is_cross_conjugated(optimizer):
+    """Quinone carbonyl carbons give no π electron; two such atoms make a neutral 6π ring
+    cross-conjugated, while olate charge on the ring system lets it stay aromatic."""
     G = _quinone_graph()
     ring = G.graph["_rings"][0]
-    ring_bonds = optimizer._ring_bond_set(G)
-    assert optimizer._no_pi_carbon_count(G, ring, ring_bonds) == 2
+    pi = optimizer._ring_pi_electrons(G)
+    assert [pi[i] for i in ring].count(0) == 2
+    assert not huckel_aromatic(np.array([0, 0, 2, 2, 1, 1]), 0)
+    assert huckel_aromatic(np.array([0, 0, 2, 2, 1, 1]), -2)
+
+
+def test_ring_system_charge(optimizer):
+    """The ring-system charge counts direct substituents (olates), not a bound metal."""
+    G = _quinone_graph()
+    ring = G.graph["_rings"][0]
     assert optimizer._ring_system_charge(G, ring) == 0
     G.nodes[6]["formal_charge"] = -1  # exocyclic olate oxygen
+    G.add_node(8, symbol="Fe", formal_charge=2)
+    G.add_edge(1, 8, bond_order=1.0)
     assert optimizer._ring_system_charge(G, ring) == -1

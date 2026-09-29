@@ -23,10 +23,7 @@ class MolecularData:
     s2n: Dict[str, int]
     n2s: Dict[int, str]
     electronegativity: Dict[str, float]
-    conjugatable_atoms: FrozenSet[str]
     aromatic_atoms: FrozenSet[str]
-    scoring_conjugatable_atoms: FrozenSet[str]
-    max_aromatic_valence: Dict[str, int]
 
     _instance = None
 
@@ -207,17 +204,8 @@ class MolecularData:
             "I": 2.7,
         }
 
-        # Atoms eligible for Kekulé pattern initialization
-        conjugatable_atoms = frozenset({"C", "N", "O", "S", "B", "P", "Se"})
-
-        # Atoms that receive aromatic bond order 1.5
-        aromatic_atoms = frozenset({"C", "N", "O", "S", "B"})
-
-        # Atoms checked for conjugation penalty in scoring
-        scoring_conjugatable_atoms = frozenset({"C", "N", "O", "S", "P"})
-
-        # Max bond order sum for aromatic ring members
-        max_aromatic_valence = {"H": 1, "B": 3, "C": 4, "N": 3, "O": 2, "P": 3, "S": 2, "Se": 2}
+        # Atoms that can hold a ring p orbital (aromatic rings)
+        aromatic_atoms = frozenset({"B", "C", "N", "O", "P", "S"})
 
         return cls(
             vdw=vdw_radii,
@@ -228,10 +216,7 @@ class MolecularData:
             s2n=s2n,
             n2s=n2s,
             electronegativity=electronegativity,
-            conjugatable_atoms=conjugatable_atoms,
             aromatic_atoms=aromatic_atoms,
-            scoring_conjugatable_atoms=scoring_conjugatable_atoms,
-            max_aromatic_valence=max_aromatic_valence,
         )
 
 

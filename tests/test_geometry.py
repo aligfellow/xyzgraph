@@ -35,13 +35,17 @@ def test_ring_angle_sum_benzene():
     assert GeometryCalculator.ring_angle_sum(list(range(6)), G) == pytest.approx(720.0, abs=1)
 
 
-def test_planarity_benzene():
-    """Planarity check for flat benzene ring."""
+def test_ring_twist_flat_and_chair():
+    """Neighbouring p orbitals are parallel around a flat ring and twisted around a chair."""
     G = nx.Graph()
     for i in range(6):
         angle = 2 * np.pi * i / 6
-        G.add_node(i, position=(np.cos(angle), np.sin(angle), 0))
-    assert GeometryCalculator.check_planarity(list(range(6)), G)
+        G.add_node(i, position=(np.cos(angle), np.sin(angle), 0.25 * (-1) ** i))
+    assert GeometryCalculator.max_ring_twist(list(range(6)), G) > 30
+    for i in range(6):
+        x, y, _ = G.nodes[i]["position"]
+        G.nodes[i]["position"] = (x, y, 0.0)
+    assert GeometryCalculator.max_ring_twist(list(range(6)), G) == pytest.approx(0.0, abs=1e-6)
 
 
 def test_collinearity_linear_molecule():
