@@ -13,6 +13,8 @@ def test_geometry_relaxed_more_permissive():
     s = GeometryThresholds.strict()
     r = GeometryThresholds.relaxed()
     assert r.acute_threshold_nonmetal < s.acute_threshold_nonmetal
+    assert r.transition_state
+    assert not s.transition_state
 
 
 def test_all_defaults_instantiate():

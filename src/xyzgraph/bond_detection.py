@@ -104,8 +104,10 @@ class BondDetector:
             both_nonmetal = sym_i not in self.data.metals and sym_j not in self.data.metals
 
             if both_nonmetal and self.thresholds.period_scaling_nonmetal_bonds != 0.0:
-                max_period = max(self._get_period(z_i), self._get_period(z_j))
-                period_factor = 1.0 + (max_period - 2) * self.thresholds.period_scaling_nonmetal_bonds
+                # A bond is long against the vdW sum only when both atoms are heavy (As-As, S-S); a light
+                # partner keeps it short (S-O), so the lighter atom's period sets the allowance.
+                min_period = min(self._get_period(z_i), self._get_period(z_j))
+                period_factor = 1.0 + (min_period - 2) * self.thresholds.period_scaling_nonmetal_bonds
                 return base_threshold * period_factor
 
             # S-block metal-ligand period scaling
@@ -153,21 +155,10 @@ class BondDetector:
         if G.nodes[i]["symbol"] in self.data.metals or G.nodes[j]["symbol"] in self.data.metals:
             return []
 
-        non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]
-        G_no_metals = G.subgraph(non_metal_nodes).copy()
-
-        if i not in G_no_metals or j not in G_no_metals:
-            return []
-
-        if G_no_metals.has_edge(i, j):
-            G_no_metals.remove_edge(i, j)
-
+        metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] in self.data.metals]
         try:
-            path = nx.shortest_path(G_no_metals, source=i, target=j)
-            return [path]
+            return [nx.shortest_path(nx.restricted_view(G, metal_nodes, [(i, j)]), source=i, target=j)]
         except nx.NetworkXNoPath:
-            return []
-        except nx.NodeNotFound:
             return []
 
     def _compute_threshold(
@@ -220,7 +211,6 @@ class BondDetector:
             Connectivity graph with bond_order=1.0 on all edges.
         """
         self.log_buffer = []  # Reset log buffer
-        self.bond_checker.waived.clear()  # per-molecule: stale indices would prune the wrong atoms
 
         G = nx.Graph()
 
@@ -337,12 +327,9 @@ class BondDetector:
 
         # Compute rings from baseline structure
         non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]
-        G_no_metals = G.subgraph(non_metal_nodes).copy()
-        rings = smallest_rings(G_no_metals)
+        rings = smallest_rings(G.subgraph(non_metal_nodes).copy())  # a view re-filters on every edge walk
 
         G.graph["_rings"] = rings
-        G.graph["_neighbors"] = {n: list(G.neighbors(n)) for n in G.nodes()}
-        G.graph["_has_H"] = {n: any(G.nodes[nbr]["symbol"] == "H" for nbr in G.neighbors(n)) for n in G.nodes()}
 
         self._log(f"Found {len(rings)} rings from initial bonding (excluding metal cycles)", 1)
 
@@ -412,9 +399,6 @@ class BondDetector:
                         new_rings_count += len(new_rings)
                         ring_size = len(new_rings[0])
                         self._log(f"    Bond {si}{i}-{sj}{j} creates new {ring_size}-ring", 3)
-
-                    G.graph["_neighbors"][i] = list(G.neighbors(i))
-                    G.graph["_neighbors"][j] = list(G.neighbors(j))
                 else:
                     extended_rejected += 1
 
@@ -424,7 +408,7 @@ class BondDetector:
                 1,
             )
 
-        self._prune_crosslinks(G, symbols)  # before the overrides: a user bond= is final
+        self._prune_metal_bonds(G, symbols)  # before the overrides: a user bond= is final
 
         # Handle user-specified bonds
         if bond:
@@ -447,8 +431,7 @@ class BondDetector:
         # Final ring update if graph topology was modified
         if has_custom or bond or unbond:
             non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]
-            G_no_metals = G.subgraph(non_metal_nodes).copy()
-            rings = smallest_rings(G_no_metals)
+            rings = smallest_rings(G.subgraph(non_metal_nodes).copy())  # a view re-filters on every edge walk
             G.graph["_rings"] = rings
             self._log(f"Final: {len(rings)} rings after bond modifications", 1)
 
@@ -457,33 +440,20 @@ class BondDetector:
 
         return G
 
-    def _prune_crosslinks(self, G: nx.Graph, symbols: List[str]) -> None:
-        """Drop waived metal bonds to chelate backbone atoms rather than coordination vertices.
+    def _prune_metal_bonds(self, G: nx.Graph, symbols: List[str]) -> None:
+        """Drop metal bonds that are chelate ring diagonals (see metal_bond_blocked).
 
-        A bridge to >=2 donors that is further from M than every confident one is backbone.
+        Judged here, on the full graph, because a bond is found before all of its ligand's bonds may
+        be; all at once, so no removal changes another's verdict.
         """
-        waived = self.bond_checker.waived
-        if not waived:
-            return
-
-        # Flankers are fixed on the pre-prune graph: dropping one bridge must not strip a
-        # sibling of the second flanker that makes it a cross-link (ZOPJOG's paired carbons).
-        cands = {}
-        for m in [n for n in G if symbols[n] in self.data.metals]:
-            bonded = set(G.neighbors(m))
-            for x in bonded:
-                if frozenset((m, x)) in waived:
-                    fl = (set(G.neighbors(x)) & bonded) - {m}
-                    if len(fl) >= 2:
-                        cands[(m, x)] = sorted(fl)
-
-        # _rings is perceived on the metal-free subgraph, so a chelate (closed THROUGH the metal)
-        # never appears in it while a Cp/arene face does. Face-mates cannot anchor each other:
-        # in a slipped ring the near carbons stay confident and would shred their own face.
-        rings = [set(r) for r in G.graph.get("_rings", [])]
-        for (m, x), fl in sorted(cands.items()):
-            anchors = [f for f in fl if (m, f) not in cands and not any({x, f} <= r for r in rings)]
-            d = G.edges[m, x]["distance"]
-            if anchors and all(d > G.edges[m, a]["distance"] for a in anchors):
-                G.remove_edge(m, x)
-                self._log(f"Pruned cross-link {symbols[m]}{m}-{symbols[x]}{x} (d={d:.3f} Å)", 2)
+        metals = self.data.metals
+        blocked = [
+            (m, x, why)
+            for m in G
+            if symbols[m] in metals
+            for x in G.neighbors(m)
+            if symbols[x] not in metals and (why := self.bond_checker.metal_bond_blocked(G, m, x))
+        ]
+        for m, x, why in blocked:
+            G.remove_edge(m, x)
+            self._log(f"Removed metal bond {symbols[m]}{m}-{symbols[x]}{x}: {why}", 2)

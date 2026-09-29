@@ -63,7 +63,7 @@ DEFAULT_PARAMS: DefaultParamsType = {
     # Heavy element and metal bonding:
     "allow_metal_metal_bonds": True,
     "period_scaling_h_bonds": 0.05,
-    "period_scaling_nonmetal_bonds": 0.00,
+    "period_scaling_nonmetal_bonds": 0.05,
     "period_scaling_sblock_bonds": 0.05,
     "stereo": False,
     # ORCA-specific parameters:

@@ -36,7 +36,6 @@ class BondGeometryChecker:
         self.geometry = geometry
         self.thresholds = thresholds
         self.data = data
-        self.waived: set = set()  # metal bonds admitted only by the 3-ring diagonal waiver
 
     def _log(self, msg: str, *args):
         """Log with indentation matching the calling context."""
@@ -99,7 +98,7 @@ class BondGeometryChecker:
 
         # Use thresholds from config
         t = self.thresholds
-        relaxed = not t.apply_z_adjustment  # relaxed mode has no Z-adjustment
+        relaxed = t.transition_state
 
         # 4-ring closure check for low-confidence non-metal bonds
         if confidence < t.confidence_threshold and not has_metal and baseline_bonds is not None:
@@ -145,7 +144,11 @@ class BondGeometryChecker:
         confidence: float,
         baseline_bonds: List[Tuple[float, int, int, float, bool]],
     ) -> bool:
-        """Return True if bond should be rejected due to agostic filtering."""
+        """Return True if bond should be rejected due to agostic filtering.
+
+        A C-H near a metal is agostic, not bonded to it. An H on an atom less electronegative than H
+        (B-H, Si-H) is hydridic and bridges the metal as a hydride (M-H-B), so it is kept.
+        """
         nonmetal_atom = None
         nonmetal_sym = None
         if sym_i in ("H", "F"):
@@ -161,6 +164,8 @@ class BondGeometryChecker:
         for X_atom in G.neighbors(nonmetal_atom):
             X_sym = G.nodes[X_atom]["symbol"]
             if X_sym in self.data.metals or X_sym == "H":
+                continue
+            if nonmetal_sym == "H" and self.data.electronegativity.get(X_sym, 2.5) < self.data.electronegativity["H"]:
                 continue
 
             for conf, bi, bj, _, _ in baseline_bonds:
@@ -197,18 +202,7 @@ class BondGeometryChecker:
             return False
 
         for atom in [i, j]:
-            atom_sym = G.nodes[atom]["symbol"]
-            if atom_sym not in DATA.valences:
-                continue
-
-            current_val = sum(
-                G[atom][nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(atom)
-                if G.nodes[nbr]["symbol"] not in self.data.metals
-            )
-            max_val = max(DATA.valences[atom_sym])
-
-            if current_val + 1.0 > max_val:
+            if self._valence_overflow(G, atom) > 0:
                 all_bonds_stronger = all(
                     conf_baseline / max(confidence, 0.001) > t.strength_ratio
                     for conf_baseline, bi, bj, _, _ in baseline_bonds
@@ -384,21 +378,34 @@ class BondGeometryChecker:
                     )
                     continue
 
-            # 3-ring validation
-            is_metal_k = sym_k in self.data.metals
-            if is_metal_k:
-                if "H" not in (sym_i, sym_j):
+            # A ligand bond closing a triangle through a metal (eta2-S2, a P-P ring) is real when it is short
+            # against the two metal legs; a 1,3 contact between two donors of the metal is not.
+            if sym_k in self.data.metals and not has_metal and "H" not in (sym_i, sym_j):
+                ratio = self._ring_ratio(G, i, j, k, distance)
+                if ratio > t.diagonal_ratio_initial:
                     self._log(
-                        "3-ring formation via %s%d involves metal, low confidence L-L, rejected",
+                        "Rejected bond %s%d-%s%d: 3-ring via %s%d, ratio %.2f > %.2f",
+                        sym_i,
+                        i,
+                        sym_j,
+                        j,
                         sym_k,
                         k,
+                        ratio,
+                        t.diagonal_ratio_initial,
                     )
                     return False
 
             # M-L bond priority check
             has_metal_in_bond = is_metal_i or is_metal_j
 
-            if has_metal_in_bond and baseline_bonds is not None:
+            # A hydridic H (on B or Si) bridges the metal itself: its M-H does not yield to an M-B contact.
+            partner = j if is_metal_i else i
+            bridging_hydride = (
+                G.nodes[partner]["symbol"] == "H"
+                and self.data.electronegativity.get(sym_k, 2.5) < self.data.electronegativity["H"]
+            )
+            if has_metal_in_bond and baseline_bonds is not None and not bridging_hydride:
                 metal_atom = i if is_metal_i else j
 
                 for conf, bi, bj, _, _ in baseline_bonds:
@@ -451,21 +458,12 @@ class BondGeometryChecker:
                 angle_threshold = t.angle_threshold_h_ring
                 ring_type = "H-containing"
             else:
-                z_list = [
-                    G.nodes[i]["atomic_number"],
-                    G.nodes[j]["atomic_number"],
-                    G.nodes[k]["atomic_number"],
-                ]
-                avg_z = sum(min(z, 18) for z in z_list) / 3.0
-                if t.apply_z_adjustment:
-                    angle_threshold = t.angle_threshold_base + (avg_z - 6) * 2.0
-                else:
-                    angle_threshold = t.angle_threshold_base
+                angle_threshold = t.angle_threshold_base
                 ring_type = "non-H"
 
-            if max_angle > angle_threshold:
+            if max_angle >= angle_threshold:
                 self._log(
-                    "Rejected bond %s%d-%s%d: 3-ring angle %.1f > %.1f (%s)",
+                    "Rejected bond %s%d-%s%d: 3-ring angle %.1f >= %.1f (%s)",
                     sym_i,
                     i,
                     sym_j,
@@ -493,19 +491,17 @@ class BondGeometryChecker:
                 return False
 
             # Valence check
-            if not self._check_3ring_valence(
-                G,
-                i,
-                j,
-                sym_i,
-                sym_j,
-                has_metal,
-                has_H_in_ring,
-                relaxed,
-            ):
+            if not self._check_3ring_valence(G, i, j, sym_i, sym_j, relaxed):
                 return False
 
         return True
+
+    @staticmethod
+    def _ring_ratio(G: nx.Graph, i: int, j: int, k: int, distance: float) -> float:
+        """Length of i-j over the i-k-j path, each normalised by its vdW sum (a bond is short against the path)."""
+        vdw = {n: DATA.vdw[G.nodes[n]["symbol"]] for n in (i, j, k)}
+        path = G[i][k]["distance"] / (vdw[i] + vdw[k]) + G[k][j]["distance"] / (vdw[k] + vdw[j])
+        return distance / (vdw[i] + vdw[j]) / path
 
     def _check_diagonal_ratio(
         self,
@@ -521,22 +517,31 @@ class BondGeometryChecker:
         has_metal: bool,
         has_H_in_ring: bool,
     ) -> bool:
-        """Check diagonal ratio for 3-ring. Return False if rejected."""
+        """Check diagonal ratio for 3-ring. Return False if rejected.
+
+        A real 3-ring bond is short against the path around it (cyclopropane, an epoxide: 0.5); a
+        square's diagonal reaches 0.71. Outside a transition state a non-metal closure must meet
+        diagonal_ratio_initial outright; the confidence and valence allowances below are for the
+        stretched rings of a transition state (and metal bonds, judged on the finished graph).
+        """
         t = self.thresholds
-
-        d_ik = G[i][k]["distance"]
-        d_kj = G[k][j]["distance"]
-        d_ij = distance
-
-        norm_ik = d_ik / (DATA.vdw[sym_i] + DATA.vdw[sym_k])
-        norm_kj = d_kj / (DATA.vdw[sym_k] + DATA.vdw[sym_j])
-        norm_ij = d_ij / (DATA.vdw[sym_i] + DATA.vdw[sym_j])
-
-        norm_path = norm_ik + norm_kj
-        ratio = norm_ij / norm_path
+        ratio = self._ring_ratio(G, i, j, k, distance)
 
         if ratio <= t.diagonal_ratio_initial:
             return True
+        if not t.transition_state and not has_metal:
+            self._log(
+                "Rejected bond %s%d-%s%d: 3-ring via %s%d, ratio %.2f > %.2f",
+                sym_i,
+                i,
+                sym_j,
+                j,
+                sym_k,
+                k,
+                ratio,
+                t.diagonal_ratio_initial,
+            )
+            return False
 
         max_conf_for_interp = 0.7
         diagonal_threshold = (
@@ -568,31 +573,10 @@ class BondGeometryChecker:
                 sym_k,
                 k,
             )
-            self.waived.add(frozenset((i, j)))
             return True
 
         # Valence fallback check
-        atoms_at_limit = 0
-        for atom in [i, j]:
-            atom_sym = G.nodes[atom]["symbol"]
-
-            if atom_sym in self.data.metals and has_metal and has_H_in_ring:
-                continue
-
-            if atom_sym not in DATA.valences:
-                continue
-
-            current_val = sum(
-                G[atom][nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(atom)
-                if G.nodes[nbr]["symbol"] not in self.data.metals
-            )
-            max_val = max(DATA.valences[atom_sym])
-
-            if current_val + 1.0 > max_val:
-                atoms_at_limit += 1
-
-        if atoms_at_limit > 1:
+        if all(self._valence_overflow(G, atom) > 0 for atom in (i, j)):
             self._log(
                 "Rejected bond %s%d-%s%d: diagonal across 3-ring via %s%d "
                 "(ratio=%.2f, threshold=%.2f) and both atoms at valence limit",
@@ -663,61 +647,84 @@ class BondGeometryChecker:
         )
         return True
 
-    def _check_3ring_valence(
-        self,
-        G: nx.Graph,
-        i: int,
-        j: int,
-        sym_i: str,
-        sym_j: str,
-        has_metal: bool,
-        has_H_in_ring: bool,
-        relaxed: bool,
-    ) -> bool:
-        """Valence check for 3-ring bonding atoms. Return False if rejected."""
-        atoms_at_limit = 0
-        for atom in [i, j]:
-            atom_sym = G.nodes[atom]["symbol"]
+    def _valence_overflow(self, G: nx.Graph, atom: int) -> float:
+        """How far one more bond takes a non-metal past its highest valence (> 0: over the limit).
 
-            if atom_sym in self.data.metals and has_metal and has_H_in_ring:
-                continue
+        A metal's oxidation states do not cap its coordination, so a metal is never at a limit.
+        """
+        sym = G.nodes[atom]["symbol"]
+        if sym in self.data.metals or sym not in self.data.valences:
+            return float("-inf")
+        bonds = sum(
+            G[atom][nbr].get("bond_order", 1.0)
+            for nbr in G.neighbors(atom)
+            if G.nodes[nbr]["symbol"] not in self.data.metals
+        )
+        return bonds + 1.0 - max(self.data.valences[sym])
 
-            if atom_sym not in DATA.valences:
-                continue
+    def metal_bond_blocked(self, G: nx.Graph, m: int, x: int) -> Optional[str]:
+        """Why metal ``m`` cannot bond non-metal ``x``, judged on the finished graph; None if it can.
 
-            current_val = sum(
-                G[atom][nbr].get("bond_order", 1.0)
-                for nbr in G.neighbors(atom)
-                if G.nodes[nbr]["symbol"] not in self.data.metals
+        A metal has no valence limit (its oxidation states do not cap its coordination), so the bond
+        is judged on x and its partners, the atoms bonded to both x and m:
+
+        - an x less electronegative than H, or saturated (four sigma bonds, no lone pair), reaches m
+          through its H partner when it has one: a hydridic B-H or Si-H bridges the metal (B-H-M),
+          an agostic C-H touches it, and the H is the bond, not M-x;
+        - a saturated x (four sigma bonds, no lone pair) bonds m only side-on through one partner
+          (the B-B of a diborane); lying beyond its partners, it is instead the diagonal of a ring
+          when it bridges two (a metallacycle's SiR2) or sits past a lone-pair donor (an amine's
+          alpha CH2, an amide's SiMe3);
+        - any other x is the diagonal of a chelate ring when it bridges two or more lone-pair donors
+          and lies beyond them (a carboxylate C, a dithiocarbamate C). A face binds through every
+          atom instead: x keeps its bond when a ring holds it and those donors (Cp, cyclo-P5), and
+          an eta3 face's centre lies nearer.
+
+        An atom has a lone pair when its valence electrons exceed its sigma bonds to non-metals by two.
+        """
+        metals = self.data.metals
+
+        def sigma(a: int) -> int:
+            return sum(1 for nbr in G.neighbors(a) if G.nodes[nbr]["symbol"] not in metals)
+
+        def lone_pair(a: int) -> bool:
+            return self.data.electrons.get(G.nodes[a]["symbol"], 0) - sigma(a) >= 2
+
+        partners = [d for d in G.neighbors(x) if d != m and G.has_edge(d, m) and G.nodes[d]["symbol"] not in metals]
+        if not partners or G.nodes[x]["symbol"] == "H":
+            return None
+        hydridic = self.data.electronegativity.get(G.nodes[x]["symbol"], 2.5) < self.data.electronegativity["H"]
+        saturated = sigma(x) >= 4 and not lone_pair(x)
+        if (hydridic or saturated) and any(G.nodes[d]["symbol"] == "H" for d in partners):
+            return "reaches the metal through its bridging H"
+        beyond = all(G.edges[m, x]["distance"] >= G.edges[m, d]["distance"] for d in partners)
+        if saturated:
+            if beyond and (len(partners) >= 2 or lone_pair(partners[0])):
+                return "saturated: a ring diagonal beyond " + ", ".join(f"{G.nodes[d]['symbol']}{d}" for d in partners)
+            return None
+        if any({x, *partners} <= set(ring) for ring in G.graph.get("_rings", [])):
+            return None
+        if len(partners) >= 2 and beyond and all(lone_pair(d) for d in partners):
+            return "chelate ring diagonal beyond lone-pair donors " + ", ".join(
+                f"{G.nodes[d]['symbol']}{d}" for d in partners
             )
-            max_val = max(DATA.valences[atom_sym])
+        return None
 
-            if current_val + 1.0 > max_val:
-                atoms_at_limit += 1
+    def _check_3ring_valence(self, G: nx.Graph, i: int, j: int, sym_i: str, sym_j: str, relaxed: bool) -> bool:
+        """Valence check for 3-ring bonding atoms. Return False if rejected.
 
-        if atoms_at_limit <= 1:
+        A non-metal pair is rejected when both atoms would exceed their valence; a metal bond is
+        judged later, on the finished graph (metal_bond_blocked).
+        """
+        if sym_i in self.data.metals or sym_j in self.data.metals:
+            return True  # judged once the ligand skeleton is complete (metal_bond_blocked)
+
+        overflow = [self._valence_overflow(G, atom) for atom in (i, j)]
+        if min(overflow) <= 0:
             return True
 
         if relaxed:
-            overflow_ok = True
-            for atom in [i, j]:
-                atom_sym = G.nodes[atom]["symbol"]
-                if atom_sym in self.data.metals and has_metal and has_H_in_ring:
-                    continue
-                if atom_sym not in DATA.valences:
-                    continue
-                current_val = sum(
-                    G[atom][nbr].get("bond_order", 1.0)
-                    for nbr in G.neighbors(atom)
-                    if G.nodes[nbr]["symbol"] not in self.data.metals
-                )
-                max_val = max(DATA.valences[atom_sym])
-                overflow = (current_val + 1.0) - max_val
-                if overflow > 1.0:
-                    overflow_ok = False
-                    break
-
-            if overflow_ok:
+            if max(overflow) <= 1.0:
                 self._log(
                     "Bond %s%d-%s%d: both atoms exceed valence but overflow <=1.0 - allowed in relaxed mode",
                     sym_i,
