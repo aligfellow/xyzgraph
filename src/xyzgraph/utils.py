@@ -271,13 +271,23 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
         meta = []
         if "total_charge" in G.graph:
             meta.append(f"total_charge={G.graph['total_charge']}")
+            if all("formal_charge" in d for _, d in G.nodes(data=True)):
+                formal_sum = sum(d["formal_charge"] for _, d in G.nodes(data=True))
+                if formal_sum != G.graph["total_charge"]:
+                    meta.append(f"sum(formal_charge)={formal_sum:+d} (MISMATCH)")
         if "multiplicity" in G.graph:
             meta.append(f"multiplicity={G.graph['multiplicity']}")
+        radicals = sum(d.get("radical_electrons", 0) for _, d in G.nodes(data=True))
+        if radicals:
+            meta.append(f"radical_electrons={radicals}")
+        if G.graph.get("validation_errors"):
+            meta.append("validation=FAILED")
         if reported:
             meta.append(f"sum({reported[0]})={reported[1]:+.3f}")
         if raw_sum and reported and raw_sum[0] != reported[0]:
             meta.append(f"sum({raw_sum[0]})={raw_sum[1]:+.3f}")
         lines.append("# " + "  ".join(meta))
+        lines.extend(f"# INVALID: {error}" for error in G.graph.get("validation_errors", []))
     if not include_h:
         lines.append("# (C-H hydrogens hidden; heteroatom-bound hydrogens shown; valences still include all H)")
     lines.append("# [idx] Sym  val=.. metal=.. formal=.. | neighbors: idx(order / aromatic flag)")
@@ -300,6 +310,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
         formal = data.get("formal_charge", 0)
         # Format formal charge: " 0" for zero, "+1"/"-1" for non-zero
         formal_str = f"{formal} " if formal == 0 else f"{formal:+d}"
+        radical_str = f"radical={data['radical_electrons']} " if data.get("radical_electrons") else ""
         nbrs = []
         for n in sorted(G.neighbors(idx)):
             if n not in visible:
@@ -309,7 +320,7 @@ def graph_debug_report(G: nx.Graph, include_h: bool = False, show_h_indices: Opt
             nbrs.append(f"{n}({bo:.2f}{arom})")
         lines.append(
             f"[{idx:>3}] {data.get('symbol', '?'):>2}  val={organic_val:.2f}  metal={metal_val:.2f}  "
-            f"formal={formal_str} | " + (" ".join(nbrs) if nbrs else "-")
+            f"formal={formal_str} {radical_str}| " + (" ".join(nbrs) if nbrs else "-")
         )
     # Edge summary (filtered)
     lines.append("")

@@ -59,12 +59,11 @@ CASES = [
     ("naphthalene",         "c1ccc2ccccc2c1",                    ["C6", "C6"],     11, None),
     ("azulene",             "c1ccc2cccc2cc1",                    ["C5", "C7"],     11, None),
     ("indolizine",          "c1ccn2cccc2c1",                     ["C4N1", "C5N1"], 10, None),
-    # exactly one exocyclic-π carbon: betaine form allowed, ring aromatic
-    # (behaviour change vs v1.6.10, which called the pyridones non-aromatic)
-    ("2-pyridone",          "O=c1cccc[nH]1",                     ["C5N1"],         6,  1),
-    ("2H-pyran-2-one",      "O=c1cccco1",                        ["C5O1"],         6,  1),
-    ("cytosine",            "Nc1cc[nH]c(=O)n1",                  ["C4N2"],         6,  1),
-    ("guanine",             "Nc1nc2[nH]cnc2c(=O)[nH]1",          ["C3N2", "C4N2"], 10, 1),
+    # exactly one exocyclic-π carbon: ring aromatic, but keep Kekule orders to preserve valence
+    ("2-pyridone",          "O=c1cccc[nH]1",                     ["C5N1"],         0,  1),
+    ("2H-pyran-2-one",      "O=c1cccco1",                        ["C5O1"],         0,  1),
+    ("cytosine",            "Nc1cc[nH]c(=O)n1",                  ["C4N2"],         0,  1),
+    ("guanine",             "Nc1nc2[nH]cnc2c(=O)[nH]1",          ["C3N2", "C4N2"], 0,  1),
     # one exocyclic-π carbon but the Hückel count fails
     ("cyclopentadienone",   "O=C1C=CC=C1",                       [],               0,  1),
     ("fulvene",             "C=C1C=CC=C1",                       [],               0,  None),
@@ -95,7 +94,7 @@ CASES = [
     ("pyrylium",            "c1cc[o+]cc1",                       ["C5O1"],         6,  None),
     ("tropylium",           "[cH+]1cccccc1",                     ["C7"],           7,  None),  # C+ empty p
     ("cyclopentadienide",   "[cH-]1cccc1",                       ["C5"],           5,  None),
-    ("croconate_dianion",   "[O-]C1=C([O-])C(=O)C(=O)C1=O",      ["C5"],           5,  3),
+    ("croconate_dianion",   "[O-]C1=C([O-])C(=O)C(=O)C1=O",      ["C5"],           0,  3),
 ]
 # fmt: on
 
@@ -127,6 +126,24 @@ def _ring_composition(nodes: list[dict], ring: list[int]) -> str:
     return "".join(f"{sym}{n}" for sym, n in sorted(counts.items()))
 
 
+@pytest.mark.parametrize(
+    "smiles",
+    [
+        "[CH2+]c1ccc2cc(N)ccc2c1",
+        "[CH2+]c1ccc2cc3cc(N)ccc3cc2c1",
+        "[CH2+]c1cc2ccccc2c2ccc(N)cc12",
+    ],
+    ids=["aminonaphthalene", "aminoanthracene", "aminophenanthrene"],
+)
+def test_fused_resonance_prefers_octet_satisfying_iminium(smiles, tmp_path):
+    path, charge = _xyz_from_smiles(smiles, "fused_iminium", tmp_path)
+    G = build_graph(path, charge=charge)
+    assert G.graph["validation_errors"] == []
+    assert sum(d["formal_charge"] for _, d in G.nodes(data=True)) == 1
+    assert [d["symbol"] for _, d in G.nodes(data=True) if d["formal_charge"]] == ["N"]
+    assert not any(d["radical_electrons"] for _, d in G.nodes(data=True))
+
+
 @pytest.mark.parametrize(("name", "smiles", "arom", "n15", "co2"), CASES)
 def test_aromaticity(name, smiles, arom, n15, co2, tmp_path):
     path, charge = _xyz_from_smiles(smiles, name, tmp_path)
@@ -139,6 +156,12 @@ def test_aromaticity(name, smiles, arom, n15, co2, tmp_path):
 
     delocalised = [e for e in result["edges"] if e["bond_order"] == pytest.approx(1.5)]
     assert len(delocalised) == n15
+    delocalised_atoms = {e[k] for e in delocalised for k in ("idx1", "idx2")}
+    assert not any(
+        e["bond_order"] > 1.5 and (e["idx1"] in delocalised_atoms or e["idx2"] in delocalised_atoms)
+        for e in result["edges"]
+    )
+    assert sum(n["formal_charge"] for n in nodes) == charge
 
     if co2 is not None:
         cx = [

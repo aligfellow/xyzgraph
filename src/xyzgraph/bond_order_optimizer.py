@@ -95,47 +95,6 @@ class BondOrderOptimizer:
         """Sum bond orders around a node."""
         return sum(G.edges[node, nbr].get("bond_order", 1.0) for nbr in G.neighbors(node))
 
-    @staticmethod
-    def _compute_formal_charge_value(
-        symbol: str,
-        valence_electrons: int,
-        bond_order_sum: float,
-        degree: Optional[int] = None,
-        allowed: Tuple[int, ...] = (),
-        full_shell: bool = False,
-    ) -> int:
-        """Compute formal charge ``V - L - bond_sum``.
-
-        The lone-pair count ``L`` is the neutral leftover ``V - bond_sum`` when
-        that is a real lone pair (non-negative, even) and the atom has every bond
-        single or sits at one of its ``allowed`` valences (a sulfoxide S at 4),
-        else it completes the preferred shell ``min(8, 2*V)``.  ``degree``
-        (non-metal neighbour count) gates the all-single test; ``None`` skips it.
-        ``full_shell`` (a metal-bound lone-pair donor, five or more valence
-        electrons) forbids a neutral reading short of the shell: an oxo is O2-,
-        an imido NR2-, as the ionic convention counts them, and keeps the lone
-        pair it gives the metal (a Au-P(=O)R2 phosphinito is P-, not a P+ with
-        no pair to give). Groups 13-14 keep an empty p orbital instead: a
-        carbene or silylene stays neutral.
-        """
-        target = min(8, 2 * valence_electrons)
-        l_octet = max(0.0, target - 2 * bond_order_sum)
-        l_neutral = valence_electrons - bond_order_sum
-        all_single = degree is None or abs(bond_order_sum - degree) < 1e-9
-        at_allowed = any(abs(bond_order_sum - v) < 1e-9 for v in allowed)
-        sub_shell = full_shell and valence_electrons + bond_order_sum < target
-        use_neutral = (
-            (all_single or at_allowed)
-            and not sub_shell
-            and l_neutral >= 0
-            and abs(l_neutral - round(l_neutral)) < 1e-9
-            and round(l_neutral) % 2 == 0
-        )
-        L = l_neutral if use_neutral else l_octet
-        if full_shell:
-            L = max(L, 2)
-        return round(valence_electrons - L - bond_order_sum)
-
     # =========================================================================
     # Public API
     # =========================================================================
@@ -152,7 +111,7 @@ class BondOrderOptimizer:
         Parameters
         ----------
         G : nx.Graph
-            Graph with initial bond_order=1.0 edges.
+            Graph with current Kekule bond orders; optimization updates them in place.
         mode : str
             Optimizer: "greedy" or "beam".
         arrays : ScoringArrays, optional
@@ -164,7 +123,8 @@ class BondOrderOptimizer:
         Returns
         -------
         dict
-            Statistics about the optimization run.
+            Statistics about the optimization run. ``final_formal_charges`` describes the final Lewis
+            candidate, including rejected candidates; metal oxidation states are assigned afterwards.
         """
         if mode == "greedy":
             return self._full_valence_optimize(G, arrays)
@@ -203,35 +163,21 @@ class BondOrderOptimizer:
     # Formal charge computation
     # =========================================================================
 
-    def compute_formal_charges(self, G: nx.Graph) -> List[int]:
-        """Compute formal charges for all atoms and balance to total charge."""
-        formal = []
-
+    def compute_formal_charges(self, G: nx.Graph, arrays: Optional[ScoringArrays] = None) -> List[int]:
+        """Return Lewis charges and annotate node radical counts; warn if the stated total is unreachable."""
         self._log("\n" + "=" * 80, 0)
         self._log("FORMAL CHARGE CALCULATION", 0)
         self._log("=" * 80, 0)
 
-        for node in G.nodes():
-            sym = G.nodes[node]["symbol"]
-
-            if sym in self.data.metals:
-                formal.append(0)
-                continue
-
-            V = self.data.electrons.get(sym)
-            if V is None:
-                formal.append(0)
-                continue
-
-            # Exclude metal bonds from ligand valence for formal charge calculation
-            non_metal_nbrs = [nbr for nbr in G.neighbors(node) if G.nodes[nbr]["symbol"] not in self.data.metals]
-            bond_sum = sum(G.edges[node, nbr].get("bond_order", 1.0) for nbr in non_metal_nbrs)
-            degree = len(non_metal_nbrs)
-
-            donor = V >= 5 and len(non_metal_nbrs) < G.degree(node)  # a lone-pair donor to a metal
-            allowed = tuple(sorted(self.data.valences.get(sym, ())))[: 1 if degree == 1 else None]  # see ScoringArrays
-            fc = self._compute_formal_charge_value(sym, V, bond_sum, degree, allowed, full_shell=donor)
-            formal.append(fc)
+        arrays = arrays if arrays is not None else ScoringArrays.from_graph(G, self.data)
+        bond_orders = arrays.read_bond_orders(G)
+        valences = arrays.compute_valence_sums(bond_orders)
+        charges = arrays.formal_charges(valences, bond_orders, self.charge, weights=self.weights)
+        # An odd unshared-electron count has one radical; an empty p orbital has none.
+        radicals = np.rint(arrays.valence_electrons - charges - valences).astype(np.int64) % 2
+        radicals[arrays.is_metal] = 0
+        nx.set_node_attributes(G, dict(enumerate(radicals.tolist())), "radical_electrons")
+        formal = charges.tolist()
 
         if self.charge is None:  # to infer: the structure's own total, closed shell by construction
             self.charge = sum(formal)
@@ -239,20 +185,6 @@ class BondOrderOptimizer:
             return formal
 
         metals = [i for i in G.nodes() if G.nodes[i]["symbol"] in self.data.metals]
-        # The structure is scored with every atom at an octet. When that cannot reach the stated charge, the
-        # carbons the octet rule read as C- are cations with an empty p orbital (tropylium, trityl): a
-        # carbocation is the last resort, never a rival to an onium (an iminium N+=C over N-C+).
-        if not metals:
-            short = [
-                i
-                for i in G.nodes()
-                if formal[i] == -1
-                and self.data.electrons.get(G.nodes[i]["symbol"]) == 4
-                and not any(G.nodes[n]["symbol"] in self.data.metals for n in G.neighbors(i))
-            ]
-            if short and self.charge - sum(formal) >= 2 * len(short):
-                for i in short:
-                    formal[i] = 1
         residual = self.charge - sum(formal)
         self._log(f"\nNon-metal formal charges sum to {sum(formal):+d} (target: {self.charge:+d})", 2)
 
@@ -275,19 +207,12 @@ class BondOrderOptimizer:
                 self._split_metal_charge(G, formal, metals, residual)
             self._log_metal_coordination(G, formal, metals)
         elif residual:
-            electrons = sum(G.nodes[i]["atomic_number"] for i in G.nodes()) - self.charge
-            radical = self._radical_site(G, formal, residual) if electrons % 2 and abs(residual) == 1 else None
-            if radical is not None:
-                # The octet rule read the unpaired electron as a charge; put it back as a radical.
-                formal[radical] += residual
-                self._log(f"  Radical on {G.nodes[radical]['symbol']}{radical}", 3)
-            else:
-                logger.warning(
-                    "Stated charge %+d, but the bond orders give %+d; formal charges follow the structure",
-                    self.charge,
-                    sum(formal),
-                )
-                self._log(f"  Stated charge {self.charge:+d} not reached; formal charges follow the structure", 3)
+            logger.warning(
+                "Stated charge %+d, but the bond orders give %+d; formal charges follow the structure",
+                self.charge,
+                sum(formal),
+            )
+            self._log(f"  Stated charge {self.charge:+d} not reached; formal charges follow the structure", 3)
         else:
             charged = [f"{G.nodes[i]['symbol']}{i}:{q:+d}" for i, q in enumerate(formal) if q]
             self._log(f"  Charged atoms: {', '.join(charged) or 'none'}", 3)
@@ -310,25 +235,6 @@ class BondOrderOptimizer:
             room = {m: cap[m] - formal[m] if step > 0 else formal[m] for m in metals}
             formal[max(metals, key=lambda m: (room[m], -m))] += step
 
-    def _radical_site(self, G: nx.Graph, formal: List[int], residual: int) -> Optional[int]:
-        """Find the atom the octet rule charged although its neutral electron count is odd (an unpaired electron).
-
-        The atom must be able to hold that electron: its bond sum no higher than its highest allowed valence
-        (a four-bonded N is an ammonium, never a radical).
-        """
-        candidates = []
-        for i in G.nodes():
-            sym = G.nodes[i]["symbol"]
-            if sym == "H" or sym in self.data.metals or formal[i] != -residual:
-                continue
-            nonmetal = [n for n in G.neighbors(i) if G.nodes[n]["symbol"] not in self.data.metals]
-            bond_sum = sum(G.edges[i, n].get("bond_order", 1.0) for n in nonmetal)
-            if bond_sum > max(self.data.valences.get(sym, [0])):
-                continue
-            if round(self.data.electrons.get(sym, 0) - bond_sum) % 2:
-                candidates.append((-self.data.electronegativity.get(sym, DEFAULT_ELECTRONEGATIVITY), i))
-        return min(candidates)[1] if candidates else None
-
     def _log_metal_coordination(self, G: nx.Graph, formal: List[int], metals: List[int]) -> None:
         classification = self.classify_metal_ligands(G, formal)
         for m in metals:
@@ -346,7 +252,9 @@ class BondOrderOptimizer:
     # π seeding
     # =========================================================================
 
-    def assign_bond_orders(self, G: nx.Graph, mode: str = "beam") -> Dict[str, Any]:
+    def assign_bond_orders(
+        self, G: nx.Graph, mode: str = "beam", arrays: Optional[ScoringArrays] = None
+    ) -> Dict[str, Any]:
         """Seed and refine bond orders; a single metal is tried at each of its usual oxidation states.
 
         The ionic convention leaves a complex's ligands short by the metal's oxidation state ``s``:
@@ -358,14 +266,14 @@ class BondOrderOptimizer:
         metals = [n for n in G.nodes() if G.nodes[n]["symbol"] in self.data.metals]
         if len(metals) != 1:
             self.seed_pi_bonds(G)
-            return self.optimize(G, mode)
+            return self.optimize(G, mode, arrays=arrays)
 
         charge = self.charge or 0  # a complex's total is not in its geometry: 0, as GraphBuilder assumes
         states = sorted({0, *self.data.valences.get(G.nodes[metals[0]]["symbol"], [])})
         slots, need = self._pi_slots(G)
         tables = self._slot_tables(G, slots, need, max(0, states[-1] - charge))
         start = {(i, j): d["bond_order"] for i, j, d in G.edges(data=True)}
-        arrays = ScoringArrays.from_graph(G, self.data)
+        arrays = arrays if arrays is not None else ScoringArrays.from_graph(G, self.data)
         runs, seen = [], set()
         for state in states:
             nx.set_edge_attributes(G, start, "bond_order")
@@ -617,7 +525,7 @@ class BondOrderOptimizer:
         vs = sa.compute_valence_sums(bo)
 
         # Initial scoring
-        current_score, formal_charges = sa.score(vs, bo, self.charge, self.weights)
+        current_score = sa.score(vs, bo, self.charge, self.weights)
         initial_score = current_score
 
         stats: dict[str, Any] = {
@@ -625,9 +533,6 @@ class BondOrderOptimizer:
             "improvements": 0,
             "initial_score": initial_score,
             "final_score": initial_score,
-            "final_formal_charges": formal_charges.tolist()
-            if hasattr(formal_charges, "tolist")
-            else list(formal_charges),
         }
 
         self._log(f"Initial score: {initial_score:.2f}", 1)
@@ -665,7 +570,7 @@ class BondOrderOptimizer:
                     bo[eidx] = new_bo_val
                     sa.update_valence_sums(vs, eidx, old_bo, new_bo_val)
 
-                    new_score, _ = sa.score(vs, bo, self.charge, self.weights)
+                    new_score = sa.score(vs, bo, self.charge, self.weights)
                     delta = current_score - new_score
 
                     # Rollback
@@ -682,7 +587,7 @@ class BondOrderOptimizer:
                 new_bo_val = old_bo + change
                 bo[best_eidx] = new_bo_val
                 sa.update_valence_sums(vs, best_eidx, old_bo, new_bo_val)
-                current_score, _ = sa.score(vs, bo, self.charge, self.weights)
+                current_score = sa.score(vs, bo, self.charge, self.weights)
 
                 stats["improvements"] += 1
                 stagnation = 0
@@ -704,9 +609,8 @@ class BondOrderOptimizer:
         sa.write_bond_orders_to_graph(G, bo)
 
         # Final scoring
-        final_score, final_fc = sa.score(vs, bo, self.charge, self.weights)
-        stats["final_score"] = final_score
-        stats["final_formal_charges"] = final_fc.tolist() if hasattr(final_fc, "tolist") else list(final_fc)
+        stats["final_score"] = current_score
+        stats["final_formal_charges"] = sa.formal_charges(vs, bo, self.charge, weights=self.weights).tolist()
 
         self._log("-" * 80, 0)
         self._log(f"Optimized: {stats['improvements']} improvements", 1)
@@ -720,17 +624,17 @@ class BondOrderOptimizer:
     # =========================================================================
 
     def _charge_shifts(self, sa, bond_orders, valence_sums):
-        """Alternating chains (1,2,1,...,1) from an anion to another atom with a lone pair to give.
+        """Alternating chains from an anion: resonance shifts or charge-raising lone-pair donations.
 
-        Flipping every bond gives both ends a bond and leaves each interior atom's bond sum unchanged,
-        which no single-edge change reaches. Each end turns a lone pair into its new bond, so the chain
-        raises the ligand charge by two: the far end is another anion (both become neutral) or a neutral
-        atom, which becomes an onium (the pyridinium N+ of a ring left one bond short). Both lone pairs
-        are the ligand's own: a donor's is its bond to the metal, whose charge the seeded oxidation state
-        sets. Returns one shortest chain per pair of ends.
+        Each interior atom keeps its bond sum. An odd-length chain gives both ends a bond, raising
+        the total charge by two: the far end is another anion (both become neutral) or a lone-pair
+        donor (which becomes an onium). An even-length chain gives the start a bond and takes one
+        from the far end, moving the anion without changing the total. Metal donors are excluded:
+        their lone pair is their bond to the metal, whose oxidation state sets the ligand charge.
+        Returns one shortest chain per pair of ends.
         """
         own = (~sa.is_metal) & (~sa.is_h) & ~sa.has_metal_neighbor
-        fc = sa.formal_charges(valence_sums)
+        fc = sa.octet_charges(valence_sums)
         anion = own & (fc < 0)
         lone_pair = own & (fc == 0) & (sa.valence_electrons - valence_sums >= 2 - 0.01)
         ends = anion | lone_pair
@@ -750,7 +654,9 @@ class BondOrderOptimizer:
                     if state in parent:
                         continue
                     parent[state] = (atom, expect, eidx)
-                    if expect < 1.5 and ends[nb] and nb != start and (nb > start or not anion[nb]):
+                    donation = expect < 1.5 and ends[nb] and (nb > start or not anion[nb])
+                    resonance = expect > 1.5 and own[nb] and fc[nb] == 0
+                    if nb != start and (donation or resonance):
                         chain, cur = [], state
                         while (step := parent[cur]) is not None:
                             patom, pexpect, e = step
@@ -810,7 +716,7 @@ class BondOrderOptimizer:
         base_vs = sa.compute_valence_sums(base_bo)
 
         # Initial scoring
-        current_score, formal_charges = sa.score(base_vs, base_bo, self.charge, self.weights)
+        current_score = sa.score(base_vs, base_bo, self.charge, self.weights)
         initial_score = current_score
         self._log(f"Initial score: {initial_score:.2f}", 1)
 
@@ -822,9 +728,6 @@ class BondOrderOptimizer:
             "improvements": 0,
             "initial_score": initial_score,
             "final_score": initial_score,
-            "final_formal_charges": formal_charges.tolist()
-            if hasattr(formal_charges, "tolist")
-            else list(formal_charges),
             "beam_explored": 0,
         }
 
@@ -833,8 +736,19 @@ class BondOrderOptimizer:
         best_ever_vs = base_vs.copy()
 
         # Cache scores by bond-order bytes; beam children recur across iterations.
-        score_cache: Dict[bytes, float] = {}
+        score_cache: Dict[bytes, float] = {base_bo.tobytes(): current_score}
         stats["score_cache_hits"] = 0
+
+        def cached_score(bond_orders, valence_sums):
+            key = bond_orders.tobytes()
+            score = score_cache.get(key)
+            if score is None:
+                score = sa.score(valence_sums, bond_orders, self.charge, self.weights)
+                score_cache[key] = score
+                stats["beam_explored"] += 1
+            else:
+                stats["score_cache_hits"] += 1
+            return score
 
         for iteration in range(self.config.max_iter):
             stats["iterations"] = iteration + 1
@@ -871,14 +785,7 @@ class BondOrderOptimizer:
                         parent_bo[eidx] = new_bo
                         sa.update_valence_sums(parent_vs, eidx, old_bo, new_bo)
 
-                        cand_key = parent_bo.tobytes()
-                        new_score = score_cache.get(cand_key)
-                        if new_score is None:
-                            new_score, _ = sa.score(parent_vs, parent_bo, self.charge, self.weights)
-                            score_cache[cand_key] = new_score
-                            stats["beam_explored"] += 1
-                        else:
-                            stats["score_cache_hits"] += 1
+                        new_score = cached_score(parent_bo, parent_vs)
 
                         if new_score < parent_score:
                             move = (i, j, change)
@@ -893,7 +800,7 @@ class BondOrderOptimizer:
                 # No single-edge move improves. A ligand charge below its target (the complex's seeded
                 # state, else the stated charge) needs a charge shift, which no single edge reaches.
                 for parent_score, parent_bo, parent_vs, parent_history in beam:
-                    fc = sa.formal_charges(parent_vs)
+                    fc = sa.octet_charges(parent_vs)
                     if ligand_target is not None:
                         if int(np.sum(fc[sa.non_metal])) >= ligand_target:
                             continue
@@ -907,8 +814,7 @@ class BondOrderOptimizer:
                             new = 1.0 if old > 1.5 else 2.0
                             cand_bo[eidx] = new
                             sa.update_valence_sums(cand_vs, eidx, old, new)
-                        new_score, _ = sa.score(cand_vs, cand_bo, self.charge, self.weights)
-                        stats["beam_explored"] += 1
+                        new_score = cached_score(cand_bo, cand_vs)
                         if new_score < parent_score:
                             ends = (int(sa.edge_src[path[0]]), int(sa.edge_dst[path[-1]]), "shift")
                             candidates.append((new_score, cand_bo, cand_vs, ends, [*parent_history, ends]))
@@ -949,10 +855,11 @@ class BondOrderOptimizer:
         self._log("\nApplying best solution to graph...", 1)
         sa.write_bond_orders_to_graph(G, best_ever_bo)
 
-        # Final scoring (use array scorer for consistency)
-        final_score, final_fc = sa.score(best_ever_vs, best_ever_bo, self.charge, self.weights)
-        stats["final_score"] = final_score
-        stats["final_formal_charges"] = final_fc.tolist() if hasattr(final_fc, "tolist") else list(final_fc)
+        # Reuse the winning score; charge reporting must still work for rejected candidates.
+        stats["final_score"] = best_ever_score
+        stats["final_formal_charges"] = sa.formal_charges(
+            best_ever_vs, best_ever_bo, self.charge, weights=self.weights
+        ).tolist()
 
         self._log("-" * 80, 0)
         self._log(
@@ -975,8 +882,9 @@ class BondOrderOptimizer:
         The rule is the scorer's (``aromatic_capable``, ``aromatic_systems``, ``ring_pi_electrons``,
         ``huckel_aromatic``): each atom's ring π electrons are read once from the Kekulé structure,
         and a ring is aromatic if it, or it fused with one neighbour, holds 4n+2 π electrons. A ring
-        with a bond above 2 (a benzyne) keeps its Kekulé orders; ``kekule=True`` records aromatic
-        rings without changing any bond. Stores aromatic rings in ``G.graph["_aromatic_rings"]``.
+        with a bond above 2 (a benzyne), or a π bond leaving the aromatic system, keeps its Kekulé
+        orders; ``kekule=True`` records aromatic rings without changing any bond. Stores aromatic
+        rings in ``G.graph["_aromatic_rings"]``.
         """
         self._log(f"\n{'=' * 80}", 0)
         self._log("AROMATIC RING DETECTION (Hückel 4n+2)", 0)
@@ -997,8 +905,11 @@ class BondOrderOptimizer:
         G.graph["_aromatic_rings"] = [cycles[r] for r in sorted(aromatic)]
         changed = 0
         if not kekule:
+            bonds = nx.Graph()
             for cycle in G.graph["_aromatic_rings"]:
-                changed += self._set_aromatic(G, [(cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle))])
+                bonds.add_edges_from((cycle[k], cycle[(k + 1) % len(cycle)]) for k in range(len(cycle)))
+            for atoms in nx.connected_components(bonds):
+                changed += self._set_aromatic(G, list(bonds.subgraph(atoms).edges()))
 
         self._log(f"\n{'-' * 80}", 0)
         self._log(f"SUMMARY: {len(aromatic)} aromatic rings, {changed} bonds set to 1.5", 1)
@@ -1006,9 +917,18 @@ class BondOrderOptimizer:
         return changed
 
     def _set_aromatic(self, G: nx.Graph, edges) -> int:
-        """Set ``edges`` to 1.5 unless one is above a double bond; return how many changed."""
+        """Delocalise a whole aromatic component only when its external π bonds allow it."""
         if any(G.edges[i, j]["bond_order"] > 2.01 for i, j in edges if G.has_edge(i, j)):
             self._log("  ✗ A bond above 2, keeping the Kekulé structure", 2)
+            return 0
+        ring_edges = {frozenset(edge) for edge in edges}
+        if any(
+            G.edges[i, j]["bond_order"] > 1.3
+            for i in {n for edge in edges for n in edge}
+            for j in G.neighbors(i)
+            if frozenset((i, j)) not in ring_edges and G.nodes[j]["symbol"] not in self.data.metals
+        ):
+            self._log("  ✗ An exocyclic π bond, keeping the Kekulé structure", 2)
             return 0
         changed = 0
         for i, j in edges:

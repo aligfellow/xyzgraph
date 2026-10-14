@@ -44,7 +44,8 @@
   - `--optimizer`: Full optimization with valence and charge minimisation
     - **beam**: optimization across multiple paths (slightly slower, default)  
     - **greedy**: iterative valence adjustment
-- **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings, plus a fused-perimeter fallback for non-alternant systems (azulene, acenaphthylene). Optional `--kekule` to keep Kekulé bond orders
+- **Aromatic detection**: Hückel 4n+2 rule for 5/6-membered rings, plus a fused-perimeter fallback for non-alternant systems (azulene, acenaphthylene). Optional `--kekule` to keep Kekulé bond orders; systems with exocyclic multiple bonds retain them to preserve valence.
+- **Formal charges**: Supports carbocations and zwitterions, with onium resonance forms preferred. Supply `--charge` when known; otherwise, charge inference favors the smallest net charge compatible with a closed shell.
 - **Charge computation**: Gasteiger (cheminf) or Mulliken (xTB/ORCA) partial charges
 - **Stereochemistry assignment**: R/S, E/Z, axial (biaryl, allene, metallocene), planar (metallocene, paracyclophane), and helical (helicene) chirality from 3D geometry
 - **RDkit/xyz2mol comparison** validation against RDKit bond perception [[3]](https://github.com/jensengroup/xyz2mol), [[4]](https://github.com/rdkit)
@@ -619,6 +620,8 @@ G_kekule = build_graph('molecule.xyz', kekule=True)
 # Aromatic rings are still detected and stored in G_kekule.graph["aromatic_rings"]
 # Bond orders remain as optimised Kekule values (1.0/2.0)
 ```
+
+Full `cheminf` graphs expose `G.graph["validation_errors"]` for charge, valence, and represented-spin failures; the builder warns and returns a best-effort graph. Radical counts are stored as `G.nodes[i]["radical_electrons"]`. Explicit charge and multiplicity must have compatible electron parity; omitted multiplicity selects a doublet for an odd electron count. Radical placement is heuristic; metal spin states are not validated.
 
 Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
 

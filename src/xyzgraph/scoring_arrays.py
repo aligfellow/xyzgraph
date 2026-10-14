@@ -13,15 +13,13 @@ a single ``bond_orders.copy()`` instead of deep-copying an nx.Graph.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
 
 from .geometry import GeometryCalculator
-
-if TYPE_CHECKING:
-    from .parameters import ScoringWeights
+from .parameters import ScoringWeights
 
 VALENCE_CHECK_LIMITS: Dict[str, float] = {"C": 4}
 VALENCE_CHECK_TOLERANCE = 0.3
@@ -138,12 +136,14 @@ def _compute_formal_charge_vec(
     at_allowed: np.ndarray | None = None,
     full_shell: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Vectorised formal-charge computation.
+    """Formal charge ``V - L - bond_sum``, retaining neutral lone pairs or completing the preferred shell.
 
-    Must match ``BondOrderOptimizer._compute_formal_charge_value`` exactly;
+    Neutral leftover electrons stay when they form lone pairs and the bonds are all single or at
+    an allowed valence; otherwise the shell is ``min(8, 2*V)`` (an octet, a boron sextet, an H duet).
     ``at_allowed`` marks atoms whose bond sum is one of their allowed valences,
     ``full_shell`` atoms that may not stay neutral short of their shell
-    and keep the lone pair they give the metal.
+    and keep the lone pair they give the metal (oxo O2-, imido NR2-). Groups 13-14 can instead
+    retain a neutral empty p orbital, as in a carbene or silylene.
     """
     bos = bond_order_sums
     V = valence_electrons.astype(np.float64)
@@ -521,8 +521,8 @@ class ScoringArrays:
         impossible = max(0, mismatch - int(self.atomic_numbers.sum() - charge) % 2)
         return float(impossible), float(mismatch - impossible)
 
-    def formal_charges(self, valence_sums: np.ndarray, gap: np.ndarray | None = None) -> np.ndarray:
-        """Formal charges under ``valence_sums``; a metal reads 0 here."""
+    def octet_charges(self, valence_sums: np.ndarray, *, gap: np.ndarray | None = None) -> np.ndarray:
+        """Shell-completed charges used to find resonance moves, before choosing C-/C+ or radicals."""
         if gap is None:
             gap = self._allowed_valence_gap(valence_sums)
         fc = _compute_formal_charge_vec(
@@ -535,20 +535,107 @@ class ScoringArrays:
         fc[self.is_metal] = 0
         return fc
 
+    def formal_charges(
+        self,
+        valence_sums: np.ndarray,
+        bond_orders: np.ndarray,
+        charge: Optional[int] = None,
+        *,
+        weights: ScoringWeights | None = None,
+        gap: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Lewis charges for the current candidate, using the scorer's weights when inferring its total.
+
+        A supplied total fixes how many three-coordinate C-/C+ sites take an empty p orbital; sites
+        preserve the most aromatic rings. Without a total, accept C+ only if it improves the shared
+        score, balancing the net-charge prior against the octet preference. An odd electron count
+        can leave one radical. Metals read 0; oxidation states are assigned afterwards.
+        """
+        if gap is None:
+            gap = self._allowed_valence_gap(valence_sums)
+        if weights is None:
+            weights = ScoringWeights()
+        fc = self.octet_charges(valence_sums, gap=gap)
+        target = 0 if charge is None else charge
+        if not self.n_metals and target - int(fc.sum()) >= 2:
+            short = list(np.flatnonzero((self.atomic_numbers == 6) & (self.non_metal_degree == 3) & (fc == -1)))
+            carbocations = min(len(short), (target - int(fc.sum())) // 2)
+            best_score = (
+                self._score_charges(valence_sums, bond_orders, fc, charge, weights, gap)
+                if charge is None and carbocations
+                else 0
+            )
+
+            def cost(i):
+                fc[i] = 1
+                value = (
+                    self._score_charges(valence_sums, bond_orders, fc, charge, weights, gap)
+                    if charge is None
+                    else self._ring_conjugation_penalty(bond_orders, fc, valence_sums)
+                )
+                fc[i] = -1
+                return value
+
+            # shortcut: place cations one at a time; use joint assignments if coupled cation sites need them.
+            for _ in range(carbocations):
+                value, i = min((cost(i), i) for i in short)
+                if charge is None:
+                    if value >= best_score:
+                        break
+                    best_score = value
+                fc[i] = 1
+                short.remove(i)
+        radical = self._radical_site(valence_sums, fc, charge)
+        if radical is not None and charge is not None:
+            fc[radical] += charge - int(fc.sum())
+        return fc
+
+    def _radical_site(self, valence_sums: np.ndarray, fc: np.ndarray, charge: Optional[int]) -> Optional[int]:
+        """Locate a single unpaired electron when the electron parity and charge deficit require it."""
+        if charge is None or self.n_metals or (int(self.atomic_numbers.sum()) - charge) % 2 == 0:
+            return None
+        residual = charge - int(fc.sum())
+        if abs(residual) != 1:
+            return None
+        candidates = np.flatnonzero(
+            ~self.is_h
+            & (fc == -residual)
+            & (valence_sums <= self.vmax)
+            & (np.rint(self.valence_electrons - valence_sums).astype(np.int64) % 2 == 1)
+        )
+        return int(candidates[np.argmax(self.electronegativity[candidates])]) if candidates.size else None
+
     def score(
         self,
         valence_sums: np.ndarray,
         bond_orders: np.ndarray,
         charge: Optional[int],
         weights: ScoringWeights,
-    ) -> Tuple[float, np.ndarray]:
-        """Vectorised scoring — replaces ``_score_assignment``."""
+    ) -> float:
+        """Rank an explicit candidate; fast structural rejections return ``weights.invalid_score``.
+
+        ``valence_sums`` must correspond to ``bond_orders``; the optimizer maintains them incrementally.
+        Charges are obtained separately with ``formal_charges`` using the same candidate, target, and weights.
+        """
         # Fast reject
         if self.check_valence_violation(valence_sums):
-            return 1e9, np.zeros(self.n_atoms, dtype=np.int64)
+            return weights.invalid_score
 
         gap = self._allowed_valence_gap(valence_sums)
-        fc = self.formal_charges(valence_sums, gap)
+        fc = self.formal_charges(valence_sums, bond_orders, charge, weights=weights, gap=gap)
+        return self._score_charges(valence_sums, bond_orders, fc, charge, weights, gap)
+
+    def _score_charges(
+        self,
+        valence_sums: np.ndarray,
+        bond_orders: np.ndarray,
+        fc: np.ndarray,
+        charge: Optional[int],
+        weights: ScoringWeights,
+        gap: np.ndarray,
+    ) -> float:
+        """Score one explicit Lewis assignment, shared by C-/C+ selection and bond-order ranking."""
+        carbocations = int(np.count_nonzero((self.atomic_numbers == 6) & (self.non_metal_degree == 3) & (fc == 1)))
 
         non_metal = self.non_metal
         abs_fc = np.abs(fc)
@@ -619,16 +706,17 @@ class ScoringArrays:
 
         total = (
             weights.violation_weight * violation
+            + weights.carbocation_weight * carbocations
             + weights.conjugation_weight * conjugation
             + weights.protonation_weight * protonation
             + weights.formal_charge_weight * fc_sum
             + weights.charged_atoms_weight * n_charged
-            + weights.charge_error_weight * charge_error
+            + (weights.inferred_charge_weight if charge is None else weights.charge_error_weight) * charge_error
             + weights.electronegativity_weight * en_penalty
             + weights.valence_error_weight * valence_err
             + weights.geometry_weight * geometry
         )
-        return total, fc
+        return total
 
     # =====================================================================
     # Ring conjugation penalty

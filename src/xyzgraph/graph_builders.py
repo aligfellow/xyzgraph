@@ -12,6 +12,7 @@ from .config import DEFAULT_PARAMS
 from .data_loader import DATA
 from .geometry import GeometryCalculator
 from .parameters import BondThresholds, GeometryThresholds, OptimizerConfig, ScoringWeights
+from .scoring_arrays import ScoringArrays
 from .utils import configure_debug_logging, read_xyz_file, smallest_rings
 
 logger = logging.getLogger(__name__)
@@ -180,9 +181,17 @@ class GraphBuilder:
             raise ValueError(f"Unknown optimizer: {self.optimizer}. Choose from: 'greedy', 'beam'")
 
         # Auto-detect multiplicity (an inferred charge is closed shell: set once inferred)
-        if multiplicity is None and charge is not None:
+        if multiplicity is not None and multiplicity < 1:
+            raise ValueError("multiplicity must be a positive integer")
+        if charge is not None:
             total_electrons = sum(DATA.s2n[symbol] for symbol, _ in atoms) - charge
-            self.multiplicity = 1 if total_electrons % 2 == 0 else 2
+            if multiplicity is not None and (
+                total_electrons < multiplicity - 1 or (total_electrons - multiplicity + 1) % 2
+            ):
+                raise ValueError(
+                    f"charge={charge} gives {total_electrons} electrons, incompatible with multiplicity={multiplicity}"
+                )
+            self.multiplicity = multiplicity if multiplicity is not None else 1 + total_electrons % 2
         else:
             self.multiplicity = multiplicity
 
@@ -384,17 +393,35 @@ class GraphBuilder:
         self._optimizer.log_buffer.clear()
 
         # Seed π bonds by matching, then refine (per oxidation state for a single metal)
-        self._optimizer.assign_bond_orders(G, mode=self.optimizer)
+        arrays = ScoringArrays.from_graph(G, self.data)
+        self._optimizer.assign_bond_orders(G, mode=self.optimizer, arrays=arrays)
 
         # Compute formal charges BEFORE aromatic detection
-        formal_charges = self._optimizer.compute_formal_charges(G)
+        formal_charges = self._optimizer.compute_formal_charges(G, arrays=arrays)
         if self.charge is None:
             self.charge = self._optimizer.charge
             self.multiplicity = self.multiplicity or 1
+        assert self.charge is not None
+        assert self.multiplicity is not None
 
         # Store formal charges in nodes for aromatic detection to use
         for i, fc in enumerate(formal_charges):
             G.nodes[i]["formal_charge"] = fc
+
+        # Validate the integer Lewis structure, before aromatic 1.5 orders change fused-atom bond sums.
+        errors = []
+        if sum(formal_charges) != self.charge:
+            errors.append(f"formal charges sum to {sum(formal_charges):+d}, expected {self.charge:+d}")
+        valences = arrays.compute_valence_sums(arrays.read_bond_orders(G))
+        for i, valence in enumerate(valences):
+            if valence > arrays.scoring_vlim_thresh[i]:
+                errors.append(f"{G.nodes[i]['symbol']}{i} has valence {valence:g} above its allowed maximum")
+        radicals = sum(G.nodes[i]["radical_electrons"] for i in G)
+        if not arrays.n_metals and radicals < self.multiplicity - 1:
+            errors.append(f"{radicals} radical electrons cannot represent multiplicity={self.multiplicity}")
+        G.graph["validation_errors"] = errors
+        if errors:
+            logger.warning("Lewis structure validation failed: %s", "; ".join(errors))
 
         # Aromatic detection (Hückel rule) - now can use formal charges
         self._optimizer.detect_aromatic_rings(G, kekule=self.kekule)

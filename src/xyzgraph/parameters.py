@@ -134,8 +134,16 @@ class ScoringWeights:
     shortened bond (C=C 0.35, C#O 0.30) gains, a single-length one pays, so π goes on the shorter
     bonds (the N+=C of a thiazolium over C=S+) without costing π bonds as such."""
 
-    invalid_score: float = 1e6
-    """Infinite penalty for impossible states."""
+    invalid_score: float = 1e9
+    """Score returned by fast structural rejection."""
+
+    carbocation_weight: float = 1000.0
+    """Per empty-p three-coordinate C+. Keep octet-satisfying onium forms preferred even when their
+    quinoid drawing loses several aromatic rings; independent of structural violations."""
+
+    inferred_charge_weight: float = 1000.0
+    """Per unit of net charge beyond closed-shell parity, only when no total is supplied. Prefer a
+    zwitterion to a dianion even if it needs an empty p orbital; a supplied charge overrides this prior."""
 
 
 @dataclass(frozen=True)

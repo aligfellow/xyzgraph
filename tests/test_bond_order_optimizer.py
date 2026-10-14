@@ -4,6 +4,9 @@ Verifies BondOrderOptimizer scoring, valence adjustment,
 formal charge computation, and aromatic detection.
 """
 
+from dataclasses import replace
+from pathlib import Path
+
 import networkx as nx
 import numpy as np
 import pytest
@@ -11,8 +14,16 @@ import pytest
 from xyzgraph.bond_order_optimizer import BondOrderOptimizer
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
+from xyzgraph.graph_builders import GraphBuilder
 from xyzgraph.parameters import OptimizerConfig, ScoringWeights
-from xyzgraph.scoring_arrays import huckel_aromatic, ring_pi_electrons, sigma_bound
+from xyzgraph.scoring_arrays import (
+    ScoringArrays,
+    _compute_formal_charge_vec,
+    huckel_aromatic,
+    ring_pi_electrons,
+    sigma_bound,
+)
+from xyzgraph.utils import read_xyz_file
 
 
 @pytest.fixture
@@ -66,25 +77,29 @@ def test_valence_sum():
     assert BondOrderOptimizer.valence_sum(G, 1) == 2.0
 
 
-def test_formal_charge_value():
-    """Formal charge across octet, sextet (B), and duet (H) shells."""
-    fc = BondOrderOptimizer._compute_formal_charge_value
-    # Octet group (target = 8)
-    assert fc("C", 4, 4.0) == 0  # methane-style
-    assert fc("N", 5, 4.0) == 1  # ammonium
-    assert fc("O", 6, 1.0) == -1  # alkoxide
-    assert fc("F", 7, 1.0) == 0  # HF-style
-    # Group-13 sextet (target = 6, not octet).  A neutral trivalent boron
-    # must come out as fc=0 — the octet-only formula gave fc=-2 here.
-    assert fc("B", 3, 3.0) == 0  # BF3
-    assert fc("B", 3, 4.0) == -1  # BF4-
-    # Hydrogen duet: bonded H is neutral, a bare H completes its duet (a hydride), as a bare Cl is Cl-
-    assert fc("H", 1, 1.0) == 0
-    assert fc("H", 1, 0.0) == -1
-    # At an allowed valence the leftover electrons stay lone pairs: a sulfoxide S
-    # (one S=O, valence 4) is neutral, a three-bonded sulfonium S is not.
-    assert fc("S", 6, 4.0, degree=3, allowed=(2, 4, 6)) == 0
-    assert fc("S", 6, 3.0, degree=3, allowed=(2, 4, 6)) == 1
+@pytest.mark.parametrize(
+    ("V", "bonds", "degree", "allowed", "full_shell", "expected"),
+    [
+        (4, 4, 4, True, False, 0),  # methane
+        (5, 4, 4, False, False, 1),  # ammonium
+        (6, 1, 1, False, False, -1),  # alkoxide
+        (7, 1, 1, True, False, 0),  # fluoride bound to H
+        (3, 3, 3, True, False, 0),  # BF3: sextet
+        (3, 4, 4, False, False, -1),  # BF4-
+        (1, 1, 1, True, False, 0),  # bonded H: duet
+        (1, 0, 0, False, False, -1),  # hydride
+        (6, 4, 3, True, False, 0),  # sulfoxide
+        (6, 3, 3, False, False, 1),  # sulfonium
+        (6, 0, 0, False, True, -2),  # metal-bound oxo
+        (5, 1, 1, False, True, -2),  # metal-bound imido
+        (4, 2, 2, False, False, 0),  # carbene
+    ],
+)
+def test_formal_charge_value(V, bonds, degree, allowed, full_shell, expected):
+    charges = _compute_formal_charge_vec(
+        np.array([V]), np.array([bonds]), np.array([degree]), np.array([allowed]), np.array([full_shell])
+    )
+    assert charges.tolist() == [expected]
 
 
 # ---- Valence violation ----
@@ -174,6 +189,120 @@ def test_formal_charges_ammonium(charged_optimizer):
     assert sum(charges) == 1
     # Nitrogen should carry the positive charge
     assert charges[0] == 1
+
+
+@pytest.mark.parametrize(("charge", "total", "cations"), [(-2, -2, 0), (0, 0, 1), (2, 2, 2), (4, 2, 2)])
+def test_partial_carbocation_assignment(optimizer, charge, total, cations, caplog):
+    """The shared charge model and reporter select the same number of empty p orbitals."""
+    atoms = [("C", (0, 0, 0)), ("H", (1, 0, 0)), ("H", (-0.5, 0.87, 0)), ("H", (-0.5, -0.87, 0))]
+    atoms += [(sym, (x + 10, y, z)) for sym, (x, y, z) in atoms]
+    G = _make_graph(atoms, [(0, 1), (0, 2), (0, 3), (4, 5), (4, 6), (4, 7)])
+    optimizer.charge = charge
+    arrays = ScoringArrays.from_graph(G, DATA)
+    bo = arrays.read_bond_orders(G)
+    assigned = arrays.formal_charges(arrays.compute_valence_sums(bo), bo, charge)
+    charges = optimizer.compute_formal_charges(G)
+    assert charges == assigned.tolist()
+    assert sum(charges) == total
+    assert sum(q == 1 for q in charges) == cations
+    assert ("formal charges follow the structure" in caplog.text) == (charge != total)
+
+
+@pytest.mark.parametrize("inferred_charge_weight", [0, 1000], ids=["no-prior", "neutrality-prior"])
+def test_charge_inference_uses_shared_score(inferred_charge_weight):
+    atoms = read_xyz_file(str(Path(__file__).with_name("carbocation-zwitterion.xyz")))
+    G = GraphBuilder(atoms, charge=0)._build_initial_graph()
+    weights = ScoringWeights(inferred_charge_weight=inferred_charge_weight)
+    optimizer = BondOrderOptimizer(GeometryCalculator(), DATA, None, weights)
+    for i, j in [(3, 4), (6, 12), (7, 8), (10, 11)]:
+        G.edges[i, j]["bond_order"] = 2.0
+    arrays = ScoringArrays.from_graph(G, DATA)
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    score = arrays.score(vs, bo, None, weights)
+    assert arrays.formal_charges(vs, bo, weights=weights).sum() == (0 if inferred_charge_weight else -2)
+    stats = optimizer.optimize(G, arrays=arrays)
+    assert stats["final_formal_charges"] == optimizer.compute_formal_charges(G, arrays=arrays)
+    assert optimizer.charge == (0 if inferred_charge_weight else -2)
+
+    G.edges[3, 4]["bond_order"] = 1.0
+    G.edges[2, 3]["bond_order"] = 2.0
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    dianion_score = arrays.score(vs, bo, None, weights)
+    if inferred_charge_weight:
+        assert score < dianion_score
+    stated = arrays.score(vs, bo, -2, weights)
+    assert arrays.score(vs, bo, -2, replace(weights, inferred_charge_weight=0)) == stated
+
+
+@pytest.mark.parametrize("mode", ["greedy", "beam"])
+def test_rejected_state_statistics_keep_actual_charges(mode):
+    atoms = [("C", (0, 0, 0)), *[("H", (i, 0, 0)) for i in range(1, 6)]]
+    G = _make_graph(atoms, [(0, i) for i in range(1, 6)])
+    arrays = ScoringArrays.from_graph(G, DATA)
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    weights = ScoringWeights(invalid_score=123456789)
+    optimizer = BondOrderOptimizer(GeometryCalculator(), DATA, 1, weights, OptimizerConfig(max_iter=0))
+
+    assert arrays.score(vs, bo, 1, weights) == weights.invalid_score
+    stats = optimizer.optimize(G, mode=mode, arrays=arrays)
+    assert stats["final_score"] == weights.invalid_score
+    assert stats["final_formal_charges"] == optimizer.compute_formal_charges(G, arrays=arrays) == [-1, 0, 0, 0, 0, 0]
+
+
+@pytest.mark.parametrize(
+    "doubles",
+    [
+        [(3, 4), (8, 9), (6, 7), (10, 11)],  # quinoid C12-
+        [(3, 4), (6, 12), (7, 8), (10, 11)],  # phenoxide, first Kekule form
+        [(3, 4), (6, 7), (8, 10), (11, 12)],  # phenoxide, second Kekule form
+    ],
+    ids=["quinoid", "phenoxide-a", "phenoxide-b"],
+)
+def test_resonance_forms_share_charge_assignment_and_carbocation_cost(optimizer, doubles):
+    atoms = read_xyz_file(str(Path(__file__).with_name("carbocation-zwitterion.xyz")))
+    G = GraphBuilder(atoms, charge=0)._build_initial_graph()
+    arrays = ScoringArrays.from_graph(G, DATA)
+    for i, j in doubles:
+        G.edges[i, j]["bond_order"] = 2.0
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    weights = optimizer.weights
+    score = arrays.score(vs, bo, 0, weights)
+    assert arrays.score(vs, bo, 0, replace(weights, violation_weight=5000)) == score
+    assert score - arrays.score(vs, bo, 0, replace(weights, carbocation_weight=0)) == pytest.approx(
+        weights.carbocation_weight
+    )
+    stats = optimizer.optimize(G, arrays=arrays)
+    charges = stats["final_formal_charges"]
+    assert sum(charges) == 0
+    assert charges[2] == 1
+    assert charges[9] == -1
+    assert charges[12] == 0
+
+
+def test_resonance_candidates_share_the_beam_score_cache(optimizer, monkeypatch):
+    atoms = read_xyz_file(str(Path(__file__).with_name("carbocation-zwitterion.xyz")))
+    G = GraphBuilder(atoms, charge=0)._build_initial_graph()
+    optimizer.seed_pi_bonds(G)
+    arrays = ScoringArrays.from_graph(G, DATA)
+    scored = set()
+    score = arrays.score
+
+    def score_once(vs, bo, charge, weights):
+        key = bo.tobytes()
+        assert key not in scored, "the same candidate was scored twice in one beam run"
+        scored.add(key)
+        return score(vs, bo, charge, weights)
+
+    monkeypatch.setattr(arrays, "score", score_once)
+    shifts = optimizer._charge_shifts
+    monkeypatch.setattr(optimizer, "_charge_shifts", lambda *args: shifts(*args) * 2)
+    stats = optimizer.optimize(G, arrays=arrays)
+    assert stats["score_cache_hits"] > 0
+    assert stats["final_formal_charges"][9] == -1
 
 
 # ---- Custom weights affect scoring ----

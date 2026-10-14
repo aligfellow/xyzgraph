@@ -5,9 +5,29 @@ import re
 import networkx as nx
 import pytest
 
-from xyzgraph import count_frames_and_atoms, read_xyz_file, read_xyz_frames
+from xyzgraph import build_graph, count_frames_and_atoms, graph_debug_report, read_xyz_file, read_xyz_frames
 from xyzgraph.data_loader import BOHR_TO_ANGSTROM
 from xyzgraph.utils import smallest_rings
+
+
+def test_debug_report_flags_formal_charge_mismatch(caplog):
+    atoms = [("O", (0.0, 0.0, 0.0)), ("H", (0.96, 0.0, 0.0)), ("H", (-0.24, 0.93, 0.0))]
+    G = build_graph(atoms, charge=2)
+
+    assert "Stated charge +2, but the bond orders give +0" in caplog.text
+    assert G.graph["validation_errors"]
+    assert "validation=FAILED" in graph_debug_report(G)
+    assert "total_charge=2  sum(formal_charge)=+0 (MISMATCH)" in graph_debug_report(G)
+    assert "MISMATCH" not in graph_debug_report(build_graph(atoms, charge=0))
+    assert "MISMATCH" not in graph_debug_report(build_graph(atoms, charge=2, quick=True))
+
+
+def test_debug_report_names_radicals():
+    G = build_graph([("O", (0, 0, 0)), ("H", (0.97, 0, 0))], charge=0)
+    report = graph_debug_report(G)
+    assert G.graph["validation_errors"] == []
+    assert "multiplicity=2  radical_electrons=1" in report
+    assert "radical=1" in report
 
 
 def test_smallest_rings_empty_graph():
@@ -70,6 +90,17 @@ def test_xyz_readers_uniform_trajectory(tmp_path):
         ("1\nc\nH 0 zero 0\n", "Frame 0, atom 0: invalid coordinates"),
         ("1\nc\n999 0 0 0\n", "Frame 0, atom 0: unknown atomic number 999"),
         ("1\nc\nXx 0 0 0\n", "Frame 0, atom 0: unknown element symbol 'Xx'"),
+    ],
+    ids=[
+        "empty-file",
+        "invalid-atom-count",
+        "negative-atom-count",
+        "missing-comment",
+        "truncated-frame",
+        "missing-coordinate",
+        "invalid-coordinates",
+        "unknown-atomic-number",
+        "unknown-element",
     ],
 )
 def test_read_xyz_frames_rejects_malformed_input(tmp_path, text, message):

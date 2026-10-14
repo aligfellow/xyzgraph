@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from xyzgraph import build_graph
+from xyzgraph import build_graph, read_xyz_file
 from xyzgraph.utils import graph_to_dict
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -96,6 +96,97 @@ def test_charge_inferred_when_not_given():
     G = build_graph(str(EXAMPLES / "isothio.xyz"))
     assert (G.graph["total_charge"], G.graph["multiplicity"]) == (1, 1)
     assert build_graph(str(EXAMPLES / "mnh.xyz")).graph["total_charge"] == 0
+
+
+@pytest.mark.parametrize("charge", [0, None, 1, -2], ids=["neutral", "inferred", "radical-cation", "dianion"])
+@pytest.mark.parametrize("kekule", [False, True], ids=["aromatic", "kekule"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["original", "reversed"])
+def test_carbocation_zwitterion(charge, kekule, reverse):
+    atoms = read_xyz_file(str(FIXTURES / "carbocation-zwitterion.xyz"))
+    indices = list(reversed(range(len(atoms)))) if reverse else list(range(len(atoms)))
+    G = build_graph([atoms[i] for i in indices], charge=charge, kekule=kekule)
+    nodes = [G.nodes[indices.index(i)] for i in range(len(atoms))]
+    total = charge or 0
+    charged = {0: {2: 1, 9: -1}, 1: {2: 1}, -2: {4: -1, 9: -1}}[total]
+
+    assert G.number_of_edges() == 23
+    assert G.graph["validation_errors"] == []
+    assert (G.graph["total_charge"], G.graph["multiplicity"]) == (total, 2 if total == 1 else 1)
+    assert sum(n["formal_charge"] for n in nodes) == total
+    assert [n["formal_charge"] for n in nodes] == [charged.get(i, 0) for i in range(len(nodes))]
+    assert [i for i, n in enumerate(nodes) if n["radical_electrons"]] == ([9] if total == 1 else [])
+    assert all(n["valence"] <= {"C": 4, "N": 3, "O": 2, "H": 1}[n["symbol"]] for n in nodes)
+    assert G.edges[indices.index(2), indices.index(3)]["bond_order"] == (2.0 if total == -2 else 1.0)
+    assert G.edges[indices.index(3), indices.index(4)]["bond_order"] == (1.0 if total == -2 else 2.0)
+    assert G.edges[indices.index(8), indices.index(9)]["bond_order"] == 1.0
+    assert G.edges[indices.index(5), indices.index(18)]["bond_order"] == 1.0
+    assert [{indices[i] for i in ring} for ring in G.graph["aromatic_rings"]] == [{6, 7, 8, 10, 11, 12}]
+    assert sum(d["bond_order"] == 1.5 for _, _, d in G.edges(data=True)) == (0 if kekule else 6)
+
+
+def test_charge_inference_can_still_return_a_dianion():
+    """The neutrality prior does not force carbonate into a neutral or radical reading."""
+    atoms = [
+        ("C", (0.0, 0.0, 0.0)),
+        ("O", (1.25, 0.0, 0.0)),
+        ("O", (-0.65, 1.126, 0.0)),
+        ("O", (-0.65, -1.126, 0.0)),
+    ]
+    G = build_graph(atoms)
+    assert G.graph["total_charge"] == sum(d["formal_charge"] for _, d in G.nodes(data=True)) == -2
+    assert G.nodes[0]["formal_charge"] == 0
+    assert sorted(d["formal_charge"] for _, d in G.nodes(data=True)) == [-1, -1, 0, 0]
+    assert not any(d["radical_electrons"] for _, d in G.nodes(data=True))
+    assert G.graph["validation_errors"] == []
+
+
+@pytest.mark.parametrize("optimizer", ["greedy", "beam"])
+def test_iminium_preferred_to_carbocation(optimizer):
+    atoms = [
+        ("N", (0.0, 0.0, 0.0)),
+        ("C", (1.3, 0.0, 0.0)),
+        ("H", (-0.5, 0.87, 0.0)),
+        ("H", (-0.5, -0.87, 0.0)),
+        ("H", (1.8, 0.87, 0.0)),
+        ("H", (1.8, -0.87, 0.0)),
+    ]
+    G = build_graph(atoms, charge=1, optimizer=optimizer)
+    assert [G.nodes[i]["formal_charge"] for i in G] == [1, 0, 0, 0, 0, 0]
+    assert G.edges[0, 1]["bond_order"] == 2.0
+
+
+def test_greedy_carbocation_zwitterion_keeps_valid_quinoid():
+    G = build_graph(str(FIXTURES / "carbocation-zwitterion.xyz"), charge=0, optimizer="greedy")
+    assert G.graph["total_charge"] == sum(d["formal_charge"] for _, d in G.nodes(data=True)) == 0
+    assert G.nodes[2]["formal_charge"] == 1
+    assert G.nodes[12]["formal_charge"] == -1
+    assert G.edges[8, 9]["bond_order"] == 2.0
+    assert all(d["valence"] <= 4 for _, d in G.nodes(data=True))
+    assert not any(d["bond_order"] == 1.5 for _, _, d in G.edges(data=True))
+
+
+@pytest.mark.parametrize(("charge", "multiplicity"), [(1, 1), (0, 2), (1, 3)])
+def test_charge_and_multiplicity_must_have_consistent_electron_parity(charge, multiplicity):
+    with pytest.raises(ValueError, match="electrons, incompatible with multiplicity"):
+        build_graph(str(FIXTURES / "carbocation-zwitterion.xyz"), charge=charge, multiplicity=multiplicity)
+
+
+def test_unrepresented_spin_is_flagged():
+    G = build_graph(str(FIXTURES / "carbocation-zwitterion.xyz"), charge=0, multiplicity=3)
+    assert "cannot represent multiplicity=3" in G.graph["validation_errors"][0]
+
+
+def test_impossible_valence_is_flagged_for_consumers():
+    atoms = [
+        ("C", (0, 0, 0)),
+        ("H", (1.09, 0, 0)),
+        ("H", (-1.09, 0, 0)),
+        ("H", (0, 1.09, 0)),
+        ("H", (0, -1.09, 0)),
+        ("H", (0, 0, 1.09)),
+    ]
+    G = build_graph(atoms, charge=1, bond=[(0, i) for i in range(1, 6)])
+    assert any("C0 has valence 5" in error for error in G.graph["validation_errors"])
 
 
 def test_isothio():
