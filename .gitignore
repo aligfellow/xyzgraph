@@ -55,3 +55,4 @@ coverage.xml
 
 # Ignore temporary local notebooks/output
 output/
+benchmark/

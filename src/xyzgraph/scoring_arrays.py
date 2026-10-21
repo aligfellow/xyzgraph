@@ -12,7 +12,7 @@ a single ``bond_orders.copy()`` instead of deep-copying an nx.Graph.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import networkx as nx
@@ -225,6 +225,13 @@ class ScoringArrays:
     edge_in_ring: np.ndarray  # bool [E], the bond lies on a ring
     n_aromatic_rings: int  # rings that could be aromatic
     ring_systems: List[Tuple[Tuple[int, ...], np.ndarray, np.ndarray]]  # aromatic_systems: rings, atoms, + substituents
+
+    # Exact caches belong to this immutable topology and survive its charge-state trials.
+    _score_cache: Dict[Tuple[Optional[int], ScoringWeights], Dict[bytes, float]] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _ring_indices: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = field(default=None, init=False, repr=False)
+    _ring_cache: Dict[Tuple[bytes, bytes, bytes], int] = field(default_factory=dict, init=False, repr=False)
 
     # =====================================================================
     # Construction
@@ -474,6 +481,41 @@ class ScoringArrays:
         """Return True if any atom exceeds its check_vlim."""
         return bool(np.any(valence_sums > self.check_vlim_thresh))
 
+    def electron_excess(self, valence_sums: np.ndarray, fc: np.ndarray) -> np.ndarray:
+        """Per-atom negative nonbonding electrons or excess duet/octet electrons; metals are excluded.
+
+        Inspired by TMC-LewisGen's electron accounting (Shiri et al., DOI: 10.1021/acs.jcim.6c02278).
+        These bounds penalise otherwise favourable but impossible Lewis assignments; expanded shells
+        remain allowed beyond the second row.
+        """
+        unshared = self.valence_electrons - fc - valence_sums
+        shell = self.valence_electrons - fc + valence_sums
+        caps = np.where(self.atomic_numbers <= 2, 2, 8)
+        excess = np.maximum(-unshared, 0) + np.where(self.atomic_numbers <= 10, np.maximum(shell - caps, 0), 0)
+        excess[self.is_metal] = 0
+        return excess
+
+    def feasibility_errors(self, G: nx.Graph, formal_charges: List[int], charge: Optional[int]) -> List[str]:
+        """Validate the integer Lewis assignment under the solver's ionic metal-bond convention."""
+        valences = self.compute_valence_sums(self.read_bond_orders(G))
+        fc = np.asarray(formal_charges)
+        over_limit = valences > self.scoring_vlim_thresh
+        invalid = self.non_metal & (over_limit | (self.electron_excess(valences, fc) > 1e-8))
+        errors = []
+        for i in np.flatnonzero(invalid):
+            atom = f"{G.nodes[i]['symbol']}{i}"
+            if over_limit[i]:
+                errors.append(f"{atom} has valence {valences[i]:g} above its allowed maximum")
+            else:
+                unshared = self.valence_electrons[i] - fc[i] - valences[i]
+                shell = self.valence_electrons[i] - fc[i] + valences[i]
+                errors.append(f"{atom} has invalid electron counts: nonbonding={unshared:g}, shell={shell:g}")
+        if self.n_metals and charge is not None:
+            metal_charge = charge - int(fc[self.non_metal].sum())
+            if metal_charge > self.metal_cap:
+                errors.append(f"metal charge {metal_charge} exceeds electron budget {self.metal_cap:g}")
+        return errors
+
     # =====================================================================
     # Scoring
     # =====================================================================
@@ -617,13 +659,21 @@ class ScoringArrays:
         ``valence_sums`` must correspond to ``bond_orders``; the optimizer maintains them incrementally.
         Charges are obtained separately with ``formal_charges`` using the same candidate, target, and weights.
         """
+        cache = self._score_cache.setdefault((charge, weights), {})
+        key = bond_orders.tobytes()
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+
         # Fast reject
         if self.check_valence_violation(valence_sums):
-            return weights.invalid_score
-
-        gap = self._allowed_valence_gap(valence_sums)
-        fc = self.formal_charges(valence_sums, bond_orders, charge, weights=weights, gap=gap)
-        return self._score_charges(valence_sums, bond_orders, fc, charge, weights, gap)
+            value = weights.invalid_score
+        else:
+            gap = self._allowed_valence_gap(valence_sums)
+            fc = self.formal_charges(valence_sums, bond_orders, charge, weights=weights, gap=gap)
+            value = self._score_charges(valence_sums, bond_orders, fc, charge, weights, gap)
+        cache[key] = value
+        return value
 
     def _score_charges(
         self,
@@ -653,9 +703,9 @@ class ScoringArrays:
 
         valence_err = float(np.sum(self._valence_gap(valence_sums, fc, gap)[self.vi_mask] ** 2))
 
-        # Scoring valence limit violations (pre-computed threshold)
+        # Valence limits and electron-count violations share the hard penalty.
         over_limit = non_metal & (valence_sums > self.scoring_vlim_thresh)
-        violation = float(np.sum(over_limit))
+        violation = float(np.sum(over_limit) + np.sum(self.electron_excess(valence_sums, fc)))
 
         # Electronegativity penalty (vectorised over all non-metal atoms)
         # Operate on full arrays — branchless, avoids np.any guard overhead
@@ -726,6 +776,19 @@ class ScoringArrays:
         """Rings that could be aromatic but are not under this Lewis structure (see huckel_aromatic)."""
         if not self.n_aromatic_rings:
             return 0
+        if self._ring_indices is None:
+            atoms = np.unique(np.concatenate([atoms for _, atoms, _ in self.ring_systems]))
+            charge_atoms = np.unique(np.concatenate([system for _, _, system in self.ring_systems]))
+            edges = np.flatnonzero(
+                (np.isin(self.edge_src, atoms) | np.isin(self.edge_dst, atoms)) & ~self.edge_has_metal
+            )
+            self._ring_indices = atoms, charge_atoms, edges
+        atoms, charge_atoms, edges = self._ring_indices
+        key = (bond_orders[edges].tobytes(), fc[charge_atoms].tobytes(), valence_sums[atoms].tobytes())
+        cached = self._ring_cache.get(key)
+        if cached is not None:
+            return cached
+
         has_pi = (bond_orders > 1.3) & ~self.edge_has_metal
         ring_pi = np.zeros(self.n_atoms, dtype=bool)
         exo_pi = np.zeros(self.n_atoms, dtype=bool)
@@ -739,7 +802,9 @@ class ScoringArrays:
             if huckel_aromatic(pi[atoms], int(fc[system].sum()))
             for r in members
         }
-        return self.n_aromatic_rings - len(aromatic)
+        penalty = self.n_aromatic_rings - len(aromatic)
+        self._ring_cache[key] = penalty
+        return penalty
 
     # =====================================================================
     # Edge candidate selection
@@ -750,7 +815,7 @@ class ScoringArrays:
         return ~self.fixed_order & (bond_orders < 3.0)
 
     def top_candidate_edges(self, bond_orders: np.ndarray, valence_sums: np.ndarray, k: int) -> np.ndarray:
-        """Return indices of top-k candidate edges by valence-error pressure.
+        """Return indices of top-k candidate edges by valence-error pressure, including cutoff ties.
 
         Ranks by each endpoint's distance to its nearest allowed valence (what
         the scorer's valence_err term squares), emitting an edge only if an
@@ -780,7 +845,10 @@ class ScoringArrays:
             return np.empty(0, dtype=np.intp)
 
         order = np.argsort(-pressure)
-        return eidxs[order[:k]]
+        if k <= 0 or len(order) <= k:
+            return eidxs[order[:k]]
+        cutoff = pressure[order[k - 1]]
+        return eidxs[order[pressure[order] >= cutoff]]
 
     # =====================================================================
     # Write back to nx.Graph

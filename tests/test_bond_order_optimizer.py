@@ -6,6 +6,7 @@ formal charge computation, and aromatic detection.
 
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import Mock
 
 import networkx as nx
 import numpy as np
@@ -303,6 +304,71 @@ def test_resonance_candidates_share_the_beam_score_cache(optimizer, monkeypatch)
     stats = optimizer.optimize(G, arrays=arrays)
     assert stats["score_cache_hits"] > 0
     assert stats["final_formal_charges"][9] == -1
+
+
+def test_score_cache_survives_trials_and_separates_charge_and_weights(optimizer, monkeypatch):
+    G = _make_graph([("Fe", (0, 0, 0)), ("O", (2, 0, 0))], [(0, 1)])
+    G[0][1]["metal_coord"] = True
+    arrays = ScoringArrays.from_graph(G, DATA)
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    scored = Mock(wraps=arrays._score_charges)
+    monkeypatch.setattr(arrays, "_score_charges", scored)
+    baseline = arrays.score(vs, bo, 0, optimizer.weights)
+    assert arrays.score(vs.copy(), bo.copy(), 0, optimizer.weights) == baseline
+    optimizer.optimize(G, arrays=arrays)
+    optimizer.optimize(G, arrays=arrays)
+    assert scored.call_count == 1
+    assert arrays.score(vs, bo, 9, optimizer.weights) > baseline
+    assert arrays.score(vs, bo, 0, replace(optimizer.weights, formal_charge_weight=0)) < baseline
+    assert scored.call_count == 3
+
+
+def test_edge_cutoff_keeps_all_equal_pressure_candidates():
+    G = _make_graph([("C", (i, 0, 0)) for i in range(4)], [(0, 1), (1, 2), (2, 3)])
+    arrays = ScoringArrays.from_graph(G, DATA)
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    selected = arrays.top_candidate_edges(bo, vs, 1)
+    assert set(zip(arrays.edge_src[selected], arrays.edge_dst[selected])) == {(0, 1), (2, 3)}
+    assert len(arrays.top_candidate_edges(bo, vs, 0)) == 0
+    assert len(arrays.top_candidate_edges(bo, vs, 10)) == 3
+
+
+@pytest.mark.parametrize(
+    ("symbol", "bonds", "charge", "expected"),
+    [("H", 2, -1, 2), ("N", 4, -1, 2), ("C", 4, 1, 1), ("N", 4, 1, 0), ("B", 4, -1, 0), ("S", 6, 0, 0)],
+)
+def test_electron_excess_allows_expanded_shells_only_beyond_second_row(symbol, bonds, charge, expected):
+    arrays = ScoringArrays.from_graph(_make_graph([(symbol, (0, 0, 0))], []), DATA)
+    vs, fc = np.array([bonds]), np.array([charge])
+    assert arrays.electron_excess(vs, fc).tolist() == [expected]
+    weights = ScoringWeights()
+    gap = arrays._allowed_valence_gap(vs)
+    penalized = arrays._score_charges(vs, arrays.bond_orders, fc, None, weights, gap)
+    unpenalized = arrays._score_charges(vs, arrays.bond_orders, fc, None, replace(weights, violation_weight=0), gap)
+    assert penalized - unpenalized == pytest.approx(expected * weights.violation_weight**2)
+
+
+@pytest.mark.parametrize("all_invalid", [False, True])
+def test_charge_trials_prefer_feasible_assignment_or_keep_best_effort(optimizer, monkeypatch, all_invalid):
+    G = _make_graph([("Fe", (0, 0, 0)), ("O", (2, -0.7, 0)), ("O", (2, 0.7, 0))], [(0, 1), (0, 2), (1, 2)])
+    arrays = ScoringArrays.from_graph(G, DATA)
+    scores = []
+
+    def trial(graph, *args, **kwargs):
+        graph[1][2]["bond_order"] = 4.0 if not scores or all_invalid else 2.0
+        bo = arrays.read_bond_orders(graph)
+        fc = arrays.formal_charges(arrays.compute_valence_sums(bo), bo, optimizer.charge)
+        scores.append(len(scores))
+        return {"final_score": scores[-1], "final_formal_charges": fc.tolist()}
+
+    monkeypatch.setattr(optimizer, "optimize", trial)
+    stats = optimizer.assign_bond_orders(G, arrays=arrays)
+    assert len(scores) > 1
+    assert stats["feasible"] is not all_invalid
+    assert stats["final_score"] == (0 if all_invalid else 1)
+    assert G[1][2]["bond_order"] == (4.0 if all_invalid else 2.0)
 
 
 # ---- Custom weights affect scoring ----
@@ -806,3 +872,30 @@ def test_ring_system_charge(optimizer):
     G.add_node(8, symbol="Fe", formal_charge=2)
     G.add_edge(1, 8, bond_order=1.0)
     assert optimizer._ring_system_charge(G, ring) == -1
+
+
+def test_ring_cache_tracks_local_bonds_and_charges_only(monkeypatch):
+    G = _quinone_graph()
+    G.add_node(8, symbol="H", atomic_number=1, position=(10, 0, 0))
+    arrays = ScoringArrays.from_graph(G, DATA)
+    fc = np.zeros(len(G), dtype=int)
+    evaluated = Mock(wraps=ring_pi_electrons)
+    monkeypatch.setattr("xyzgraph.scoring_arrays.ring_pi_electrons", evaluated)
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    assert arrays._ring_conjugation_penalty(bo, fc, vs) == 1
+    fc[8] = 1  # An unrelated fragment cannot change ring conjugation.
+    assert arrays._ring_conjugation_penalty(bo, fc, vs) == 1
+    assert evaluated.call_count == 1
+    fc[6] = -1  # Direct substituent charges are part of the ring's electron budget.
+    arrays._ring_conjugation_penalty(bo, fc, vs)
+    assert evaluated.call_count == 2
+    G[0][6]["bond_order"] = G[3][7]["bond_order"] = 1.0
+    bo = arrays.read_bond_orders(G)
+    vs = arrays.compute_valence_sums(bo)
+    assert arrays._ring_conjugation_penalty(bo, fc, vs) == 0
+    assert arrays._ring_conjugation_penalty(bo.copy(), fc.copy(), vs.copy()) == 0
+    assert evaluated.call_count == 3
+    fc[0] = 1
+    assert arrays._ring_conjugation_penalty(bo, fc, vs) == 1
+    assert evaluated.call_count == 4

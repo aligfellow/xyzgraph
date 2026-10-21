@@ -99,7 +99,7 @@ class ScoringWeights:
 
     # Primary penalties
     violation_weight: float = 1000.0
-    """Valence violations (e.g., 5-coordinate C). Highest priority."""
+    """Valence and electron-count violations (e.g., 5-coordinate C). Highest priority."""
 
     conjugation_weight: float = 144.0
     """Per ring that could be aromatic (planar, sp2) and is not 4n+2 under the Lewis structure."""
@@ -154,7 +154,7 @@ class OptimizerConfig:
     """Max iterations. Most molecules converge < 30."""
 
     edge_per_iter: int = 10
-    """Edges to modify per iteration. Trade-off speed vs quality."""
+    """Edge shortlist size per iteration, including all ties at the cutoff."""
 
     beam_width: int = 5
     """Beam search paths. Balance between quality and cost."""
