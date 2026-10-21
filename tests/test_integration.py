@@ -189,6 +189,27 @@ def test_impossible_valence_is_flagged_for_consumers():
     assert any("C0 has valence 5" in error for error in G.graph["validation_errors"])
 
 
+def test_overfilled_donor_shell_is_flagged_for_consumers():
+    atoms = [
+        ("N", (0, 0, 0)),
+        ("H", (1, 0, 0)),
+        ("H", (-1, 0, 0)),
+        ("H", (0, 1, 0)),
+        ("H", (0, -1, 0)),
+        ("Fe", (0, 0, 2)),
+    ]
+    G = build_graph(atoms, charge=0, bond=[(0, i) for i in range(1, 6)])
+    assert any("N0 has invalid electron counts: nonbonding=2, shell=10" in e for e in G.graph["validation_errors"])
+
+
+@pytest.mark.parametrize(("charge", "invalid"), [(8, False), (9, True)])
+def test_metal_cannot_donate_more_than_its_valence_electrons(charge, invalid):
+    G = build_graph([("Fe", (0, 0, 0))], charge=charge)
+    assert bool(G.graph["validation_errors"]) is invalid
+    if invalid:
+        assert G.graph["validation_errors"] == ["metal charge 9 exceeds electron budget 8"]
+
+
 def test_isothio():
     """Full pipeline match for charged organic molecule."""
     result = graph_to_dict(build_graph(str(EXAMPLES / "isothio.xyz"), charge=1))

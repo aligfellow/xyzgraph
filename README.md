@@ -365,6 +365,9 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+Electron-count checks and preference for feasible final trials were inspired constraints  
+in TMC-LewisGen [[8]](https://doi.org/10.1021/acs.jcim.6c02278).
+
 ### xTB Workflow (method='xtb')
 
 ```
@@ -621,7 +624,7 @@ G_kekule = build_graph('molecule.xyz', kekule=True)
 # Bond orders remain as optimised Kekule values (1.0/2.0)
 ```
 
-Full `cheminf` graphs expose `G.graph["validation_errors"]` for charge, valence, and represented-spin failures; the builder warns and returns a best-effort graph. Radical counts are stored as `G.nodes[i]["radical_electrons"]`. Explicit charge and multiplicity must have compatible electron parity; omitted multiplicity selects a doublet for an odd electron count. Radical placement is heuristic; metal spin states are not validated.
+Full `cheminf` graphs expose `G.graph["validation_errors"]` for charge, valence, electron-count, and represented-spin failures; the builder warns and returns a best-effort graph. Electron checks flag negative nonbonding counts, overfilled H/He duets or second-row octets, and metal charges exceeding the metals' total valence-electron budget. Radical counts are stored as `G.nodes[i]["radical_electrons"]`. Explicit charge and multiplicity must have compatible electron parity; omitted multiplicity selects a doublet for an odd electron count. Radical placement is heuristic; metal spin states are not validated.
 
 Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
 
@@ -1628,6 +1631,8 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 6. **xyz2mol_tm**: Jan Jensen *et al.*, [xyz2mol_tm](https://github.com/jensengroup/xyz2mol_tm). See also ref **7.**.
 
 7. **SMILES all around: structure to SMILES conversion for transition metal complexes**: Maria H. Rasmussen, Magnus Strandgaard, Julius Seumer, Laura K. Hemmingsen, Angelo Frei, David Balcells and Jan H. Jensen, *Journal of Cheminformatics*, 2025, **17**. [DOI](https://jcheminf.biomedcentral.com/articles/10.1186/s13321-025-01008-1).
+
+8. **TMC-LewisGen**: Farshad Shiri, Jingyuan Zhu, Sin Hang Tong, Liren Xiao and Zhenyang Lin, *TMC-LewisGen: Automated Generation of Lewis-like Structures for Transition-Metal Complexes*, *J. Chem. Inf. Model.* [DOI](https://doi.org/10.1021/acs.jcim.6c02278). [Repo](https://github.com/Reecy-Z/TMC-Lewis-Structure).
 
 ---
 

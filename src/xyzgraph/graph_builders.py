@@ -412,10 +412,7 @@ class GraphBuilder:
         errors = []
         if sum(formal_charges) != self.charge:
             errors.append(f"formal charges sum to {sum(formal_charges):+d}, expected {self.charge:+d}")
-        valences = arrays.compute_valence_sums(arrays.read_bond_orders(G))
-        for i, valence in enumerate(valences):
-            if valence > arrays.scoring_vlim_thresh[i]:
-                errors.append(f"{G.nodes[i]['symbol']}{i} has valence {valence:g} above its allowed maximum")
+        errors.extend(arrays.feasibility_errors(G, formal_charges, self.charge))
         radicals = sum(G.nodes[i]["radical_electrons"] for i in G)
         if not arrays.n_metals and radicals < self.multiplicity - 1:
             errors.append(f"{radicals} radical electrons cannot represent multiplicity={self.multiplicity}")

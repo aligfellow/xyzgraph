@@ -259,9 +259,9 @@ class BondOrderOptimizer:
 
         The ionic convention leaves a complex's ligands short by the metal's oxidation state ``s``:
         they carry ``s - charge`` extra electrons. Each state is seeded with that many electrons
-        and refined, and the lowest-scoring structure is kept, so the ligands' own chemistry
-        (aromaticity, charges, bond lengths) picks the state rather than a charge-blind seed. The
-        matchings and scoring arrays are built once and shared by every state.
+        and refined, and the lowest-scoring feasible structure is kept (or the best effort if none).
+        The ligands' chemistry (aromaticity, charges, bond lengths) picks the state rather than a
+        charge-blind seed. The matchings and scoring arrays are built once and shared by every state.
         """
         metals = [n for n in G.nodes() if G.nodes[n]["symbol"] in self.data.metals]
         if len(metals) != 1:
@@ -284,11 +284,15 @@ class BondOrderOptimizer:
             seen.add(seed)
             mark = len(self.log_buffer)
             stats = self.optimize(G, mode, arrays=arrays, ligand_target=charge - state)
+            stats["feasible"] = not arrays.feasibility_errors(G, stats["final_formal_charges"], charge)
             log = self.log_buffer[mark:]
             del self.log_buffer[mark:]
             runs.append((stats, state, {(i, j): d["bond_order"] for i, j, d in G.edges(data=True)}, log))
             self._log(f"Oxidation state {state:+d}: score {stats['final_score']:.2f}", 1)
-        stats, state, orders, log = min(runs, key=lambda run: (run[0]["final_score"], run[1]))
+        stats, state, orders, log = min(
+            runs,
+            key=lambda run: (not run[0]["feasible"], run[0]["final_score"], run[1]),
+        )
         nx.set_edge_attributes(G, orders, "bond_order")
         self._log(f"Kept the structure seeded at oxidation state {state:+d}", 1)
         self.log_buffer.extend(log)
@@ -735,8 +739,8 @@ class BondOrderOptimizer:
         best_ever_bo = base_bo.copy()
         best_ever_vs = base_vs.copy()
 
-        # Cache scores by bond-order bytes; beam children recur across iterations.
-        score_cache: Dict[bytes, float] = {base_bo.tobytes(): current_score}
+        # Reuse scores across beam iterations and oxidation-state trials.
+        score_cache = sa._score_cache[(self.charge, self.weights)]
         stats["score_cache_hits"] = 0
 
         def cached_score(bond_orders, valence_sums):
@@ -744,7 +748,6 @@ class BondOrderOptimizer:
             score = score_cache.get(key)
             if score is None:
                 score = sa.score(valence_sums, bond_orders, self.charge, self.weights)
-                score_cache[key] = score
                 stats["beam_explored"] += 1
             else:
                 stats["score_cache_hits"] += 1
