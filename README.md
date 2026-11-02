@@ -626,6 +626,11 @@ G_kekule = build_graph('molecule.xyz', kekule=True)
 
 Full `cheminf` graphs expose `G.graph["validation_errors"]` for charge, valence, electron-count, and represented-spin failures; the builder warns and returns a best-effort graph. Electron checks flag negative nonbonding counts, overfilled H/He duets or second-row octets, and metal charges exceeding the metals' total valence-electron budget. Radical counts are stored as `G.nodes[i]["radical_electrons"]`. Explicit charge and multiplicity must have compatible electron parity; omitted multiplicity selects a doublet for an odd electron count. Radical placement is heuristic; metal spin states are not validated.
 
+A hydrogen joined by ordinary single bonds to exactly two borons represents a B–H–B three-centre,
+two-electron bond. Both legs remain in the graph. Integer formal-charge bookkeeping assigns H +1
+and one bridge electron to each B, counting the shared pair once. These are representation charges,
+not calculated atomic charges. Other multicentre bonds are not covered by this rule.
+
 Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
 
 ```python

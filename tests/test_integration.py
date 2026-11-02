@@ -58,6 +58,19 @@ def test_second_hydrogen_contact_is_a_hydrogen_bond():
     assert not build_graph(atoms, charge=0, relaxed=True).edges[1, 3].get("NCI")
 
 
+def test_boron_hydrogen_bridge_counts_one_shared_pair():
+    atoms: list[tuple[str, tuple[float, float, float]]] = [("B", (-1.4, 0, 0)), ("B", (1.4, 0, 0)), ("H", (0, 0, 0))]
+    for x in (-1.8, 1.8):
+        atoms += [("H", (x, 1.1, 0)), ("H", (x, -0.55, 0.953)), ("H", (x, -0.55, -0.953))]
+    G = build_graph(atoms, charge=-1, multiplicity=1, kekule=True)
+
+    assert G.graph["total_charge"] == sum(d["formal_charge"] for _, d in G.nodes(data=True)) == -1
+    assert G.graph["validation_errors"] == []
+    assert set(G[2]) == {0, 1}
+    assert all(G.edges[2, b]["bond_order"] == 1 and not G.edges[2, b].get("NCI") for b in (0, 1))
+    assert sum(d["radical_electrons"] for _, d in G.nodes(data=True)) == 0
+
+
 def test_agostic_hydrogen_bonds_only_in_a_transition_state():
     """A C-H pointing at a metal is agostic at equilibrium; a transition state keeps the M-H, an H in flight."""
     atoms = [("Pd", (0.0, 0.0, 0.0)), ("Cl", (-2.3, 0.0, 0.0)), ("H", (1.9, 0.0, 0.0)), ("C", (3.02, 0.0, 0.0))]

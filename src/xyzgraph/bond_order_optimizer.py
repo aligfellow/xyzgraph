@@ -174,7 +174,7 @@ class BondOrderOptimizer:
         valences = arrays.compute_valence_sums(bond_orders)
         charges = arrays.formal_charges(valences, bond_orders, self.charge, weights=self.weights)
         # An odd unshared-electron count has one radical; an empty p orbital has none.
-        radicals = np.rint(arrays.valence_electrons - charges - valences).astype(np.int64) % 2
+        radicals = np.rint(arrays.nonbonding_electrons(valences, charges)).astype(np.int64) % 2
         radicals[arrays.is_metal] = 0
         nx.set_node_attributes(G, dict(enumerate(radicals.tolist())), "radical_electrons")
         formal = charges.tolist()
