@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import networkx as nx
+import numpy as np
 import pytest
 
 from xyzgraph import build_graph
@@ -611,7 +613,7 @@ class TestNCIData:
             geometry={"distance": 2.8},
         )
         with pytest.raises(AttributeError):
-            nci.type = "other"  # type: ignore[misc]
+            nci.__setattr__("type", "other")
 
     def test_default_score(self):
         from xyzgraph.nci import NCIData
@@ -701,3 +703,235 @@ class TestNCISerialization:
         G = build_graph(str(STRUCTURES / "water-HB.xyz"))
         result = graph_to_dict(G)
         assert "ncis" not in result
+
+
+def _contact_graph(symbols, positions, bonds, charges=None):
+    G = nx.Graph()
+    for atom, (symbol, position) in enumerate(zip(symbols, positions)):
+        G.add_node(atom, symbol=symbol, position=tuple(position), formal_charge=(charges or {}).get(atom, 0))
+    for first, second, order in bonds:
+        G.add_edge(first, second, bond_order=order)
+    for atom in G:
+        G.nodes[atom]["valence"] = sum(edge["bond_order"] for edge in G[atom].values())
+    return G
+
+
+def _ring_contact_graph(donor, hydrogens):
+    ring = [(1.4 * np.cos(i * np.pi / 3), 1.4 * np.sin(i * np.pi / 3), 0) for i in range(6)]
+    positions = [*ring, (0, 0, 3), *[(i * 0.3, 0, 2) for i in range(hydrogens)]]
+    bonds = [(i, (i + 1) % 6, 1.5) for i in range(6)] + [(6, 7 + i, 1) for i in range(hydrogens)]
+    G = _contact_graph([*(["C"] * 6), donor, *(["H"] * hydrogens)], positions, bonds)
+    G.graph["aromatic_rings"] = [tuple(range(6))]
+    return G
+
+
+@pytest.mark.parametrize("dative", [False, True])
+def test_terminal_hydrides_are_distinct_hb_acceptors(dative):
+    from xyzgraph.nci import NCICandidate, build_nci_graph
+
+    positions = [(0, 0, 0), (1, 0, 0), (4.3, 0, 0), (2.8, 0.4, 0), (2.8, -0.4, 0)]
+    positions += [(x, 0, 0) for x in (10, 11, 20, 21, 6)]
+    G = _contact_graph(
+        ["N", "H", "Ir", "H", "H", "I", "C", "P", "C", "C"],
+        positions,
+        [(0, 1, 1), (2, 3, 1), (2, 4, 1), (5, 6, 1), (7, 8, 1), (3, 9, 0)],
+        charges={4: -1},
+    )
+    G.edges[3, 9]["NCI"] = True
+    if dative:
+        for h in (3, 4):
+            G.edges[2, h].update(metal_coord=True, dative_donor=h)
+    analyzer = NCIAnalyzer(G)
+    candidates = analyzer.candidates()
+
+    assert {c for c in candidates if c.site_b in ((3,), (4,))} == {
+        NCICandidate("HB", (0,), (3,), (1,)),
+        NCICandidate("HB", (0,), (4,), (1,)),
+    }
+    assert not {3, 4}.intersection(analyzer.lone_pair_sites)
+    assert not any(c.kind == "HB" and c.site_a == (2,) for c in candidates)
+    observed = analyzer.detect(np.array([G.nodes[i]["position"] for i in G]))
+    assert {(h.site_b, h.aux_atoms) for h in observed if h.type.startswith("hbond")} == {((3,), (1,)), ((4,), (1,))}
+    decorated = build_nci_graph(G, observed)
+    assert all(decorated.edges[1, h]["NCI"] and decorated.edges[2, h]["bond_order"] == 1 for h in (3, 4))
+    G.edges[2, 3]["bond_order"] = 0
+    assert not any(c.kind == "HB" and c.site_b == (3,) for c in NCIAnalyzer(G).candidates())
+
+
+@pytest.mark.parametrize(
+    ("hh_distance", "angle", "detected"),
+    [(2.39, 150, True), (2.41, 150, False), (1.8, 120, False)],
+)
+def test_dihydrogen_hbond_geometry_and_measurements(hh_distance, angle, detected):
+    direction = np.array([-np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0])
+    hydride = np.array([1, 0, 0]) + hh_distance * direction
+    G = _contact_graph(
+        ["N", "H", "H", "Ir"],
+        [(0, 0, 0), (1, 0, 0), hydride, hydride + np.array([0, 1.6, 0])],
+        [(0, 1, 1), (2, 3, 1)],
+    )
+    analyzer = NCIAnalyzer(G)
+    positions = np.array([G.nodes[i]["position"] for i in G])
+    hbonds = [h for h in analyzer.detect(positions) if h.type == "hbond" and h.site_b == (2,)]
+
+    assert bool(hbonds) is detected
+    if detected:
+        (hb,) = hbonds
+        assert (hb.site_a, hb.site_b, hb.aux_atoms) == ((0,), (2,), (1,))
+        assert hb.geometry == pytest.approx(
+            {"distance": np.linalg.norm(hydride), "h_distance": hh_distance, "angle": angle}
+        )
+
+
+@pytest.mark.parametrize("other", ["H", "Fe"])
+def test_h2_and_bridging_h_are_not_terminal_hydride_acceptors(other):
+    G = _contact_graph(
+        ["N", "H", "H", "Ir", other],
+        [(0, 0, 0), (1, 0, 0), (2.8, 0, 0), (3.3, 1.5, 0), (4, 0, 0)],
+        [(0, 1, 1), (2, 3, 1), (2, 4, 1)],
+    )
+    if other == "H":
+        G.add_edge(3, 4, bond_order=1)  # coordinated H2 retains its H-H bond
+    assert not any(c.kind == "HB" and c.site_b == (2,) for c in NCIAnalyzer(G).candidates())
+
+
+def test_hydride_distance_limit_does_not_change_ordinary_hydrogen_bonds():
+    G = build_graph(str(STRUCTURES / "water-HB.xyz"))
+    positions = np.array([G.nodes[i]["position"] for i in G])
+    normal = NCIAnalyzer(G).detect(positions)
+
+    assert normal
+    assert NCIAnalyzer(G, NCIThresholds(hb_hh_max=0.01)).detect(positions) == normal
+
+
+def test_hbond_candidates_keep_each_hydrogen_without_requiring_contact_geometry():
+    from xyzgraph.nci import NCICandidate
+
+    G = _contact_graph(
+        ["O", "H", "H", "O", "H", "H"],
+        [(0, 0, 0), (-0.3, 0.9, 0), (-0.3, -0.9, 0), (20, 0, 0), (20.3, 0.9, 0), (20.3, -0.9, 0)],
+        [(0, 1, 1), (0, 2, 1), (3, 4, 1), (3, 5, 1)],
+    )
+    analyzer = NCIAnalyzer(G)
+
+    candidates = analyzer.candidates()
+
+    assert set(candidates) == {
+        NCICandidate("HB", (0,), (3,), (1,)),
+        NCICandidate("HB", (0,), (3,), (2,)),
+        NCICandidate("HB", (3,), (0,), (4,)),
+        NCICandidate("HB", (3,), (0,), (5,)),
+    }
+    assert [c.aux_atoms for c in candidates if c.site_a == (0,)] == [(1,), (2,)]
+    assert analyzer.detect(np.array([G.nodes[i]["position"] for i in G])) == []
+
+
+def test_halogen_pi_retains_the_first_passing_reference():
+    G = _ring_contact_graph("I", 2)
+    G.nodes[7].update(symbol="C", position=(1, 0, 3))
+    G.nodes[8].update(symbol="C", position=(0, 0, 4))
+    analyzer = NCIAnalyzer(G)
+    positions = np.array([G.nodes[i]["position"] for i in G])
+
+    assert [n.aux_atoms for n in _by_type(analyzer.detect(positions), "halogen_pi")] == [(8,)]
+    positions[7] = (0, 0, 4)
+    assert [n.aux_atoms for n in _by_type(analyzer.detect(positions), "halogen_pi")] == [(7,)]
+
+
+@pytest.mark.parametrize(("donor", "kind", "hydrogens"), [("O", "HBPI", 2), ("C", "CHPI", 4), ("Fe", "HBPI", 2)])
+def test_ring_candidates_keep_each_eligible_hydrogen_reference(donor, kind, hydrogens):
+    G = _ring_contact_graph(donor, hydrogens)
+
+    candidates = [c for c in NCIAnalyzer(G).candidates() if c.kind == kind and c.site_a == (6,)]
+
+    assert {c.aux_atoms for c in candidates} == (set() if donor == "Fe" else {(7 + i,) for i in range(hydrogens)})
+    assert all(c.site_b == tuple(range(6)) for c in candidates)
+
+
+@pytest.mark.parametrize(
+    ("symbol", "kind", "detected"), [("S", "ChB", "chalcogen_bond"), ("P", "PnB", "pnictogen_bond")]
+)
+def test_sigma_candidates_list_all_references_and_detection_keeps_first_passing_order(symbol, kind, detected):
+    G = _contact_graph(
+        [symbol, "H", "C", "O", "H", "H"],
+        [(0, 0, 0), (0, 1, 0), (-1.5, 0, 0), (2.8, 0, 0), (3.1, 0.9, 0), (3.1, -0.9, 0)],
+        [(0, 1, 1), (0, 2, 1), (3, 4, 1), (3, 5, 1)],
+    )
+    analyzer = NCIAnalyzer(G)
+    candidates = [c for c in analyzer.candidates() if c.kind == kind and c.site_a == (0,) and c.site_b == (3,)]
+    positions = np.array([G.nodes[i]["position"] for i in G])
+
+    assert [c.aux_atoms for c in candidates] == [(1,), (2,)]
+    assert [n.aux_atoms for n in analyzer.detect(positions) if n.type == detected and n.site_a == (0,)] == [(2,)]
+    positions[1] = (-1, 0, 0)
+    assert [n.aux_atoms for n in analyzer.detect(positions) if n.type == detected and n.site_a == (0,)] == [(1,)]
+
+
+@pytest.mark.parametrize(
+    ("reference", "edge"),
+    [("Pd", {}), ("C", {"metal_coord": True}), ("C", {"dative_donor": 0}), ("C", {"NCI": True, "bond_order": 0})],
+)
+def test_coordination_and_nci_edges_cannot_be_halogen_bond_references(reference, edge):
+    G = _contact_graph(
+        ["Cl", reference, "N", "H", "H", "H"],
+        [(0, 0, 0), (-2.3, 0, 0), (2.65, 0, 0), (2.99, 0.97, 0), (2.99, -0.49, 0.84), (2.99, -0.49, -0.84)],
+        [(0, 1, 1), (2, 3, 1), (2, 4, 1), (2, 5, 1)],
+    )
+    G.edges[0, 1].update(edge)
+
+    assert not _by_type(NCIAnalyzer(G).detect(np.array([G.nodes[i]["position"] for i in G])), "halogen_bond")
+
+
+def test_a_coordinating_sigma_donor_keeps_its_other_covalent_reference():
+    G = _contact_graph(
+        ["S", "Pd", "C", "O", "H", "H"],
+        [(0, 0, 0), (-2.3, 0, 0), (-1.5, 0, 0), (2.8, 0, 0), (3.1, 0.9, 0), (3.1, -0.9, 0)],
+        [(0, 1, 1), (0, 2, 1), (3, 4, 1), (3, 5, 1)],
+    )
+    G.edges[0, 1].update(metal_coord=True, dative_donor=0)
+    analyzer = NCIAnalyzer(G)
+
+    detected = [n for n in analyzer.detect(np.array([G.nodes[i]["position"] for i in G])) if n.type == "chalcogen_bond"]
+
+    assert [(n.site_a, n.site_b, n.aux_atoms) for n in detected] == [((0,), (3,), (2,))]
+    assert [c.aux_atoms for c in analyzer.candidates() if c.kind == "ChB" and c.site_a == (0,)] == [(2,)]
+
+
+def test_halogen_pi_rejects_a_hydrogen_reference():
+    G = _ring_contact_graph("Cl", 1)
+    G.nodes[7]["symbol"] = "H"
+
+    assert not any(c.kind == "HALPI" for c in NCIAnalyzer(G).candidates())
+
+
+@pytest.mark.parametrize(("symbol", "hydrogens", "keeps_pair"), [("N", 3, False), ("O", 2, True)])
+def test_explicit_donation_spends_the_donors_pair_without_spending_other_remaining_pairs(symbol, hydrogens, keeps_pair):
+    symbols = [symbol, "Pd", "O", "H", "H", *(["H"] * hydrogens)]
+    positions: list[tuple[float, float, float]] = [(0, 0, 0), (-2.3, 0, 0), (2.8, 0, 0), (1.84, 0, 0), (3.04, 0.93, 0)]
+    positions += [(0, 0.8 * (i + 1), 0.6) for i in range(hydrogens)]
+    bonds = [(0, 1, 1), (2, 3, 1), (2, 4, 1), *[(0, 5 + i, 1) for i in range(hydrogens)]]
+    G = _contact_graph(symbols, positions, bonds)
+    G.edges[0, 1]["metal_coord"] = True
+    unannotated = NCIAnalyzer(G)
+    assert any(
+        n.type == "hbond" and n.site_a == (2,) and n.site_b == (0,) for n in unannotated.detect(np.array(positions))
+    )
+    G.edges[0, 1]["dative_donor"] = 0
+    analyzer = NCIAnalyzer(G)
+
+    observed = any(
+        n.type == "hbond" and n.site_a == (2,) and n.site_b == (0,) for n in analyzer.detect(np.array(positions))
+    )
+
+    assert observed is keeps_pair
+    assert (0 in analyzer.lone_pair_sites) is keeps_pair
+    assert any(c.kind == "HB" and c.site_a == (2,) and c.site_b == (0,) for c in analyzer.candidates()) is keeps_pair
+    assert any(c.kind == "HB" and c.site_a == (0,) and c.site_b == (2,) for c in analyzer.candidates())
+
+
+def test_dative_donor_must_name_an_endpoint_of_its_edge():
+    G = _contact_graph(["N", "Pd", "O"], [(0, 0, 0), (2, 0, 0), (5, 0, 0)], [(0, 1, 1)])
+    G.edges[0, 1]["dative_donor"] = 2
+
+    with pytest.raises(ValueError, match=r"edge \(0, 1\).*set it to.*or remove the annotation"):
+        NCIAnalyzer(G)

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import networkx as nx
 
+from .sites import sigma_reference_atoms
+
 if TYPE_CHECKING:
     from .thresholds import NCIThresholds
 
@@ -40,7 +42,7 @@ def enumerate_pairs(
     }
 
     donors = sites["hbond_donors"]
-    accs = sites["hbond_acceptors"]
+    accs = [a for a in sites["hbond_acceptors"] if G.nodes[a]["symbol"] != "H"]
     lp = sites["lp_donors"]
     hal = sites["halogen_atoms"]
     chalc = sites["chalcogen_atoms"]
@@ -52,7 +54,7 @@ def enumerate_pairs(
 
     # HB: donor-acceptor pairs (not bonded)
     for d in donors:
-        for a in accs:
+        for a in sites["hbond_acceptors"]:
             if d != a and not G.has_edge(d, a):
                 hb_set.add((d, a))
         for a in lp:
@@ -79,12 +81,16 @@ def enumerate_pairs(
 
     # Halogen bonds
     for x in hal:
+        if not sigma_reference_atoms(G, x, "XB"):
+            continue
         for a in accs:
             if x != a and not G.has_edge(x, a):
                 pairs["XB"].append((x, a))
 
     # Chalcogen bonds
     for y in chalc:
+        if not sigma_reference_atoms(G, y, "ChB"):
+            continue
         for a in lp:
             if y != a and not G.has_edge(y, a):
                 pairs["ChB"].append((y, a))
@@ -92,6 +98,8 @@ def enumerate_pairs(
     # Pnictogen bonds (min graph distance to exclude metal-bridged ligands)
     pnb_set: set[tuple[int, int]] = set()
     for p in pnic:
+        if not sigma_reference_atoms(G, p, "PnB"):
+            continue
         for a in lp:
             if p == a:
                 continue
@@ -114,6 +122,8 @@ def enumerate_pairs(
 
     # Halogen-pi
     for x in hal:
+        if not sigma_reference_atoms(G, x, "HALPI"):
+            continue
         for ring in pi_rings:
             if x not in ring:
                 pairs["HALPI"].append((x, ring))

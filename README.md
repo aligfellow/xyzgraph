@@ -968,7 +968,7 @@ for nci in ncis:
 ncis = G.graph["ncis"]
 
 # Custom thresholds
-thr = NCIThresholds(hb_da_max=3.0, pii_parallel_rmax=4.0)
+thr = NCIThresholds(hb_vdw_scale=1.0, pii_parallel_rmax=4.0)
 ncis = detect_ncis(G, thresholds=thr)
 ```
 

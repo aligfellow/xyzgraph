@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from xyzgraph.data_loader import DATA
+
 if TYPE_CHECKING:
     import networkx as nx
 
@@ -13,11 +15,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
-    """Classify atoms into NCI-relevant site categories.
+def sigma_reference_atoms(G: nx.Graph, donor: int, kind: str) -> tuple[int, ...]:
+    """Return covalent sigma references in neighbour order; XB/HALPI require a heavy reference."""
+    return tuple(
+        atom
+        for atom, edge in G[donor].items()
+        if "dative_donor" not in edge
+        and not edge.get("metal_coord", False)
+        and not edge.get("NCI", False)
+        and G.nodes[atom]["symbol"] not in DATA.metals
+        and (kind not in ("XB", "HALPI") or G.nodes[atom]["symbol"] != "H")
+    )
 
-    Uses ``formal_charge`` from the bond order optimizer (always available).
-    """
+
+def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
+    """Classify NCI sites, accounting for explicit dative donation and terminal hydrides."""
     donors: list[int] = []
     acceptors: list[int] = []
     lp_donors: list[int] = []
@@ -26,6 +38,7 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
     pnictogens: list[int] = []
     cationic: list[int] = []
     anionic: list[int] = []
+    spent: set[int] = set()
 
     for i, d in G.nodes(data=True):
         sym = d["symbol"]
@@ -33,6 +46,14 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
         n_neighbors = len(list(G.neighbors(i)))
 
         q = float(d.get("formal_charge", 0))
+        valence = float(d.get("valence", 0))
+        donated = sum(edge.get("dative_donor") == i for edge in G[i].values())
+        if donated:
+            covalent = [edge for edge in G[i].values() if "dative_donor" not in edge]
+            n_neighbors = len(covalent)
+            valence = sum(float(edge.get("bond_order", 1.0)) for edge in covalent)
+            if DATA.electrons[sym] - q - valence - 2 * donated < 2:
+                spent.add(i)
 
         # Halogens
         if sym in ("F", "Cl", "Br", "I"):
@@ -57,7 +78,7 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             lp_donors.append(i)
         elif sym == "S" and n_neighbors <= 2:
             lp_donors.append(i)
-        elif sym == "P" and n_neighbors <= 4 and float(d.get("valence", 0)) < 5:
+        elif sym == "P" and n_neighbors <= 4 and valence < 5:
             lp_donors.append(i)
         elif sym in ("F", "Cl", "Br", "I"):
             lp_donors.append(i)
@@ -66,8 +87,8 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             if all(G.nodes[j]["symbol"] not in ("O", "S") for j in G.neighbors(i)):
                 lp_donors.append(i)
 
-        # HB donors: any non-C with at least one H
-        if sym != "C" and nH > 0:
+        # HB donors
+        if sym != "C" and sym not in DATA.metals and nH > 0:
             donors.append(i)
 
         # HB acceptors
@@ -76,8 +97,7 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
                 acceptors.append(i)
         elif sym in ("P", "As", "Sb", "Bi"):
             # Pnictogens only accept if they have a lone pair (valence < 5 means spare electron pair)
-            val = float(d.get("valence", 0))
-            if val < 5 and not (q > 0.25):
+            if valence < 5 and not (q > 0.25):
                 acceptors.append(i)
         elif sym == "N":
             if not (q > 0.20):
@@ -85,7 +105,14 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
         elif sym in ("F", "Cl", "Br", "I"):
             if not (q > 0.10):
                 acceptors.append(i)
+        elif sym == "H":
+            bonded = [j for j, edge in G[i].items() if not edge.get("NCI") and edge.get("bond_order", 1.0) > 0]
+            if len(bonded) == 1 and G.nodes[bonded[0]]["symbol"] in DATA.metals:
+                acceptors.append(i)
 
+    # Hydride acceptance uses the M-H bond pair, rather than an unspent lone pair.
+    acceptors = [atom for atom in acceptors if atom not in spent or G.nodes[atom]["symbol"] == "H"]
+    lp_donors = [atom for atom in lp_donors if atom not in spent]
     logger.debug(
         "Sites: donors=%d acceptors=%d lp=%d cations=%d anions=%d hal=%d chalc=%d pnic=%d",
         len(donors),
