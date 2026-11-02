@@ -1627,7 +1627,7 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 
 2. **xTB (Extended Tight Binding)**: Christoph Bannwarth, Sebastian Ehlert, and Stefan Grimme, *J. Chem. Theory Comput.* 2019, **15**, 1652–1671. [DOI](https://pubs.acs.org/doi/10.1021/acs.jctc.8b01176). [Repo](https://github.com/grimme-lab/xtb).
 
-3. **xyz2mol**: Jan Jensen *et al.*, [xyz2mol](https://github.com/jensengroup/xyz2mol). Now integrated into RDKit as `Chem.rdDetermineBonds.DetermineBonds()`. See also Y. Kim, W. Y. Kim, *Bull. Korean Chem. Soc.*, 2015, **36**, 1769–1777.
+3. **xyz2mol**: Jan Jensen *et al.*, [xyz2mol](https://github.com/jensengroup/xyz2mol). Now integrated into RDKit as `Chem.rdDetermineBonds.DetermineBonds()`. See also Y. Kim, W. Y. Kim, *Bull. Korean Chem. Soc.*, 2015, **36**, 1769–1777. [DOI](https://doi.org/10.1002/bkcs.10334)
 
 4. **RDKit**: RDKit: Open-source cheminformatics. [https://www.rdkit.org](https://www.rdkit.org). [Repo](https://github.com/rdkit).
 
@@ -1637,13 +1637,13 @@ Can be performed using the cli *e.g.* `--threshold_h_nonmetal 0.5` or directly i
 
 7. **SMILES all around: structure to SMILES conversion for transition metal complexes**: Maria H. Rasmussen, Magnus Strandgaard, Julius Seumer, Laura K. Hemmingsen, Angelo Frei, David Balcells and Jan H. Jensen, *Journal of Cheminformatics*, 2025, **17**. [DOI](https://jcheminf.biomedcentral.com/articles/10.1186/s13321-025-01008-1).
 
-8. **TMC-LewisGen**: Farshad Shiri, Jingyuan Zhu, Sin Hang Tong, Liren Xiao and Zhenyang Lin, *TMC-LewisGen: Automated Generation of Lewis-like Structures for Transition-Metal Complexes*, *J. Chem. Inf. Model.* [DOI](https://doi.org/10.1021/acs.jcim.6c02278). [Repo](https://github.com/Reecy-Z/TMC-Lewis-Structure).
+8. **TMC-LewisGen: Automated Generation of Lewis-like Structures for Transition-Metal Complexes**: Farshad Shiri, Jingyuan Zhu, Sin Hang Tong, Liren Xiao and Zhenyang Lin, *J. Chem. Inf. Model.*, 2026, **66**, 13056--13063. [DOI](https://doi.org/10.1021/acs.jcim.6c02278). [Repo](https://github.com/Reecy-Z/TMC-Lewis-Structure).
 
 ---
 
 ## Contributors
 
-- [James O'Brien (@JamesOBrien2)](https://github.com/JamesOBrien2) — stereochemistry detection 
+- [James O'Brien (@JamesOBrien2)](https://github.com/JamesOBrien2) -- stereochemistry detection 
 
 ## Contributing & Contact
 
