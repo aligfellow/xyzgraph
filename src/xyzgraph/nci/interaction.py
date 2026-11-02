@@ -26,6 +26,16 @@ NCI_TYPES = [
 
 
 @dataclass(frozen=True)
+class NCICandidate:
+    """A topology candidate using graph atom indices, with donor H or sigma reference R in ``aux_atoms``."""
+
+    kind: str
+    site_a: tuple[int, ...]
+    site_b: tuple[int, ...]
+    aux_atoms: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class NCIData:
     """A single detected non-covalent interaction."""
 

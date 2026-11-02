@@ -9,6 +9,7 @@ import numpy as np
 
 from . import geometry as geom
 from .interaction import NCIData
+from .sites import sigma_reference_atoms
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -96,7 +97,7 @@ class NCIDetector:
             D_sym, A_sym = self._sym[d], self._sym[a]
             rcut = thr.hb_vdw_scale * (self._vdw[D_sym] + self._vdw[A_sym])
             dist_da = float(np.linalg.norm(pos[d] - pos[a]))
-            if dist_da > rcut:
+            if A_sym != "H" and dist_da > rcut:
                 continue
             for n in self._G.neighbors(d):
                 if self._sym[n] != "H":
@@ -107,6 +108,8 @@ class NCIDetector:
                 ang = geom.angle_deg(v_dh, v_ha)
                 if ang >= thr.hb_h_angle_min:
                     dist_ha = float(np.linalg.norm(pos[h] - pos[a]))
+                    if A_sym == "H" and dist_ha > thr.hb_hh_max:
+                        continue
                     results.append(
                         NCIData(
                             type="hbond",
@@ -172,9 +175,7 @@ class NCIDetector:
             dist = float(np.linalg.norm(pos[x] - pos[a]))
             if dist > rcut:
                 continue
-            for n in self._G.neighbors(x):
-                if self._sym[n] == "H":
-                    continue
+            for n in sigma_reference_atoms(self._G, x, "XB"):
                 ang = geom.angle_deg(pos[n] - pos[x], pos[a] - pos[x])
                 if ang >= thr.sigma_linear_min:
                     results.append(
@@ -200,7 +201,7 @@ class NCIDetector:
             dist = float(np.linalg.norm(pos[y] - pos[a]))
             if dist > rcut:
                 continue
-            for n in self._G.neighbors(y):
+            for n in sigma_reference_atoms(self._G, y, "ChB"):
                 ang = geom.angle_deg(pos[n] - pos[y], pos[a] - pos[y])
                 if ang >= thr.sigma_linear_min:
                     results.append(
@@ -226,7 +227,7 @@ class NCIDetector:
             dist = float(np.linalg.norm(pos[p] - pos[a]))
             if dist > rcut:
                 continue
-            for n in self._G.neighbors(p):
+            for n in sigma_reference_atoms(self._G, p, "PnB"):
                 ang = geom.angle_deg(pos[n] - pos[p], pos[a] - pos[p])
                 if ang >= thr.sigma_linear_min:
                     results.append(
@@ -266,15 +267,13 @@ class NCIDetector:
             if dist > rcut:
                 continue
             # Check sigma-hole directionality
-            ok = False
-            for n in self._G.neighbors(x):
-                if self._sym[n] == "H":
-                    continue
+            reference = None
+            for n in sigma_reference_atoms(self._G, x, "HALPI"):
                 ang_xn = geom.angle_deg(pos[n] - pos[x], centroid - pos[x])
                 if ang_xn >= thr.sigma_linear_min:
-                    ok = True
+                    reference = n
                     break
-            if not ok:
+            if reference is None:
                 continue
             ang = geom.angle_deg(normal, centroid - pos[x])
             if thr.halpi_axis_angle_min <= ang <= thr.halpi_axis_angle_max:
@@ -283,7 +282,7 @@ class NCIDetector:
                         type="halogen_pi",
                         site_a=(x,),
                         site_b=tuple(site),
-                        aux_atoms=(),
+                        aux_atoms=(reference,),
                         geometry={"distance": dist, "angle": ang},
                     )
                 )

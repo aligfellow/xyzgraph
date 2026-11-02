@@ -47,6 +47,7 @@ class NCIThresholds:
     hb_da_max: float = 3.4
     hb_h_angle_min: float = 130.0
     hb_vdw_scale: float = 1.15
+    hb_hh_max: float = 2.4  # H...H cutoff when the acceptor is a metal hydride
     # HB-pi
     hbpi_centroid_max: float = 4.0
     hbpi_dh_to_centroid_angle_min: float = 120.0

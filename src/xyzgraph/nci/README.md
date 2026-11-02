@@ -33,7 +33,7 @@ for nci in G.graph["ncis"]:
     print(nci.type)        # e.g. "hbond"
     print(nci.site_a)      # donor atom indices, e.g. (0,)
     print(nci.site_b)      # acceptor atom indices, e.g. (3,)
-    print(nci.aux_atoms)   # bridging atoms, e.g. (2,) for the H
+    print(nci.aux_atoms)   # H or sigma-hole reference, e.g. (2,) for the H
     print(nci.geometry)    # {"distance": 2.85, "h_distance": 1.92, "angle": 168.3}
 ```
 
@@ -146,6 +146,61 @@ Each call to `analyzer.detect(positions)` returns a plain `list[NCIData]` --
 no graph objects per frame, just lightweight data suitable for building
 DataFrames or time-series statistics.
 
+## Candidate Enumeration
+
+`candidates()` lists the interactions the topology allows, without measuring
+geometry. `detect()` reports the ones a set of positions satisfies:
+
+```python
+from xyzgraph.nci import NCIAnalyzer
+
+analyzer = NCIAnalyzer(G)
+for c in analyzer.candidates():
+    print(c.kind, c.site_a, c.site_b, c.aux_atoms)
+print(analyzer.lone_pair_sites)  # atoms with an available lone pair
+```
+
+Each `NCICandidate` is frozen and holds graph atom indices. When a pair has
+several donor H or sigma-hole references R, it yields one candidate per H or R,
+in graph-neighbour order. Pi rings and domains are perceived once, from the
+positions on `G` when the analyzer is built.
+
+| `kind` | `site_a` | `site_b` | `aux_atoms` | Detected as |
+|---|---|---|---|---|
+| `HB` | donor D | acceptor | donor H | `hbond`, `hbond_bifurcated` |
+| `CHPI` | C | pi atoms | H | `ch_pi` |
+| `HBPI` | donor D | pi atoms | H | `hb_pi` |
+| `XB` / `ChB` / `PnB` | X / Y / Pn | acceptor | reference R | `halogen_bond` / `chalcogen_bond` / `pnictogen_bond` |
+| `HALPI` | halogen | pi atoms | reference R | `halogen_pi` |
+| `PIPI` | pi atoms | pi atoms | | `pi_pi_*` |
+| `CATPI` / `ANPI` | ion | ring atoms | | `cation_pi` / `anion_pi` |
+| `CATLP` | cation | lone-pair atom | | `cation_lp` |
+| `IONIC` | cation | anion | | `ionic`, `salt_bridge` |
+
+A sigma-hole reference R is a covalent neighbour of the sigma-hole atom. Metal
+neighbours and edges marked `metal_coord`, `dative_donor` or `NCI` are not
+references, and XB/HALPI exclude H. Detection reports the first R, in
+neighbour order, whose R–X···A angle passes.
+
+### Terminal metal hydrides
+
+A hydrogen whose only bond is to a metal is an HB acceptor through its M–H
+bond pair, forming a dihydrogen bond `D–H_d···H_a–M`. H₂ and bridging H are
+not. The candidate is `NCICandidate("HB", (D,), (H_a,), (H_d,))`. Detection
+screens H_d···H_a against `hb_hh_max` instead of the D···A vdW cutoff, and
+reports `distance` = D···H_a, `h_distance` = H_d···H_a and `angle` =
+D–H_d···H_a. Hydride H is not in `lone_pair_sites`, and metals are never HB
+or HB-pi donors.
+
+### Dative donation
+
+xyzgraph never sets `dative_donor`; callers may mark a dative edge with
+`dative_donor=<index of the donating endpoint>`, and `NCIAnalyzer` raises
+`ValueError` if it names neither endpoint. The donor's remaining lone pairs are
+counted from its other bonds, less two electrons per donation. An atom with
+none left drops out of `lone_pair_sites` and the HB acceptors. `metal_coord`
+alone does not mark donation, so unannotated graphs keep the ordinary rules.
+
 ## Supported Interaction Types
 
 | Type | Description |
@@ -178,7 +233,7 @@ class NCIData:
     type: str                    # one of the types above
     site_a: tuple[int, ...]      # atom indices (single atom or group)
     site_b: tuple[int, ...]      # atom indices (single atom or group)
-    aux_atoms: tuple[int, ...]   # bridging atoms (e.g. H in D-H...A)
+    aux_atoms: tuple[int, ...]   # H in D-H...A, or reference R in R-X...A
     geometry: dict[str, float]   # measured distances and angles
     score: float = 1.0           # 1.0 = binary; reserved for future decay
 ```
@@ -194,7 +249,8 @@ All geometric cutoffs are configurable via `NCIThresholds`:
 from xyzgraph.nci import NCIThresholds, detect_ncis
 
 thr = NCIThresholds(
-    hb_da_max=3.0,           # tighter D-A distance
+    hb_vdw_scale=1.0,        # tighter D-A cutoff, as a multiple of summed vdW radii
+    hb_hh_max=2.2,           # tighter H...H cutoff for metal-hydride acceptors
     pii_parallel_rmax=4.0,   # tighter pi-stacking
 )
 ncis = detect_ncis(G, thresholds=thr)
@@ -207,7 +263,7 @@ See `thresholds.py` for the full list of parameters.
 ```
 nci/
   __init__.py       # exports only
-  interaction.py    # NCIData dataclass, NCI_TYPES list
+  interaction.py    # NCICandidate and NCIData values, NCI_TYPES list
   thresholds.py     # NCIThresholds dataclass
   analyzer.py       # NCIAnalyzer class, detect_ncis() convenience function
   geometry.py       # vector math primitives (unit, angle, plane normal)
@@ -227,7 +283,9 @@ graph to any renderer.
 
 ## Site Detection
 
-Sites are classified using `formal_charge` from the bond order optimizer.
+Sites are classified using the `formal_charge` and `valence` node attributes
+set by `build_graph`, where `valence` excludes bonds to metals. Graphs built
+elsewhere must set both the same way.
 
 ## Dependencies
 

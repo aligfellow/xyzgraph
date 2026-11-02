@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .interaction import NCICandidate
+from .sites import sigma_reference_atoms
+
 if TYPE_CHECKING:
     import networkx as nx
 
@@ -45,6 +48,13 @@ class NCIAnalyzer:
         from .sites import detect_sites
         from .thresholds import NCIThresholds as _Thr
 
+        for first, second, edge in G.edges(data=True):
+            if "dative_donor" in edge and edge["dative_donor"] not in (first, second):
+                raise ValueError(
+                    f"edge ({first}, {second}) has dative_donor={edge['dative_donor']!r}; "
+                    f"set it to the donating endpoint {first} or {second}, or remove the annotation"
+                )
+
         self._thr = thresholds or _Thr()
         self._graph = G
         self._vdw: dict[str, float] = DATA.vdw
@@ -71,3 +81,34 @@ class NCIAnalyzer:
     def detect(self, positions: np.ndarray) -> list[NCIData]:
         """Evaluate geometry for pre-enumerated pairs."""
         return self._detector.detect(positions, self._pairs)
+
+    @property
+    def lone_pair_sites(self) -> tuple[int, ...]:
+        """Return atoms with an available lone pair."""
+        return tuple(self._sites["lp_donors"])
+
+    def candidates(self) -> tuple[NCICandidate, ...]:
+        """Return topology candidates in native order, one per H or sigma reference."""
+        candidates = []
+        for kind, pairs in self._pairs.items():
+            for first, second in pairs:
+                aux = ()
+                if kind in ("CHPI", "HBPI"):
+                    donor, hydrogen = first
+                    site_a, site_b, aux = (donor,), tuple(second), (hydrogen,)
+                elif kind == "PIPI":
+                    site_a, site_b = tuple(first), tuple(second)
+                elif kind in ("CATPI", "ANPI", "HALPI"):
+                    site_a, site_b = (first,), tuple(second)
+                else:
+                    site_a, site_b = (first,), (second,)
+                if kind in ("XB", "ChB", "PnB", "HALPI"):
+                    for reference in sigma_reference_atoms(self._graph, first, kind):
+                        candidates.append(NCICandidate(kind, site_a, site_b, (reference,)))
+                elif kind == "HB":
+                    for hydrogen in self._graph.neighbors(first):
+                        if self._graph.nodes[hydrogen]["symbol"] == "H":
+                            candidates.append(NCICandidate(kind, site_a, site_b, (hydrogen,)))
+                else:
+                    candidates.append(NCICandidate(kind, site_a, site_b, aux))
+        return tuple(candidates)
