@@ -209,6 +209,25 @@ def test_partial_carbocation_assignment(optimizer, charge, total, cations, caplo
     assert ("formal charges follow the structure" in caplog.text) == (charge != total)
 
 
+def test_diborane_counts_two_three_centre_pairs(optimizer):
+    atoms = [(s, (i, 0, 0)) for i, s in enumerate(["B", "B", *["H"] * 6])]
+    G = _make_graph(atoms, [(0, h) for h in (2, 3, 4, 5)] + [(1, h) for h in (2, 3, 6, 7)])
+    arrays = ScoringArrays.from_graph(G, DATA)
+    charges = optimizer.compute_formal_charges(G, arrays=arrays)
+
+    assert charges == [-1, -1, 1, 1, 0, 0, 0, 0]
+    assert arrays.feasibility_errors(G, charges, 0) == []
+    vs = arrays.compute_valence_sums()
+    assert arrays.nonbonding_electrons(vs, np.array(charges)).sum() == 0
+
+
+def test_carbon_hydrogen_bridges_still_fail_electron_validation(optimizer):
+    G = _make_graph([("H", (0, 0, 0)), ("C", (1, 0, 0)), ("C", (-1, 0, 0))], [(0, 1), (0, 2)])
+    charges = optimizer.compute_formal_charges(G)
+    errors = ScoringArrays.from_graph(G, DATA).feasibility_errors(G, charges, 0)
+    assert any(error.startswith("H0 has invalid electron counts") for error in errors)
+
+
 @pytest.mark.parametrize("inferred_charge_weight", [0, 1000], ids=["no-prior", "neutrality-prior"])
 def test_charge_inference_uses_shared_score(inferred_charge_weight):
     atoms = read_xyz_file(str(Path(__file__).with_name("carbocation-zwitterion.xyz")))
