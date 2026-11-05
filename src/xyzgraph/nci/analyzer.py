@@ -112,3 +112,7 @@ class NCIAnalyzer:
                 else:
                     candidates.append(NCICandidate(kind, site_a, site_b, aux))
         return tuple(candidates)
+
+    def cutoff(self, candidate: NCICandidate) -> float:
+        """Return the distance past which ``detect()`` never reports ``candidate``; its other tests apply within it."""
+        return self._detector.cutoff(candidate.kind, candidate.site_a, candidate.site_b)
