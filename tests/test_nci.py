@@ -986,3 +986,14 @@ def test_charges_cancelling_in_a_covalent_group_are_not_ions():
     sites = detect_sites(G, NCIThresholds())
 
     assert (sites["cationic_atoms"], sites["anionic_atoms"]) == ([], [4, 6])
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_halogen_pi_is_observed_on_either_face(side):
+    """The ring normal's sign is arbitrary, so a halogen and its mirror image through the ring are both observed."""
+    G = _ring_contact_graph("I", 1)
+    G.nodes[6]["position"] = (0, 0, 3 * side)
+    G.nodes[7].update(symbol="C", position=(0, 0, 5.1 * side))
+    observed = NCIAnalyzer(G).detect(np.array([G.nodes[i]["position"] for i in G]))
+
+    assert [n.type for n in observed] == ["halogen_pi"]

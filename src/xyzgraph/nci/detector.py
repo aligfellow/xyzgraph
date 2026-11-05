@@ -284,7 +284,8 @@ class NCIDetector:
                     break
             if reference is None:
                 continue
-            ang = geom.angle_deg(normal, centroid - pos[x])
+            ang_raw = geom.angle_deg(normal, centroid - pos[x])
+            ang = max(ang_raw, 180.0 - ang_raw)
             if thr.halpi_axis_angle_min <= ang <= thr.halpi_axis_angle_max:
                 results.append(
                     NCIData(
