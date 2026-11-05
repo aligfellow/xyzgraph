@@ -92,12 +92,9 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             donors.append(i)
 
         # HB acceptors
-        if sym in ("O", "S", "Se", "Te"):
-            if not (q > 0.25):
-                acceptors.append(i)
-        elif sym in ("P", "As", "Sb", "Bi"):
-            # Pnictogens only accept if they have a lone pair (valence < 5 means spare electron pair)
-            if valence < 5 and not (q > 0.25):
+        if sym in ("O", "S", "Se", "Te", "P", "As", "Sb", "Bi"):
+            # Bonding every valence electron (S(VI), P(V)) leaves no lone pair to accept with
+            if valence < DATA.electrons[sym] and not (q > 0.25):
                 acceptors.append(i)
         elif sym == "N":
             if not (q > 0.20):
