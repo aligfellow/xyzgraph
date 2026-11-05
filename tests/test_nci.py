@@ -908,6 +908,13 @@ def test_a_coordinating_sigma_donor_keeps_its_other_covalent_reference():
     assert [c.aux_atoms for c in analyzer.candidates() if c.kind == "ChB" and c.site_a == (0,)] == [(2,)]
 
 
+@pytest.mark.parametrize(("halogen", "donates"), [("F", False), ("I", True)])
+def test_only_heavier_halogens_are_sigma_hole_donors(halogen, donates):
+    G = _contact_graph([halogen, "C", "N", "H", "H", "H"], [(i, 0, 0) for i in range(6)], [(0, 1, 1), *[(2, h, 1) for h in (3, 4, 5)]])
+
+    assert any(c.kind == "XB" and c.site_a == (0,) for c in NCIAnalyzer(G).candidates()) is donates
+
+
 def test_halogen_pi_rejects_a_hydrogen_reference():
     G = _ring_contact_graph("Cl", 1)
     G.nodes[7]["symbol"] = "H"
