@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import networkx as nx
+
 from xyzgraph.data_loader import DATA
 
 if TYPE_CHECKING:
-    import networkx as nx
-
     from .thresholds import NCIThresholds
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,18 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             bonded = [j for j, edge in G[i].items() if not edge.get("NCI") and edge.get("bond_order", 1.0) > 0]
             if len(bonded) == 1 and G.nodes[bonded[0]]["symbol"] in DATA.metals:
                 acceptors.append(i)
+
+    # Charges cancelling within a covalent group (nitro, N-oxide) make no ion; a net-charged group (azide)
+    # is an ion at its atoms of that sign.
+    groups = nx.Graph()
+    groups.add_nodes_from(cationic + anionic)
+    groups.add_edges_from((i, j) for i in cationic + anionic for j in sigma_reference_atoms(G, i, "ion") if j in groups)
+    ions: set[int] = set()
+    for group in nx.connected_components(groups):
+        net = sum(float(G.nodes[i].get("formal_charge", 0)) for i in group)
+        ions |= {i for i in group if net * float(G.nodes[i].get("formal_charge", 0)) > 0}
+    cationic = [i for i in cationic if i in ions]
+    anionic = [i for i in anionic if i in ions]
 
     # Hydride acceptance uses the M-H bond pair, rather than an unspent lone pair.
     acceptors = [atom for atom in acceptors if atom not in spent or G.nodes[atom]["symbol"] == "H"]

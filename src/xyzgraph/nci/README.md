@@ -201,6 +201,18 @@ counted from its other bonds, less two electrons per donation. An atom with
 none left drops out of `lone_pair_sites` and the HB acceptors. `metal_coord`
 alone does not mark donation, so unannotated graphs keep the ordinary rules.
 
+### Ions
+
+An ion is an atom with |formal charge| ≥ `ionic_min_charge`, unless the
+charge is cancelled within its covalent group (nitro, N-oxide). A group with
+net charge, such as azide, is an ion at the atoms carrying that sign. An ion
+bonded to four or more heavy atoms and no H (R₄N⁺, R₄P⁺, BF₄⁻, PF₆⁻) is
+buried. It is met at its substituents, so its contact radius in the `IONIC`,
+`CATPI`, `ANPI` and `CATLP` cutoffs is max(|ion–s| + r_vdW(s)), not its own
+vdW radius. A cation in `ionic` contact with an anion is not also reported as
+`cation_lp` to a lone pair within two bonds of that anion, such as the other
+carboxylate O or a BF₄⁻ F.
+
 ## Supported Interaction Types
 
 | Type | Description |

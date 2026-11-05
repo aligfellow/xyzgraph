@@ -910,7 +910,9 @@ def test_a_coordinating_sigma_donor_keeps_its_other_covalent_reference():
 
 @pytest.mark.parametrize(("halogen", "donates"), [("F", False), ("I", True)])
 def test_only_heavier_halogens_are_sigma_hole_donors(halogen, donates):
-    G = _contact_graph([halogen, "C", "N", "H", "H", "H"], [(i, 0, 0) for i in range(6)], [(0, 1, 1), *[(2, h, 1) for h in (3, 4, 5)]])
+    G = _contact_graph(
+        [halogen, "C", "N", "H", "H", "H"], [(i, 0, 0) for i in range(6)], [(0, 1, 1), *[(2, h, 1) for h in (3, 4, 5)]]
+    )
 
     assert any(c.kind == "XB" and c.site_a == (0,) for c in NCIAnalyzer(G).candidates()) is donates
 
@@ -953,3 +955,34 @@ def test_dative_donor_must_name_an_endpoint_of_its_edge():
 
     with pytest.raises(ValueError, match=r"edge \(0, 1\).*set it to.*or remove the annotation"):
         NCIAnalyzer(G)
+
+
+@pytest.mark.parametrize(("capped", "observed"), [(False, ["ionic"]), (True, [])])
+def test_a_buried_cation_meets_its_anion_at_its_substituents(capped, observed):
+    """R4N+ is met at its methyls' surface, as one ionic contact; an R3NH+ face is measured from N."""
+    arms = np.array([(1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1)]) / np.sqrt(3)
+    u, v = -arms[0], np.array([1, -1, 0]) / np.sqrt(2)
+    G = _contact_graph(
+        ["N", "H" if capped else "C", "C", "C", "C", "C", "O", "O", "H"],
+        [(0, 0, 0), *(arms * 1.5), 4.3 * u, 3.6 * u + 1.1 * v, 3.6 * u - 1.1 * v, 5.4 * u],
+        [(0, 1, 1), (0, 2, 1), (0, 3, 1), (0, 4, 1), (5, 6, 1), (5, 7, 2), (5, 8, 1)],
+        charges={0: 1, 6: -1},
+    )
+    found = NCIAnalyzer(G).detect(np.array([G.nodes[i]["position"] for i in G]))
+
+    assert [n.type for n in found] == observed
+
+
+def test_charges_cancelling_in_a_covalent_group_are_not_ions():
+    """Nitro N+/O- cancel; azide N-=N+=N- is an anion at its terminal N."""
+    from xyzgraph.nci.sites import detect_sites
+
+    G = _contact_graph(
+        ["C", "N", "O", "O", "N", "N", "N"],
+        [(0, 0, 0), (1.5, 0, 0), (2, 1, 0), (2, -1, 0), (10, 0, 0), (11.2, 0, 0), (12.4, 0, 0)],
+        [(0, 1, 1), (1, 2, 2), (1, 3, 1), (4, 5, 2), (5, 6, 2)],
+        charges={1: 1, 3: -1, 4: -1, 5: 1, 6: -1},
+    )
+    sites = detect_sites(G, NCIThresholds())
+
+    assert (sites["cationic_atoms"], sites["anionic_atoms"]) == ([], [4, 6])
