@@ -1017,3 +1017,22 @@ def test_a_lone_pair_comes_from_structure(symbols, bonds, has_pair):
 
     assert (0 in sites["hbond_acceptors"], 0 in sites["lp_donors"]) == (has_pair, has_pair)
 
+
+@pytest.mark.parametrize("flagged", [True, False])
+def test_a_metal_has_no_sigma_references_whether_or_not_its_bonds_are_flagged(flagged):
+    """Unflagged Pd-L edges must not join Pd to its ligands' charge group, nor make Pd a buried ion."""
+    from xyzgraph.nci.sites import detect_sites, sigma_reference_atoms
+
+    hydrogens = [(n, h, 1) for n in (3, 4) for h in range(5 + 3 * (n - 3), 8 + 3 * (n - 3))]
+    G = _contact_graph(
+        ["Pd", "Cl", "Cl", "N", "N", *["H"] * 6],
+        [(2 * i, 0, 0) for i in range(11)],
+        [(0, 1, 1), (0, 2, 1), (0, 3, 1), (0, 4, 1), *hydrogens],
+        charges={0: 2, 1: -1, 2: -1},
+    )
+    for ligand in (1, 2, 3, 4):
+        G.edges[0, ligand]["metal_coord"] = flagged
+    sites = detect_sites(G, NCIThresholds())
+
+    assert sigma_reference_atoms(G, 0, "ion") == ()
+    assert (sites["cationic_atoms"], sites["anionic_atoms"]) == ([0], [1, 2])

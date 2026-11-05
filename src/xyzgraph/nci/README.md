@@ -179,7 +179,8 @@ positions on `G` when the analyzer is built.
 
 A sigma-hole reference R is a covalent neighbour of the sigma-hole atom. Metal
 neighbours and edges marked `metal_coord`, `dative_donor` or `NCI` are not
-references, and XB/HALPI exclude H. Detection reports the first R, in
+references, and XB/HALPI exclude H. A metal has no covalent neighbours, whether
+or not its edges are marked `metal_coord`. Detection reports the first R, in
 neighbour order, whose R–X···A angle passes.
 
 ### Terminal metal hydrides

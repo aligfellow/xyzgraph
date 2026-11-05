@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 def sigma_reference_atoms(G: nx.Graph, donor: int, kind: str) -> tuple[int, ...]:
-    """Return covalent sigma references in neighbour order; XB/HALPI require a heavy reference."""
+    """Return covalent sigma references in neighbour order; XB/HALPI require a heavy reference.
+
+    A metal has none: a bond to a metal is never a covalent sigma bond, from either end, flagged or not.
+    """
+    if G.nodes[donor]["symbol"] in DATA.metals:
+        return ()
     return tuple(
         atom
         for atom, edge in G[donor].items()
