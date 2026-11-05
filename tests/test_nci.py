@@ -591,7 +591,7 @@ class TestNCIAnalyzer:
     def test_custom_thresholds(self):
         G = build_graph(str(STRUCTURES / "water-HB.xyz"))
         # Very tight thresholds should detect fewer/no NCIs
-        tight = NCIThresholds(hb_vdw_scale=0.1, hb_da_max=0.5)
+        tight = NCIThresholds(hb_vdw_scale=0.1)
         ncis = detect_ncis(G, thresholds=tight)
         assert len(ncis) == 0 or all(n.type != "hbond" for n in ncis)
 
@@ -773,7 +773,9 @@ def test_dihydrogen_hbond_geometry_and_measurements(hh_distance, angle, detected
     analyzer = NCIAnalyzer(G)
     positions = np.array([G.nodes[i]["position"] for i in G])
     hbonds = [h for h in analyzer.detect(positions) if h.type == "hbond" and h.site_b == (2,)]
+    from xyzgraph.nci import NCICandidate
 
+    assert analyzer.cutoff(NCICandidate("HB", (0,), (2,), (1,))) == NCIThresholds().hb_hh_max  # screened on H...H
     assert bool(hbonds) is detected
     if detected:
         (hb,) = hbonds
@@ -1036,3 +1038,59 @@ def test_a_metal_has_no_sigma_references_whether_or_not_its_bonds_are_flagged(fl
 
     assert sigma_reference_atoms(G, 0, "ion") == ()
     assert (sites["cationic_atoms"], sites["anionic_atoms"]) == ([0], [1, 2])
+
+
+_OBSERVED_AS = {
+    "HB": "hbond",
+    "XB": "halogen_bond",
+    "ChB": "chalcogen_bond",
+    "PnB": "pnictogen_bond",
+    "HALPI": "halogen_pi",
+    "CATPI": "cation_pi",
+    "ANPI": "anion_pi",
+    "CATLP": "cation_lp",
+    "IONIC": "ionic",
+    "CHPI": "ch_pi",
+    "HBPI": "hb_pi",
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "charge", "kind"),
+    [
+        ("water-HB.xyz", 0, "HB"),
+        ("MeI_Fc-halogen-bond.xyz", 0, "XB"),
+        ("Ac_S-chalcogen-bond.xyz", 0, "ChB"),
+        ("pnictogen-bond.xyz", 0, "PnB"),
+        ("I-pi.xyz", 0, "HALPI"),
+        ("benzene_NH4-cation-pi.xyz", 1, "CATPI"),
+        ("anion-pi.xyz", -1, "ANPI"),
+        ("cation-lp.xyz", 1, "CATLP"),
+        ("ionic.xyz", 0, "IONIC"),
+        ("ch-pi.xyz", 0, "CHPI"),
+        ("hb-pi.xyz", 0, "HBPI"),
+    ],
+)
+def test_cutoff_is_where_detection_stops(name, charge, kind):
+    """Sliding the partner along the measured line, the contact is observed just inside cutoff() and not past it."""
+    G = build_graph(str(STRUCTURES / name), charge=charge)
+    analyzer = NCIAnalyzer(G)
+    positions = np.array([G.nodes[i]["position"] for i in G])
+    via_h = kind in ("CHPI", "HBPI")  # measured from the donor H
+
+    def key(n):
+        return (n.site_a, n.site_b, n.aux_atoms if via_h else ())
+
+    found = next(n for n in analyzer.detect(positions) if n.type == _OBSERVED_AS[kind])
+    candidate = next(c for c in analyzer.candidates() if c.kind == kind and key(c) == key(found))
+    near = found.aux_atoms[0] if via_h else found.site_a[0]
+    partner = sorted(nx.node_connected_component(G, found.site_b[0]))
+    assert near not in partner
+    line = positions[list(found.site_b)].mean(axis=0) - positions[near]
+    limit = analyzer.cutoff(candidate)
+
+    for margin, observed in ((-0.01, True), (0.01, False)):
+        moved = positions.copy()
+        moved[partner] += (limit + margin - np.linalg.norm(line)) * line / np.linalg.norm(line)
+        hits = [n for n in analyzer.detect(moved) if n.type == _OBSERVED_AS[kind] and key(n) == key(found)]
+        assert bool(hits) is observed

@@ -30,13 +30,11 @@ class NCIThresholds:
     anpi_vdw_scale: float = 0.9
     catpi_axis_angle_min: float = 120.0  # angle(ring normal, cation->centroid)
     ionic_min_charge: float = 0.55
-    partial_charge_threshold: float = 0.15
 
     # Cation-lone pair
     catlp_vdw_scale: float = 0.9
 
     # CH-pi
-    chpi_h_plane_max: float = 3.0
     chpi_centroid_max: float = 3.5
     chpi_ch_to_centroid_angle_max: float = 30.0
     chpi_plane_alignment_min: float = 0.7
@@ -44,7 +42,6 @@ class NCIThresholds:
     chpi_detailed_mode: bool = False
 
     # H-bond
-    hb_da_max: float = 3.4
     hb_h_angle_min: float = 130.0
     hb_vdw_scale: float = 1.15
     hb_hh_max: float = 2.4  # H...H cutoff when the acceptor is a metal hydride
@@ -64,7 +61,6 @@ class NCIThresholds:
     halpi_axis_angle_max: float = 180.0
 
     # Ionic / salt bridge
-    ionic_dmax: float = 4.0
     ionic_vdw_scale: float = 0.9
     sb_vdw_scale: float = 0.8
     salt_bridge_angle_min: float = 100.0

@@ -156,7 +156,7 @@ from xyzgraph.nci import NCIAnalyzer
 
 analyzer = NCIAnalyzer(G)
 for c in analyzer.candidates():
-    print(c.kind, c.site_a, c.site_b, c.aux_atoms)
+    print(c.kind, c.site_a, c.site_b, c.aux_atoms, analyzer.cutoff(c))
 print(analyzer.lone_pair_sites)  # atoms with an available lone pair
 ```
 
@@ -165,17 +165,23 @@ several donor H or sigma-hole references R, it yields one candidate per H or R,
 in graph-neighbour order. Pi rings and domains are perceived once, from the
 positions on `G` when the analyzer is built.
 
-| `kind` | `site_a` | `site_b` | `aux_atoms` | Detected as |
-|---|---|---|---|---|
-| `HB` | donor D | acceptor | donor H | `hbond`, `hbond_bifurcated` |
-| `CHPI` | C | pi atoms | H | `ch_pi` |
-| `HBPI` | donor D | pi atoms | H | `hb_pi` |
-| `XB` / `ChB` / `PnB` | X / Y / Pn | acceptor | reference R | `halogen_bond` / `chalcogen_bond` / `pnictogen_bond` |
-| `HALPI` | halogen | pi atoms | reference R | `halogen_pi` |
-| `PIPI` | pi atoms | pi atoms | | `pi_pi_*` |
-| `CATPI` / `ANPI` | ion | ring atoms | | `cation_pi` / `anion_pi` |
-| `CATLP` | cation | lone-pair atom | | `cation_lp` |
-| `IONIC` | cation | anion | | `ionic`, `salt_bridge` |
+`cutoff(c)` is the distance, in Å, past which `detect()` never reports `c`
+(last column). Within it the kind's other tests still apply: its angles, and
+for π-π the plane separation, lateral offset and T-shaped minimum. Here r is a
+vdW radius, r_π the mean over a pi site's atoms, and R an ion's contact radius
+(see Ions).
+
+| `kind` | `site_a` | `site_b` | `aux_atoms` | Detected as | `cutoff()` limits |
+|---|---|---|---|---|---|
+| `HB` | donor D | acceptor | donor H | `hbond`, `hbond_bifurcated` | D···A ≤ `hb_vdw_scale` (r_D + r_A); H_d···H_a ≤ `hb_hh_max` to a terminal hydride |
+| `CHPI` | C | pi atoms | H | `ch_pi` | H···centroid ≤ `chpi_centroid_max` |
+| `HBPI` | donor D | pi atoms | H | `hb_pi` | H···centroid ≤ `hbpi_centroid_max` |
+| `XB` / `ChB` / `PnB` | X / Y / Pn | acceptor | reference R | `halogen_bond` / `chalcogen_bond` / `pnictogen_bond` | X···A ≤ `vdw_scale` (`pn_vdw_scale` for PnB) (r_X + r_A) |
+| `HALPI` | halogen | pi atoms | reference R | `halogen_pi` | X···centroid ≤ `halpi_vdw_scale` (r_X + r_π) |
+| `PIPI` | pi atoms | pi atoms | | `pi_pi_*` | centroid···centroid ≤ max(`pii_parallel_centroid_max`, `pii_t_rmax`) |
+| `CATPI` / `ANPI` | ion | ring atoms | | `cation_pi` / `anion_pi` | ion···centroid ≤ `catpi_vdw_scale` / `anpi_vdw_scale` (R + r_π) |
+| `CATLP` | cation | lone-pair atom | | `cation_lp` | cation···LP atom ≤ `catlp_vdw_scale` (R + r) |
+| `IONIC` | cation | anion | | `ionic`, `salt_bridge` | cation···anion ≤ `ionic_vdw_scale` (R_c + R_a) |
 
 A sigma-hole reference R is a covalent neighbour of the sigma-hole atom. Metal
 neighbours and edges marked `metal_coord`, `dative_donor` or `NCI` are not
@@ -210,7 +216,7 @@ net charge, such as azide, is an ion at the atoms carrying that sign. An ion
 bonded to four or more heavy atoms and no H (R₄N⁺, R₄P⁺, BF₄⁻, PF₆⁻) is
 buried. It is met at its substituents, so its contact radius in the `IONIC`,
 `CATPI`, `ANPI` and `CATLP` cutoffs is max(|ion–s| + r_vdW(s)), not its own
-vdW radius. A cation in `ionic` contact with an anion is not also reported as
+vdW radius, measured once on the positions the analyzer is built from. A cation in `ionic` contact with an anion is not also reported as
 `cation_lp` to a lone pair within two bonds of that anion, such as the other
 carboxylate O or a BF₄⁻ F.
 
