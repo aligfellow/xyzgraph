@@ -783,6 +783,17 @@ def test_dihydrogen_hbond_geometry_and_measurements(hh_distance, angle, detected
         )
 
 
+@pytest.mark.parametrize(("oxo", "accepts"), [(0, True), (2, False)])
+def test_sulfur_accepts_hb_only_with_a_lone_pair(oxo, accepts):
+    """A thioether S(II) keeps lone pairs; a sulfonyl S(VI) bonds all six valence electrons."""
+    G = _contact_graph(
+        ["N", "H", "S", "C", "C", "O", "O"][: 5 + oxo],
+        [(i, 0, 0) for i in range(5 + oxo)],
+        [(0, 1, 1), (2, 3, 1), (2, 4, 1), *[(2, 5 + k, 2) for k in range(oxo)]],
+    )
+    assert any(c.kind == "HB" and c.site_b == (2,) for c in NCIAnalyzer(G).candidates()) is accepts
+
+
 @pytest.mark.parametrize("other", ["H", "Fe"])
 def test_h2_and_bridging_h_are_not_terminal_hydride_acceptors(other):
     G = _contact_graph(
