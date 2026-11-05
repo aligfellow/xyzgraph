@@ -997,3 +997,23 @@ def test_halogen_pi_is_observed_on_either_face(side):
     observed = NCIAnalyzer(G).detect(np.array([G.nodes[i]["position"] for i in G]))
 
     assert [n.type for n in observed] == ["halogen_pi"]
+
+
+@pytest.mark.parametrize(
+    ("symbols", "bonds", "has_pair"),
+    [
+        (["N", "H", "H", "H"], [(0, 1, 1), (0, 2, 1), (0, 3, 1)], True),  # amine
+        (["N", "H", "C", "H", "H"], [(0, 1, 1), (0, 2, 2), (2, 3, 1), (2, 4, 1)], True),  # imine, pair in the plane
+        (["N", "H", "H", "C", "O", "H"], [(0, 1, 1), (0, 2, 1), (0, 3, 1), (3, 4, 2), (3, 5, 1)], False),  # amide
+        (["P", "O", "O", "O", "O"], [(0, k, 1) for k in range(1, 5)], False),  # four sigma bonds, orders unread
+    ],
+)
+def test_a_lone_pair_comes_from_structure(symbols, bonds, has_pair):
+    """Four sigma bonds leave no pair; a three-connected N's pair conjugates into an adjacent pi bond."""
+    from xyzgraph.nci.sites import detect_sites
+
+    G = _contact_graph(symbols, [(2 * i, 0, 0) for i in range(len(symbols))], bonds)
+    sites = detect_sites(G, NCIThresholds())
+
+    assert (0 in sites["hbond_acceptors"], 0 in sites["lp_donors"]) == (has_pair, has_pair)
+

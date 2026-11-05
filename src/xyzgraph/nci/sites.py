@@ -28,6 +28,12 @@ def sigma_reference_atoms(G: nx.Graph, donor: int, kind: str) -> tuple[int, ...]
     )
 
 
+def _carries_pi(G: nx.Graph, atom: int) -> bool:
+    """Return whether ``atom`` has fewer sigma bonds than its lowest allowed valence, so it carries a pi bond."""
+    degree = len(sigma_reference_atoms(G, atom, "ion"))
+    return min((v for v in DATA.valences.get(G.nodes[atom]["symbol"], ()) if v >= degree), default=degree) > degree
+
+
 def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
     """Classify NCI sites, accounting for explicit dative donation and terminal hydrides."""
     donors: list[int] = []
@@ -54,6 +60,11 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             valence = sum(float(edge.get("bond_order", 1.0)) for edge in covalent)
             if DATA.electrons[sym] - q - valence - 2 * donated < 2:
                 spent.add(i)
+        # From connectivity, not bond orders: four sigma bonds leave no pair (phosphate P), and a
+        # three-connected N's pair conjugates into an adjacent pi bond (amide, thiourea, aniline, pyrrole)
+        sigma = sigma_reference_atoms(G, i, "ion")
+        if len(sigma) >= 4 or (sym == "N" and len(sigma) == 3 and any(_carries_pi(G, j) for j in sigma)):
+            spent.add(i)
 
         # Sigma-hole halogens (XB, HALPI); covalent F has essentially no sigma hole
         if sym in ("Cl", "Br", "I"):
