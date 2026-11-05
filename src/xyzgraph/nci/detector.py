@@ -51,6 +51,12 @@ class NCIDetector:
         self._domains = pi_domains
         self._vdw = vdw
         self._thr = thresholds
+        # An ion centre bonded to four or more heavy atoms (R4N+, R4P+, BF4-, PF6-) is buried by them
+        self._buried: dict[int, tuple[int, ...]] = {}
+        for i in graph:
+            subs = sigma_reference_atoms(graph, i, "ion")
+            if len(subs) >= 4 and all(symbols[s] != "H" for s in subs):
+                self._buried[i] = subs
 
     def detect(self, pos: np.ndarray, pairs: dict[str, list]) -> list[NCIData]:
         """Run all detection methods on one frame."""
@@ -72,6 +78,9 @@ class NCIDetector:
         results.extend(self._detect_cation_lp(pos, pairs["CATLP"]))
 
         ionic = list(self._detect_ionic(pos, pairs["IONIC"]))
+        # A lone pair on a counter-ion already in contact (carboxylate O, BF4- F) is part of that contact
+        held = {(r.site_a[0], m) for r in ionic for n in self._G[r.site_b[0]] for m in (n, *self._G[n])}
+        results = [r for r in results if r.type != "cation_lp" or (r.site_a[0], r.site_b[0]) not in held]
         hbonds_for_sb = [r for r in results if r.type == "hbond"]
         salt_bridges, remove_ionic, remove_hb = self._detect_salt_bridges(pos, ionic, hbonds_for_sb)
         # Remove ionic/hbond entries that were reclassified as salt bridges
@@ -275,7 +284,8 @@ class NCIDetector:
                     break
             if reference is None:
                 continue
-            ang = geom.angle_deg(normal, centroid - pos[x])
+            ang_raw = geom.angle_deg(normal, centroid - pos[x])
+            ang = max(ang_raw, 180.0 - ang_raw)
             if thr.halpi_axis_angle_min <= ang <= thr.halpi_axis_angle_max:
                 results.append(
                     NCIData(
@@ -490,7 +500,7 @@ class NCIDetector:
             if normal is None:
                 continue
             d = float(np.linalg.norm(pos[c] - centroid))
-            rcut = thr.catpi_vdw_scale * (self._vdw[self._sym[c]] + pi_eff.get(frozenset(site), 1.7))
+            rcut = thr.catpi_vdw_scale * (self._ion_radius(c, pos) + pi_eff.get(frozenset(site), 1.7))
             if d > rcut:
                 continue
             ang_raw = geom.angle_deg(normal, centroid - pos[c])
@@ -524,7 +534,7 @@ class NCIDetector:
             if normal is None:
                 continue
             d = float(np.linalg.norm(pos[a] - centroid))
-            rcut = thr.anpi_vdw_scale * (self._vdw[self._sym[a]] + pi_eff.get(frozenset(site), 1.7))
+            rcut = thr.anpi_vdw_scale * (self._ion_radius(a, pos) + pi_eff.get(frozenset(site), 1.7))
             if d > rcut:
                 continue
             ang_raw = geom.angle_deg(normal, centroid - pos[a])
@@ -590,7 +600,7 @@ class NCIDetector:
         results: list[NCIData] = []
         for c, lp in catlp_pairs:
             dist = float(np.linalg.norm(pos[c] - pos[lp]))
-            rcut = self._thr.catlp_vdw_scale * (self._vdw[self._sym[c]] + self._vdw[self._sym[lp]])
+            rcut = self._thr.catlp_vdw_scale * (self._ion_radius(c, pos) + self._vdw[self._sym[lp]])
             if dist <= rcut:
                 results.append(
                     NCIData(
@@ -613,7 +623,7 @@ class NCIDetector:
         results: list[NCIData] = []
         for c, a in ionic_pairs:
             dist = float(np.linalg.norm(pos[c] - pos[a]))
-            rcut = self._thr.ionic_vdw_scale * (self._vdw[self._sym[c]] + self._vdw[self._sym[a]])
+            rcut = self._thr.ionic_vdw_scale * (self._ion_radius(c, pos) + self._ion_radius(a, pos))
             if dist <= rcut:
                 results.append(
                     NCIData(
@@ -739,6 +749,13 @@ class NCIDetector:
             else:
                 normals[domain] = geom.plane_normal(pos[list(domain)])
         return normals
+
+    def _ion_radius(self, i: int, pos: np.ndarray) -> float:
+        """Contact radius of ion centre ``i``: a buried centre is met at its substituents' surface, not its own."""
+        subs = self._buried.get(i)
+        if not subs:
+            return self._vdw[self._sym[i]]
+        return max(float(np.linalg.norm(pos[s] - pos[i])) + self._vdw[self._sym[s]] for s in subs)
 
     def _compute_pi_radii(self, pos: np.ndarray) -> dict[frozenset[int], float]:
         """Mean vdW radius for each pi-site."""

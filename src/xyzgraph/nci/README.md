@@ -179,7 +179,8 @@ positions on `G` when the analyzer is built.
 
 A sigma-hole reference R is a covalent neighbour of the sigma-hole atom. Metal
 neighbours and edges marked `metal_coord`, `dative_donor` or `NCI` are not
-references, and XB/HALPI exclude H. Detection reports the first R, in
+references, and XB/HALPI exclude H. A metal has no covalent neighbours, whether
+or not its edges are marked `metal_coord`. Detection reports the first R, in
 neighbour order, whose R–X···A angle passes.
 
 ### Terminal metal hydrides
@@ -200,6 +201,18 @@ xyzgraph never sets `dative_donor`; callers may mark a dative edge with
 counted from its other bonds, less two electrons per donation. An atom with
 none left drops out of `lone_pair_sites` and the HB acceptors. `metal_coord`
 alone does not mark donation, so unannotated graphs keep the ordinary rules.
+
+### Ions
+
+An ion is an atom with |formal charge| ≥ `ionic_min_charge`, unless the
+charge is cancelled within its covalent group (nitro, N-oxide). A group with
+net charge, such as azide, is an ion at the atoms carrying that sign. An ion
+bonded to four or more heavy atoms and no H (R₄N⁺, R₄P⁺, BF₄⁻, PF₆⁻) is
+buried. It is met at its substituents, so its contact radius in the `IONIC`,
+`CATPI`, `ANPI` and `CATLP` cutoffs is max(|ion–s| + r_vdW(s)), not its own
+vdW radius. A cation in `ionic` contact with an anion is not also reported as
+`cation_lp` to a lone pair within two bonds of that anion, such as the other
+carboxylate O or a BF₄⁻ F.
 
 ## Supported Interaction Types
 

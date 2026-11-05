@@ -910,7 +910,9 @@ def test_a_coordinating_sigma_donor_keeps_its_other_covalent_reference():
 
 @pytest.mark.parametrize(("halogen", "donates"), [("F", False), ("I", True)])
 def test_only_heavier_halogens_are_sigma_hole_donors(halogen, donates):
-    G = _contact_graph([halogen, "C", "N", "H", "H", "H"], [(i, 0, 0) for i in range(6)], [(0, 1, 1), *[(2, h, 1) for h in (3, 4, 5)]])
+    G = _contact_graph(
+        [halogen, "C", "N", "H", "H", "H"], [(i, 0, 0) for i in range(6)], [(0, 1, 1), *[(2, h, 1) for h in (3, 4, 5)]]
+    )
 
     assert any(c.kind == "XB" and c.site_a == (0,) for c in NCIAnalyzer(G).candidates()) is donates
 
@@ -953,3 +955,84 @@ def test_dative_donor_must_name_an_endpoint_of_its_edge():
 
     with pytest.raises(ValueError, match=r"edge \(0, 1\).*set it to.*or remove the annotation"):
         NCIAnalyzer(G)
+
+
+@pytest.mark.parametrize(("capped", "observed"), [(False, ["ionic"]), (True, [])])
+def test_a_buried_cation_meets_its_anion_at_its_substituents(capped, observed):
+    """R4N+ is met at its methyls' surface, as one ionic contact; an R3NH+ face is measured from N."""
+    arms = np.array([(1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1)]) / np.sqrt(3)
+    u, v = -arms[0], np.array([1, -1, 0]) / np.sqrt(2)
+    G = _contact_graph(
+        ["N", "H" if capped else "C", "C", "C", "C", "C", "O", "O", "H"],
+        [(0, 0, 0), *(arms * 1.5), 4.3 * u, 3.6 * u + 1.1 * v, 3.6 * u - 1.1 * v, 5.4 * u],
+        [(0, 1, 1), (0, 2, 1), (0, 3, 1), (0, 4, 1), (5, 6, 1), (5, 7, 2), (5, 8, 1)],
+        charges={0: 1, 6: -1},
+    )
+    found = NCIAnalyzer(G).detect(np.array([G.nodes[i]["position"] for i in G]))
+
+    assert [n.type for n in found] == observed
+
+
+def test_charges_cancelling_in_a_covalent_group_are_not_ions():
+    """Nitro N+/O- cancel; azide N-=N+=N- is an anion at its terminal N."""
+    from xyzgraph.nci.sites import detect_sites
+
+    G = _contact_graph(
+        ["C", "N", "O", "O", "N", "N", "N"],
+        [(0, 0, 0), (1.5, 0, 0), (2, 1, 0), (2, -1, 0), (10, 0, 0), (11.2, 0, 0), (12.4, 0, 0)],
+        [(0, 1, 1), (1, 2, 2), (1, 3, 1), (4, 5, 2), (5, 6, 2)],
+        charges={1: 1, 3: -1, 4: -1, 5: 1, 6: -1},
+    )
+    sites = detect_sites(G, NCIThresholds())
+
+    assert (sites["cationic_atoms"], sites["anionic_atoms"]) == ([], [4, 6])
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_halogen_pi_is_observed_on_either_face(side):
+    """The ring normal's sign is arbitrary, so a halogen and its mirror image through the ring are both observed."""
+    G = _ring_contact_graph("I", 1)
+    G.nodes[6]["position"] = (0, 0, 3 * side)
+    G.nodes[7].update(symbol="C", position=(0, 0, 5.1 * side))
+    observed = NCIAnalyzer(G).detect(np.array([G.nodes[i]["position"] for i in G]))
+
+    assert [n.type for n in observed] == ["halogen_pi"]
+
+
+@pytest.mark.parametrize(
+    ("symbols", "bonds", "has_pair"),
+    [
+        (["N", "H", "H", "H"], [(0, 1, 1), (0, 2, 1), (0, 3, 1)], True),  # amine
+        (["N", "H", "C", "H", "H"], [(0, 1, 1), (0, 2, 2), (2, 3, 1), (2, 4, 1)], True),  # imine, pair in the plane
+        (["N", "H", "H", "C", "O", "H"], [(0, 1, 1), (0, 2, 1), (0, 3, 1), (3, 4, 2), (3, 5, 1)], False),  # amide
+        (["P", "O", "O", "O", "O"], [(0, k, 1) for k in range(1, 5)], False),  # four sigma bonds, orders unread
+    ],
+)
+def test_a_lone_pair_comes_from_structure(symbols, bonds, has_pair):
+    """Four sigma bonds leave no pair; a three-connected N's pair conjugates into an adjacent pi bond."""
+    from xyzgraph.nci.sites import detect_sites
+
+    G = _contact_graph(symbols, [(2 * i, 0, 0) for i in range(len(symbols))], bonds)
+    sites = detect_sites(G, NCIThresholds())
+
+    assert (0 in sites["hbond_acceptors"], 0 in sites["lp_donors"]) == (has_pair, has_pair)
+
+
+@pytest.mark.parametrize("flagged", [True, False])
+def test_a_metal_has_no_sigma_references_whether_or_not_its_bonds_are_flagged(flagged):
+    """Unflagged Pd-L edges must not join Pd to its ligands' charge group, nor make Pd a buried ion."""
+    from xyzgraph.nci.sites import detect_sites, sigma_reference_atoms
+
+    hydrogens = [(n, h, 1) for n in (3, 4) for h in range(5 + 3 * (n - 3), 8 + 3 * (n - 3))]
+    G = _contact_graph(
+        ["Pd", "Cl", "Cl", "N", "N", *["H"] * 6],
+        [(2 * i, 0, 0) for i in range(11)],
+        [(0, 1, 1), (0, 2, 1), (0, 3, 1), (0, 4, 1), *hydrogens],
+        charges={0: 2, 1: -1, 2: -1},
+    )
+    for ligand in (1, 2, 3, 4):
+        G.edges[0, ligand]["metal_coord"] = flagged
+    sites = detect_sites(G, NCIThresholds())
+
+    assert sigma_reference_atoms(G, 0, "ion") == ()
+    assert (sites["cationic_atoms"], sites["anionic_atoms"]) == ([0], [1, 2])

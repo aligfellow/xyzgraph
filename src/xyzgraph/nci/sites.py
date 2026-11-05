@@ -5,18 +5,23 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import networkx as nx
+
 from xyzgraph.data_loader import DATA
 
 if TYPE_CHECKING:
-    import networkx as nx
-
     from .thresholds import NCIThresholds
 
 logger = logging.getLogger(__name__)
 
 
 def sigma_reference_atoms(G: nx.Graph, donor: int, kind: str) -> tuple[int, ...]:
-    """Return covalent sigma references in neighbour order; XB/HALPI require a heavy reference."""
+    """Return covalent sigma references in neighbour order; XB/HALPI require a heavy reference.
+
+    A metal has none: a bond to a metal is never a covalent sigma bond, from either end, flagged or not.
+    """
+    if G.nodes[donor]["symbol"] in DATA.metals:
+        return ()
     return tuple(
         atom
         for atom, edge in G[donor].items()
@@ -26,6 +31,12 @@ def sigma_reference_atoms(G: nx.Graph, donor: int, kind: str) -> tuple[int, ...]
         and G.nodes[atom]["symbol"] not in DATA.metals
         and (kind not in ("XB", "HALPI") or G.nodes[atom]["symbol"] != "H")
     )
+
+
+def _carries_pi(G: nx.Graph, atom: int) -> bool:
+    """Return whether ``atom`` has fewer sigma bonds than its lowest allowed valence, so it carries a pi bond."""
+    degree = len(sigma_reference_atoms(G, atom, "ion"))
+    return min((v for v in DATA.valences.get(G.nodes[atom]["symbol"], ()) if v >= degree), default=degree) > degree
 
 
 def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
@@ -54,6 +65,11 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             valence = sum(float(edge.get("bond_order", 1.0)) for edge in covalent)
             if DATA.electrons[sym] - q - valence - 2 * donated < 2:
                 spent.add(i)
+        # From connectivity, not bond orders: four sigma bonds leave no pair (phosphate P), and a
+        # three-connected N's pair conjugates into an adjacent pi bond (amide, thiourea, aniline, pyrrole)
+        sigma = sigma_reference_atoms(G, i, "ion")
+        if len(sigma) >= 4 or (sym == "N" and len(sigma) == 3 and any(_carries_pi(G, j) for j in sigma)):
+            spent.add(i)
 
         # Sigma-hole halogens (XB, HALPI); covalent F has essentially no sigma hole
         if sym in ("Cl", "Br", "I"):
@@ -106,6 +122,18 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             bonded = [j for j, edge in G[i].items() if not edge.get("NCI") and edge.get("bond_order", 1.0) > 0]
             if len(bonded) == 1 and G.nodes[bonded[0]]["symbol"] in DATA.metals:
                 acceptors.append(i)
+
+    # Charges cancelling within a covalent group (nitro, N-oxide) make no ion; a net-charged group (azide)
+    # is an ion at its atoms of that sign.
+    groups = nx.Graph()
+    groups.add_nodes_from(cationic + anionic)
+    groups.add_edges_from((i, j) for i in cationic + anionic for j in sigma_reference_atoms(G, i, "ion") if j in groups)
+    ions: set[int] = set()
+    for group in nx.connected_components(groups):
+        net = sum(float(G.nodes[i].get("formal_charge", 0)) for i in group)
+        ions |= {i for i in group if net * float(G.nodes[i].get("formal_charge", 0)) > 0}
+    cationic = [i for i in cationic if i in ions]
+    anionic = [i for i in anionic if i in ions]
 
     # Hydride acceptance uses the M-H bond pair, rather than an unspent lone pair.
     acceptors = [atom for atom in acceptors if atom not in spent or G.nodes[atom]["symbol"] == "H"]
