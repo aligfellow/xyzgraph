@@ -55,8 +55,8 @@ def detect_sites(G: nx.Graph, thr: NCIThresholds) -> dict[str, list[int]]:
             if DATA.electrons[sym] - q - valence - 2 * donated < 2:
                 spent.add(i)
 
-        # Halogens
-        if sym in ("F", "Cl", "Br", "I"):
+        # Sigma-hole halogens (XB, HALPI); covalent F has essentially no sigma hole
+        if sym in ("Cl", "Br", "I"):
             halogens.append(i)
         # Chalcogens
         if sym in ("S", "Se", "Te"):
