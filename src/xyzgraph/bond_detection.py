@@ -174,7 +174,8 @@ class BondDetector:
         """Compute distance threshold for a pair of atoms."""
         if si == "H" and sj == "H":
             return thresholds.threshold_h_h * r_sum * thresholds.threshold
-        elif has_h and has_metal:
+        elif has_h and has_metal and not {si, sj} & self.data.sblock_metals:
+            # An s-block metal's H is an ionic hydride, about as large as O2-: judged as its other ligands, below.
             return thresholds.threshold_h_metal * r_sum * thresholds.threshold
         elif has_h and not has_metal:
             return thresholds.threshold_h_nonmetal * r_sum * thresholds.threshold

@@ -566,11 +566,11 @@ Advanced Thresholds:
   --threshold-h-nonmetal THRESHOLD_H_NONMETAL
                         H-nonmetal vdW threshold (default: 0.42)
   --threshold-h-metal THRESHOLD_H_METAL
-                        H-metal vdW threshold (default: 0.45)
+                        H-metal vdW threshold, not s-block (default: 0.45)
   --threshold-metal-ligand THRESHOLD_METAL_LIGAND
                         D-block metal-ligand vdW threshold (default: 0.65)
   --threshold-sblock-ligand THRESHOLD_SBLOCK_LIGAND
-                        S-block metal-ligand vdW threshold (default: 0.55)
+                        S-block metal-ligand/H vdW threshold (default: 0.55)
   --threshold-nonmetal THRESHOLD_NONMETAL
                         Nonmetal-nonmetal vdW threshold (default: 0.55)
   --allow-metal-metal-bonds
@@ -1565,8 +1565,8 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 |---------------|-------------------|----------------|
 | H-H | 0.38 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
-| H-metal | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
-| S-block metal-ligand | 0.55 × (r₁ + r₂) | `threshold_sblock_ligand` |
+| H-metal (not s-block) | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
+| S-block metal-ligand, H included | 0.55 × (r₁ + r₂) | `threshold_sblock_ligand` |
 | D-block metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
 | Metal-Metal (same type) | 0.7 × (2r) | `threshold_metal_metal_self` |
