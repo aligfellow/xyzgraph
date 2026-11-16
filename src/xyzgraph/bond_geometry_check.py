@@ -26,6 +26,36 @@ def has_lone_pair(G: nx.Graph, a: int, data: MolecularData) -> bool:
     return data.electrons.get(G.nodes[a]["symbol"], 0) - sigma >= 2
 
 
+def electropositive(sym: str, data: MolecularData) -> bool:
+    """Return whether `sym` is a metal or less electronegative than H (B, Si, Ge): an H on it is a hydride."""
+    en_h = data.electronegativity["H"]
+    return sym in data.metals or data.electronegativity.get(sym, en_h) < en_h
+
+
+def one_pair_partners(G: nx.Graph, x: int, data: MolecularData) -> List[int]:
+    """Return the electropositive atoms that ``x`` bonds with one electron pair; empty if it gives none.
+
+    x, not electropositive itself, has one valence electron left after its bonds to the rest, so all its bonds
+    to electropositive atoms share one pair (x's electron and the one it gains as an anion): a bridging H (B-H-B,
+    Si-H-M, M-H-M, a mu3-H) or a methyl between metals. Beside other bonds, x bonds a B or Si as it bonds them,
+    each with an electron of its own (a metal then binds that bond side-on), so only metals share its last one.
+    A CH2 has a pair for each metal and a halide or alkoxide lone pairs to spare. A Cp or arene face gives its
+    ring's pi electrons, which the ring neighbours also give to the same atoms. None of these is one pair. Bonds
+    count as single here, so an aryl's ipso carbon (its fourth electron in the ring) reads as two left.
+    """
+    sym = G.nodes[x]["symbol"]
+    if electropositive(sym, data):
+        return []
+    nbrs = set(G[x])
+    partners = {n for n in nbrs if electropositive(G.nodes[n]["symbol"], data)}
+    if partners != nbrs:
+        partners = {n for n in partners if G.nodes[n]["symbol"] in data.metals}
+    rest = nbrs - partners
+    if data.electrons.get(sym, 0) - len(rest) != 1 or any(G.has_edge(r, p) for r in rest for p in partners):
+        return []  # not one electron left, or a face
+    return sorted(partners)
+
+
 class BondGeometryChecker:
     """Checks whether a proposed bond is geometrically valid.
 
@@ -175,7 +205,7 @@ class BondGeometryChecker:
             X_sym = G.nodes[X_atom]["symbol"]
             if X_sym in self.data.metals or X_sym == "H":
                 continue
-            if nonmetal_sym == "H" and self.data.electronegativity.get(X_sym, 2.5) < self.data.electronegativity["H"]:
+            if nonmetal_sym == "H" and electropositive(X_sym, self.data):
                 continue
 
             for conf, bi, bj, _, _ in baseline_bonds:
@@ -369,8 +399,19 @@ class BondGeometryChecker:
         if not common_neighbors:
             return True
 
+        # A leg from a one-pair atom to another electropositive atom shares the pair it gives its partners (B-H-B,
+        # M-H-M, Al-CH3-Al); the triangle it closes with a partner is their diagonal, which _prune_bridge_diagonals
+        # removes. A second leg is not judged against it. A later one (a mu3-H) still meets the angle and valence
+        # rules, but never yields to a partner's metal bond.
+        shared = []
+        for x, sym_y in ((i, sym_j), (j, sym_i)):
+            if electropositive(sym_y, self.data):
+                shared += one_pair_partners(G, x, self.data)
+
         for k in common_neighbors:
             sym_k = G.nodes[k]["symbol"]
+            if shared == [k]:
+                continue
 
             # Cluster bypass
             ring_elements = {sym_i, sym_j, sym_k}
@@ -409,13 +450,7 @@ class BondGeometryChecker:
             # M-L bond priority check
             has_metal_in_bond = is_metal_i or is_metal_j
 
-            # A hydridic H (on B or Si) bridges the metal itself: its M-H does not yield to an M-B contact.
-            partner = j if is_metal_i else i
-            bridging_hydride = (
-                G.nodes[partner]["symbol"] == "H"
-                and self.data.electronegativity.get(sym_k, 2.5) < self.data.electronegativity["H"]
-            )
-            if has_metal_in_bond and baseline_bonds is not None and not bridging_hydride:
+            if has_metal_in_bond and baseline_bonds is not None and k not in shared:
                 metal_atom = i if is_metal_i else j
 
                 for conf, bi, bj, _, _ in baseline_bonds:
@@ -677,9 +712,9 @@ class BondGeometryChecker:
         A metal has no valence limit (its oxidation states do not cap its coordination), so the bond
         is judged on x and its partners, the atoms bonded to both x and m:
 
-        - an x less electronegative than H, or saturated (four sigma bonds, no lone pair), reaches m
-          through its H partner when it has one: a hydridic B-H or Si-H bridges the metal (B-H-M),
-          an agostic C-H touches it, and the H is the bond, not M-x;
+        - a saturated x (four sigma bonds, no lone pair) reaches m through its H partner when it has
+          one: an agostic C-H touches it, and the H is the bond, not M-x (a B-H-M or Si-H-M bridge is
+          one pair, see one_pair_partners);
         - a saturated x (four sigma bonds, no lone pair) bonds m only side-on through one partner
           (the B-B of a diborane); lying beyond its partners, it is instead the diagonal of a ring
           when it bridges two (a metallacycle's SiR2) or sits past a lone-pair donor (an amine's
@@ -702,9 +737,8 @@ class BondGeometryChecker:
         partners = [d for d in G.neighbors(x) if d != m and G.has_edge(d, m) and G.nodes[d]["symbol"] not in metals]
         if not partners or G.nodes[x]["symbol"] == "H":
             return None
-        hydridic = self.data.electronegativity.get(G.nodes[x]["symbol"], 2.5) < self.data.electronegativity["H"]
         saturated = sigma(x) >= 4 and not lone_pair(x)
-        if (hydridic or saturated) and any(G.nodes[d]["symbol"] == "H" for d in partners):
+        if saturated and any(G.nodes[d]["symbol"] == "H" for d in partners):
             return "reaches the metal through its bridging H"
         beyond = all(G.edges[m, x]["distance"] >= G.edges[m, d]["distance"] for d in partners)
         if saturated:

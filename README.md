@@ -268,6 +268,11 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │        rejected if stronger M-donor bond exists in ring (2x)    │
 │    • Allows sensible elongated bonds (e.g., TS structures)      │
 │                                                                 │
+│    • Equilibrium conventions, on the finished graph (not TS):   │
+│      - a metal bond that is a chelate-ring diagonal is dropped  │
+│      - atoms one electron pair bridges are not bonded to each   │
+│        other (B-H-B, M-H-M, μ3-H, μ-CH3); the bridge bonds each │
+│                                                                 │
 │    • Create graph with single bonds (order = 1.0)               │
 └────────────────────┬────────────────────────────────────────────┘
                      │
@@ -335,6 +340,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │      - formal = V_electrons - L - B/2                           │
 │    • Balance total to match system charge                       │
 │    • Metals assigned oxidation state as formal charge           │
+│      (several metals share the residual toward their usual      │
+│       oxidation states)                                         │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
@@ -566,11 +573,11 @@ Advanced Thresholds:
   --threshold-h-nonmetal THRESHOLD_H_NONMETAL
                         H-nonmetal vdW threshold (default: 0.42)
   --threshold-h-metal THRESHOLD_H_METAL
-                        H-metal vdW threshold (default: 0.45)
+                        H-metal vdW threshold, not s-block (default: 0.45)
   --threshold-metal-ligand THRESHOLD_METAL_LIGAND
                         D-block metal-ligand vdW threshold (default: 0.65)
   --threshold-sblock-ligand THRESHOLD_SBLOCK_LIGAND
-                        S-block metal-ligand vdW threshold (default: 0.55)
+                        S-block metal-ligand/H vdW threshold (default: 0.55)
   --threshold-nonmetal THRESHOLD_NONMETAL
                         Nonmetal-nonmetal vdW threshold (default: 0.55)
   --allow-metal-metal-bonds
@@ -626,10 +633,13 @@ G_kekule = build_graph('molecule.xyz', kekule=True)
 
 Full `cheminf` graphs expose `G.graph["validation_errors"]` for charge, valence, electron-count, and represented-spin failures; the builder warns and returns a best-effort graph. Electron checks flag negative nonbonding counts, overfilled H/He duets or second-row octets, and metal charges exceeding the metals' total valence-electron budget. Radical counts are stored as `G.nodes[i]["radical_electrons"]`. Explicit charge and multiplicity must have compatible electron parity; omitted multiplicity selects a doublet for an odd electron count. Radical placement is heuristic; metal spin states are not validated.
 
-A hydrogen joined by ordinary single bonds to exactly two borons represents a B–H–B three-centre,
-two-electron bond. Both legs remain in the graph. Integer formal-charge bookkeeping assigns H +1
-and one bridge electron to each B, counting the shared pair once. These are representation charges,
-not calculated atomic charges. Other multicentre bonds are not covered by this rule.
+An atom that bonds several electropositive atoms with one electron pair (a hydride in B–H–B, M–H–M
+or μ₃-H; a methyl between metals, as in Al₂Me₆) bonds each of them, and they are not bonded to each
+other: the shared pair is their interaction. Over two non-metals (B–H–B, Si–H–Si) the integer
+formal-charge bookkeeping assigns H +1 and one bridge electron to each partner, counting the shared
+pair once (diborane: B −1, H +1). A leg to a metal is ionic, like any metal bond, so the hydride
+counts −1 at each metal. These are representation charges, not calculated atomic charges. A cluster
+with no two-centre structure (nido-B₅H₉, carboranes) gets a best-effort assignment and a validation error.
 
 Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
 
@@ -1565,8 +1575,8 @@ xyzgraph uses distance-based bond detection with thresholds derived from van der
 |---------------|-------------------|----------------|
 | H-H | 0.38 × (r₁ + r₂) | `threshold_h_h` |
 | H-nonmetal | 0.42 × (r₁ + r₂) | `threshold_h_nonmetal` |
-| H-metal | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
-| S-block metal-ligand | 0.55 × (r₁ + r₂) | `threshold_sblock_ligand` |
+| H-metal (not s-block) | 0.45 × (r₁ + r₂) | `threshold_h_metal` |
+| S-block metal-ligand, H included | 0.55 × (r₁ + r₂) | `threshold_sblock_ligand` |
 | D-block metal-ligand | 0.65 × (r₁ + r₂) | `threshold_metal_ligand` |
 | Nonmetal-nonmetal | 0.55 × (r₁ + r₂) | `threshold_nonmetal_nonmetal` |
 | Metal-Metal (same type) | 0.7 × (2r) | `threshold_metal_metal_self` |

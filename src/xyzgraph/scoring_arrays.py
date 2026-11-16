@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Tuple
 import networkx as nx
 import numpy as np
 
+from .bond_geometry_check import one_pair_partners
 from .geometry import GeometryCalculator
 from .parameters import ScoringWeights
 
@@ -185,7 +186,7 @@ class ScoringArrays:
     metal_state_sums: np.ndarray  # totals the metals reach at their usual oxidation states (or 0) each
     is_metal: np.ndarray  # bool [N]
     is_h: np.ndarray  # bool [N]
-    is_boron_bridge: np.ndarray  # bool [N], H in a two-leg B-H-B three-centre bond
+    one_pair_bridge: np.ndarray  # bool [N], an H bonding two non-metals with one pair (B-H-B, Si-H-Si)
     non_metal: np.ndarray  # bool [N]
     valence_electrons: np.ndarray  # int [N]
     electronegativity: np.ndarray  # float [N]
@@ -253,19 +254,10 @@ class ScoringArrays:
         symbol_strs = np.array(sym_list, dtype=object)
         is_metal = np.array([s in data.metals for s in sym_list])
         is_h = np.array([s == "H" for s in sym_list])
-        is_boron_bridge = np.array(
-            [
-                s == "H"
-                and G.degree[i] == 2
-                and all(
-                    sym_list[j] == "B"
-                    and d.get("bond_order", 1.0) == 1.0
-                    and not (d.get("NCI") or d.get("metal_coord") or "dative_donor" in d)
-                    for j, d in G[i].items()
-                )
-                for i, s in enumerate(sym_list)
-            ],
-            dtype=bool,
+        # One pair over two non-metals (B-H-B, Si-H-Si) is written as H+ bonded to both. A leg to a metal is ionic,
+        # and a pair over three atoms has no integer bookkeeping.
+        one_pair_bridge = np.array(
+            [len(p := one_pair_partners(G, i, data)) == 2 and not is_metal[p].any() for i in range(n)], dtype=bool
         )
         is_nos = np.array([s in _NOS_SYMS for s in sym_list])
         is_protonation_heavy = np.array([s in _PROTONATION_HEAVY for s in sym_list])
@@ -415,7 +407,7 @@ class ScoringArrays:
             n_atoms=n,
             is_metal=is_metal,
             is_h=is_h,
-            is_boron_bridge=is_boron_bridge,
+            one_pair_bridge=one_pair_bridge,
             non_metal=non_metal,
             valence_electrons=valence_electrons,
             electronegativity=electronegativity,
@@ -498,8 +490,8 @@ class ScoringArrays:
         return bool(np.any(valence_sums > self.check_vlim_thresh))
 
     def nonbonding_electrons(self, valence_sums: np.ndarray, fc: np.ndarray) -> np.ndarray:
-        """Count unshared electrons; two B-H-B legs share one pair, with H+ bookkeeping."""
-        return self.valence_electrons - fc - valence_sums + 2 * self.is_boron_bridge
+        """Count unshared electrons; a one-pair bridge's two legs share that pair, with H+ bookkeeping."""
+        return self.valence_electrons - fc - valence_sums + 2 * self.one_pair_bridge
 
     def electron_excess(self, valence_sums: np.ndarray, fc: np.ndarray) -> np.ndarray:
         """Per-atom negative nonbonding electrons or excess duet/octet electrons; metals are excluded.
@@ -560,7 +552,7 @@ class ScoringArrays:
             if iso is not None:
                 iso = iso[:1] if self.terminal[i] else iso
                 gap[i] = float(np.min(np.abs(iso - valence_sums[i])))
-        gap[self.is_boron_bridge & (fc == 1)] = 0
+        gap[self.one_pair_bridge & (fc == 1)] = 0
         return gap
 
     def charge_terms(self, fc: np.ndarray, charge: Optional[int]) -> Tuple[float, float]:
@@ -596,7 +588,7 @@ class ScoringArrays:
             full_shell=self.donor_full_shell,
         )
         fc[self.is_metal] = 0
-        fc[self.is_boron_bridge] = 1
+        fc[self.one_pair_bridge] = 1
         return fc
 
     def formal_charges(

@@ -12,6 +12,7 @@ import networkx as nx
 import numpy as np
 import pytest
 
+from xyzgraph import build_graph
 from xyzgraph.bond_order_optimizer import BondOrderOptimizer
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
@@ -209,16 +210,33 @@ def test_partial_carbocation_assignment(optimizer, charge, total, cations, caplo
     assert ("formal charges follow the structure" in caplog.text) == (charge != total)
 
 
-def test_diborane_counts_two_three_centre_pairs(optimizer):
-    atoms = [(s, (i, 0, 0)) for i, s in enumerate(["B", "B", *["H"] * 6])]
-    G = _make_graph(atoms, [(0, h) for h in (2, 3, 4, 5)] + [(1, h) for h in (2, 3, 6, 7)])
+@pytest.mark.parametrize(
+    ("heavy", "second", "charge", "expected"),
+    [
+        pytest.param("B", (2, 3, 6, 7), 0, [-1, -1, 1, 1, 0, 0, 0, 0], id="B2H6"),
+        pytest.param("Si", (2, 6, 7, 8), 1, [0, 0, 1, 0, 0, 0, 0, 0, 0], id="Si2H7+"),  # a silylium held by Si-H-Si
+    ],
+)
+def test_three_centre_pair_counts_once(optimizer, heavy, second, charge, expected):
+    """An H bonding two non-metals with one pair reads H+ between them, each keeping its octet."""
+    atoms = [(s, (i, 0, 0)) for i, s in enumerate([heavy, heavy, *["H"] * (len(expected) - 2)])]
+    G = _make_graph(atoms, [(0, h) for h in (2, 3, 4, 5)] + [(1, h) for h in second])
+    optimizer.charge = charge
     arrays = ScoringArrays.from_graph(G, DATA)
     charges = optimizer.compute_formal_charges(G, arrays=arrays)
 
-    assert charges == [-1, -1, 1, 1, 0, 0, 0, 0]
-    assert arrays.feasibility_errors(G, charges, 0) == []
+    assert charges == expected
+    assert arrays.feasibility_errors(G, charges, charge) == []
     vs = arrays.compute_valence_sums()
     assert arrays.nonbonding_electrons(vs, np.array(charges)).sum() == 0
+
+
+@pytest.mark.parametrize(("cation", "distance", "charge", "states"), [("Li", 2.1, 0, (3, 1)), ("Mg", 2.2, 1, (3, 2))])
+def test_bridging_hydrides_leave_each_metal_at_a_usual_oxidation_state(cation, distance, charge, states):
+    """kappa3-AlH4- on Li+ or Mg2+: each bridging H- counts at both metals, so the cation gives back the surplus."""
+    hydrides = [("H", tuple(0.935 * np.array(d))) for d in [(1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1)]]
+    G = build_graph([("Al", (0, 0, 0)), *hydrides, (cation, tuple(-distance / 3**0.5 * np.ones(3)))], charge=charge)
+    assert (G.nodes[0]["oxidation_state"], G.nodes[5]["oxidation_state"]) == states
 
 
 def test_carbon_hydrogen_bridges_still_fail_electron_validation(optimizer):

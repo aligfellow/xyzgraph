@@ -385,7 +385,7 @@ def main():
         "--threshold-h-metal",
         type=float,
         default=DEFAULT_PARAMS["threshold_h_metal"],
-        help=f"H-metal vdW threshold (default: {DEFAULT_PARAMS['threshold_h_metal']})",
+        help=f"H-metal vdW threshold, not s-block (default: {DEFAULT_PARAMS['threshold_h_metal']})",
     )
     advanced.add_argument(
         "--threshold-metal-ligand",
@@ -397,7 +397,7 @@ def main():
         "--threshold-sblock-ligand",
         type=float,
         default=DEFAULT_PARAMS["threshold_sblock_ligand"],
-        help=f"S-block metal-ligand vdW threshold (default: {DEFAULT_PARAMS['threshold_sblock_ligand']})",
+        help=f"S-block metal-ligand/H vdW threshold (default: {DEFAULT_PARAMS['threshold_sblock_ligand']})",
     )
     advanced.add_argument(
         "--threshold-nonmetal",
