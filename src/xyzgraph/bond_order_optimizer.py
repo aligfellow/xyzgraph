@@ -222,18 +222,19 @@ class BondOrderOptimizer:
     def _split_metal_charge(self, G: nx.Graph, formal: List[int], metals: List[int], total: int) -> None:
         """Share ``total`` between several metals.
 
-        Each takes minus its ligands' charge, then the remainder goes one unit at a time to the metal with the
-        most room left: below its valence electrons when adding, above 0 when removing.
+        Each takes minus its ligands' charge (a bridging ligand counts at every metal it bonds), then the
+        remainder goes one unit at a time to the metal furthest outside its usual oxidation states in that
+        direction: above its highest when removing, below its lowest when adding.
         """
         classification = self.classify_metal_ligands(G, formal)
         for m in metals:
             formal[m] = -sum(entry[2] for entry in classification["ionic_bonds"] if entry[0] == m)
         remainder = total - sum(formal[m] for m in metals)
         step = 1 if remainder > 0 else -1
+        states = {m: self.data.valences.get(G.nodes[m]["symbol"]) or [0] for m in metals}
         for _ in range(abs(remainder)):
-            cap = {m: self.data.electrons.get(G.nodes[m]["symbol"], 0) for m in metals}
-            room = {m: cap[m] - formal[m] if step > 0 else formal[m] for m in metals}
-            formal[max(metals, key=lambda m: (room[m], -m))] += step
+            outside = {m: min(states[m]) - formal[m] if step > 0 else formal[m] - max(states[m]) for m in metals}
+            formal[max(metals, key=lambda m: (outside[m], -m))] += step
 
     def _log_metal_coordination(self, G: nx.Graph, formal: List[int], metals: List[int]) -> None:
         classification = self.classify_metal_ligands(G, formal)

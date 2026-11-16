@@ -12,6 +12,7 @@ import networkx as nx
 import numpy as np
 import pytest
 
+from xyzgraph import build_graph
 from xyzgraph.bond_order_optimizer import BondOrderOptimizer
 from xyzgraph.data_loader import DATA
 from xyzgraph.geometry import GeometryCalculator
@@ -228,6 +229,14 @@ def test_three_centre_pair_counts_once(optimizer, heavy, second, charge, expecte
     assert arrays.feasibility_errors(G, charges, charge) == []
     vs = arrays.compute_valence_sums()
     assert arrays.nonbonding_electrons(vs, np.array(charges)).sum() == 0
+
+
+@pytest.mark.parametrize(("cation", "distance", "charge", "states"), [("Li", 2.1, 0, (3, 1)), ("Mg", 2.2, 1, (3, 2))])
+def test_bridging_hydrides_leave_each_metal_at_a_usual_oxidation_state(cation, distance, charge, states):
+    """kappa3-AlH4- on Li+ or Mg2+: each bridging H- counts at both metals, so the cation gives back the surplus."""
+    hydrides = [("H", tuple(0.935 * np.array(d))) for d in [(1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1)]]
+    G = build_graph([("Al", (0, 0, 0)), *hydrides, (cation, tuple(-distance / 3**0.5 * np.ones(3)))], charge=charge)
+    assert (G.nodes[0]["oxidation_state"], G.nodes[5]["oxidation_state"]) == states
 
 
 def test_carbon_hydrogen_bridges_still_fail_electron_validation(optimizer):

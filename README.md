@@ -340,6 +340,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │      - formal = V_electrons - L - B/2                           │
 │    • Balance total to match system charge                       │
 │    • Metals assigned oxidation state as formal charge           │
+│      (several metals share the residual toward their usual      │
+│       oxidation states)                                         │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────────┐
