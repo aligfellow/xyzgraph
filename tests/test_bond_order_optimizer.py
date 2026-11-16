@@ -209,14 +209,23 @@ def test_partial_carbocation_assignment(optimizer, charge, total, cations, caplo
     assert ("formal charges follow the structure" in caplog.text) == (charge != total)
 
 
-def test_diborane_counts_two_three_centre_pairs(optimizer):
-    atoms = [(s, (i, 0, 0)) for i, s in enumerate(["B", "B", *["H"] * 6])]
-    G = _make_graph(atoms, [(0, h) for h in (2, 3, 4, 5)] + [(1, h) for h in (2, 3, 6, 7)])
+@pytest.mark.parametrize(
+    ("heavy", "second", "charge", "expected"),
+    [
+        pytest.param("B", (2, 3, 6, 7), 0, [-1, -1, 1, 1, 0, 0, 0, 0], id="B2H6"),
+        pytest.param("Si", (2, 6, 7, 8), 1, [0, 0, 1, 0, 0, 0, 0, 0, 0], id="Si2H7+"),  # a silylium held by Si-H-Si
+    ],
+)
+def test_three_centre_pair_counts_once(optimizer, heavy, second, charge, expected):
+    """An H bonding two non-metals with one pair reads H+ between them, each keeping its octet."""
+    atoms = [(s, (i, 0, 0)) for i, s in enumerate([heavy, heavy, *["H"] * (len(expected) - 2)])]
+    G = _make_graph(atoms, [(0, h) for h in (2, 3, 4, 5)] + [(1, h) for h in second])
+    optimizer.charge = charge
     arrays = ScoringArrays.from_graph(G, DATA)
     charges = optimizer.compute_formal_charges(G, arrays=arrays)
 
-    assert charges == [-1, -1, 1, 1, 0, 0, 0, 0]
-    assert arrays.feasibility_errors(G, charges, 0) == []
+    assert charges == expected
+    assert arrays.feasibility_errors(G, charges, charge) == []
     vs = arrays.compute_valence_sums()
     assert arrays.nonbonding_electrons(vs, np.array(charges)).sum() == 0
 

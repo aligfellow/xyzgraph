@@ -268,6 +268,11 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │        rejected if stronger M-donor bond exists in ring (2x)    │
 │    • Allows sensible elongated bonds (e.g., TS structures)      │
 │                                                                 │
+│    • Equilibrium conventions, on the finished graph (not TS):   │
+│      - a metal bond that is a chelate-ring diagonal is dropped  │
+│      - atoms one electron pair bridges are not bonded to each   │
+│        other (B-H-B, M-H-M, μ3-H, μ-CH3); the bridge bonds each │
+│                                                                 │
 │    • Create graph with single bonds (order = 1.0)               │
 └────────────────────┬────────────────────────────────────────────┘
                      │
@@ -626,10 +631,13 @@ G_kekule = build_graph('molecule.xyz', kekule=True)
 
 Full `cheminf` graphs expose `G.graph["validation_errors"]` for charge, valence, electron-count, and represented-spin failures; the builder warns and returns a best-effort graph. Electron checks flag negative nonbonding counts, overfilled H/He duets or second-row octets, and metal charges exceeding the metals' total valence-electron budget. Radical counts are stored as `G.nodes[i]["radical_electrons"]`. Explicit charge and multiplicity must have compatible electron parity; omitted multiplicity selects a doublet for an odd electron count. Radical placement is heuristic; metal spin states are not validated.
 
-A hydrogen joined by ordinary single bonds to exactly two borons represents a B–H–B three-centre,
-two-electron bond. Both legs remain in the graph. Integer formal-charge bookkeeping assigns H +1
-and one bridge electron to each B, counting the shared pair once. These are representation charges,
-not calculated atomic charges. Other multicentre bonds are not covered by this rule.
+An atom that bonds several electropositive atoms with one electron pair (a hydride in B–H–B, M–H–M
+or μ₃-H; a methyl between metals, as in Al₂Me₆) bonds each of them, and they are not bonded to each
+other: the shared pair is their interaction. Over two non-metals (B–H–B, Si–H–Si) the integer
+formal-charge bookkeeping assigns H +1 and one bridge electron to each partner, counting the shared
+pair once (diborane: B −1, H +1). A leg to a metal is ionic, like any metal bond, so the hydride
+counts −1 at each metal. These are representation charges, not calculated atomic charges. A cluster
+with no two-centre structure (nido-B₅H₉, carboranes) gets a best-effort assignment and a validation error.
 
 Stereochemistry assignment (R/S, E/Z, axial, planar, helical):
 

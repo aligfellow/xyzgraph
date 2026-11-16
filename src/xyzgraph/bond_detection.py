@@ -10,12 +10,13 @@ Two-phase construction:
 
 import logging
 from collections import Counter
+from itertools import combinations
 from typing import List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
 
-from .bond_geometry_check import BondGeometryChecker
+from .bond_geometry_check import BondGeometryChecker, one_pair_partners
 from .data_loader import MolecularData
 from .geometry import GeometryCalculator
 from .parameters import BondThresholds
@@ -409,7 +410,12 @@ class BondDetector:
                 1,
             )
 
-        self._prune_metal_bonds(G, symbols)  # before the overrides: a user bond= is final
+        # Equilibrium conventions, judged on the finished graph before the overrides (a user bond= is final). A
+        # transition state keeps every partial bond (a forming M-C next to its migrating H, a bridge's diagonal).
+        pruned = False
+        if not self.bond_checker.thresholds.transition_state:
+            self._prune_metal_bonds(G, symbols)
+            pruned = self._prune_bridge_diagonals(G, symbols)
 
         # Handle user-specified bonds
         if bond:
@@ -430,7 +436,7 @@ class BondDetector:
                     self._log(f"Removed user-specified bond {si}{i}-{sj}{j}", 2)
 
         # Final ring update if graph topology was modified
-        if has_custom or bond or unbond:
+        if has_custom or bond or unbond or pruned:
             non_metal_nodes = [n for n in G.nodes() if G.nodes[n]["symbol"] not in self.data.metals]
             rings = smallest_rings(G.subgraph(non_metal_nodes).copy())  # a view re-filters on every edge walk
             G.graph["_rings"] = rings
@@ -441,15 +447,27 @@ class BondDetector:
 
         return G
 
+    def _prune_bridge_diagonals(self, G: nx.Graph, symbols: List[str]) -> bool:
+        """Drop the bonds among the atoms that one electron pair bonds (see one_pair_partners).
+
+        Diborane's B...B, an M2H2 ring's M...M, the M-M bonds under a mu3-H or Al2Me6's methyls. A pair shared by two
+        or more atoms (3c-2e and wider) is itself their interaction, so a bond between two of them, the shorter contact
+        and found first, is not one of its own. Return whether a bond was dropped (the rings are then stale).
+        """
+        removed = {
+            (a, b): x for x in G for a, b in combinations(one_pair_partners(G, x, self.data), 2) if G.has_edge(a, b)
+        }
+        for (a, b), x in removed.items():
+            G.remove_edge(a, b)
+            self._log(f"Removed {symbols[a]}{a}-{symbols[b]}{b}: bridged by {symbols[x]}{x}, one pair for both", 2)
+        return bool(removed)
+
     def _prune_metal_bonds(self, G: nx.Graph, symbols: List[str]) -> None:
         """Drop metal bonds that are chelate ring diagonals (see metal_bond_blocked).
 
         Judged here, on the full graph, because a bond is found before all of its ligand's bonds may
-        be; all at once, so no removal changes another's verdict. These are equilibrium conventions: a
-        transition state keeps every partial bond (a forming M-C next to its migrating H).
+        be; all at once, so no removal changes another's verdict.
         """
-        if self.bond_checker.thresholds.transition_state:
-            return
         metals = self.data.metals
         blocked = [
             (m, x, why)
