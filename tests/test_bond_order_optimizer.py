@@ -239,6 +239,36 @@ def test_bridging_hydrides_leave_each_metal_at_a_usual_oxidation_state(cation, d
     assert (G.nodes[0]["oxidation_state"], G.nodes[5]["oxidation_state"]) == states
 
 
+@pytest.mark.parametrize(
+    ("metal", "halide", "distance", "state", "radicals"),
+    [
+        pytest.param("Hg", "I", 2.65, 2, 1, id="HgI3 past Hg(II)"),
+        pytest.param("Pt", "Cl", 2.3, 3, 0, id="PtCl3 between Pt(II) and Pt(IV)"),
+    ],
+)
+def test_odd_electron_metal_past_its_highest_state_holds_the_hole_on_a_donor(metal, halide, distance, state, radicals):
+    """A neutral doublet MX3 reads a halogen radical only where the metal would read past its highest usual state."""
+    halides = [(halide, (distance * np.cos(a), distance * np.sin(a), 0.0)) for a in np.radians([90, 210, 330])]
+    G = build_graph([(metal, (0, 0, 0)), *halides], charge=0)
+    assert G.nodes[0]["oxidation_state"] == state
+    assert sum(G.nodes[i]["radical_electrons"] for i in G) == radicals
+    assert G.graph["validation_errors"] == []
+
+
+@pytest.mark.parametrize("halides", [("I", "Cl", "Cl"), ("Cl", "Cl", "I")], ids=["iodide first", "iodide last"])
+def test_odd_electron_hole_takes_the_least_electronegative_donor(halides):
+    """HgCl2I holds its hole on the iodide, whichever order the halides come in."""
+    reach = {"Cl": 2.3, "I": 2.65}
+    angles = np.radians([90, 210, 330])
+    atoms = [
+        ("Hg", (0, 0, 0)),
+        *((x, (reach[x] * np.cos(a), reach[x] * np.sin(a), 0.0)) for x, a in zip(halides, angles)),
+    ]
+    G = build_graph(atoms, charge=0)
+    assert G.nodes[0]["oxidation_state"] == 2
+    assert [G.nodes[i]["symbol"] for i in G if G.nodes[i]["radical_electrons"]] == ["I"]
+
+
 def test_carbon_hydrogen_bridges_still_fail_electron_validation(optimizer):
     G = _make_graph([("H", (0, 0, 0)), ("C", (1, 0, 0)), ("C", (-1, 0, 0))], [(0, 1), (0, 2)])
     charges = optimizer.compute_formal_charges(G)

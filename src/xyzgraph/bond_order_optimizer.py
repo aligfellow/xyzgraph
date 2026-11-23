@@ -174,7 +174,8 @@ class BondOrderOptimizer:
         valences = arrays.compute_valence_sums(bond_orders)
         charges = arrays.formal_charges(valences, bond_orders, self.charge, weights=self.weights)
         # An odd unshared-electron count has one radical; an empty p orbital has none.
-        radicals = np.rint(arrays.nonbonding_electrons(valences, charges)).astype(np.int64) % 2
+        unshared = np.rint(arrays.nonbonding_electrons(valences, charges)).astype(np.int64)
+        radicals = unshared % 2
         radicals[arrays.is_metal] = 0
         nx.set_node_attributes(G, dict(enumerate(radicals.tolist())), "radical_electrons")
         formal = charges.tolist()
@@ -191,9 +192,22 @@ class BondOrderOptimizer:
         if metals:
             # Ionic convention: the metals carry what the stated total leaves after the ligands.
             if len(metals) == 1:
-                formal[metals[0]] = residual
                 sym = G.nodes[metals[0]]["symbol"]
                 states = sorted({0, *self.data.valences.get(sym, [])})
+                # An odd-electron complex past the metal's highest state holds its hole on a ligand: the most
+                # negative donor that keeps a pair to donate, the least electronegative first (I before Cl), gives up
+                # one electron as a radical.
+                odd = (int(arrays.atomic_numbers.sum()) - self.charge) % 2
+                donors = [d for d in G[metals[0]] if formal[d] < 0 and unshared[d] >= 3]
+                if odd and residual > states[-1] and donors:
+                    en = self.data.electronegativity
+                    hole = min(
+                        donors, key=lambda d: (formal[d], en.get(G.nodes[d]["symbol"], DEFAULT_ELECTRONEGATIVITY), d)
+                    )
+                    formal[hole] += 1
+                    G.nodes[hole]["radical_electrons"] = 1
+                    residual -= 1
+                formal[metals[0]] = residual
                 if residual not in states:
                     logger.warning(
                         "%s%d reads %+d at charge=%+d, not one of its usual oxidation states %s; check charge=",
