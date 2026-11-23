@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import networkx as nx
 
 from .bond_detection import BondDetector
-from .bond_geometry_check import BondGeometryChecker, has_lone_pair
+from .bond_geometry_check import BondGeometryChecker, has_lone_pair, one_pair_partners
 from .bond_order_optimizer import BondOrderOptimizer
 from .config import DEFAULT_PARAMS
 from .data_loader import DATA
@@ -341,25 +341,27 @@ class GraphBuilder:
         self.log_buffer.extend(self._bond_detector.get_log())
         return G
 
-    def _hydrogen_bond_legs(self, G: nx.Graph) -> List[Tuple[int, int, Dict[str, Any]]]:
-        """Every H's non-metal legs but the nearest that end on a lone pair, with their edge data.
+    def _hydrogen_contacts(self, G: nx.Graph) -> List[Tuple[int, int, Dict[str, Any], bool]]:
+        """Every H's non-metal legs past its nearest that are not bonds: edge data, and whether each is a hydrogen bond.
 
-        A hydrogen bond needs an acceptor with a lone pair (has_lone_pair); a leg to an atom without one
-        (the B of a B-H-B bridge) stays a bond.
+        H has one orbital, so past its nearest a leg stays a bond only where the H bridges electropositive atoms
+        with one pair (one_pair_partners: the B of a B-H-B) and the leg ends on no lone pair. A leg that ends on a
+        lone pair is a hydrogen bond, the pair judged without the leg itself (a tertiary amine keeps its pair);
+        any other is a contact (each B-H of H2 held side-on to a borane).
         """
         forced = {frozenset(b) for b in self.bond or []}
 
-        legs = []
+        contacts = []
         for h in (n for n in G if G.nodes[n]["symbol"] == "H" and G.degree(n) > 1):
             near = sorted(
                 (G.edges[h, x]["distance"], x) for x in G.neighbors(h) if G.nodes[x]["symbol"] not in DATA.metals
             )
-            legs += [
-                (h, x, dict(G.edges[h, x]))
-                for _, x in near[1:]
-                if has_lone_pair(G, x, DATA) and frozenset((h, x)) not in forced
-            ]
-        return legs
+            bridge = bool(one_pair_partners(G, h, DATA))
+            for _, x in near[1:]:
+                hbond = has_lone_pair(nx.restricted_view(G, [], [(h, x)]), x, DATA)
+                if (hbond or not bridge) and frozenset((h, x)) not in forced:
+                    contacts.append((h, x, dict(G.edges[h, x]), hbond))
+        return contacts
 
     # =============================================================================
     # MAIN BUILD FUNCTIONS
@@ -380,12 +382,13 @@ class GraphBuilder:
             G.graph["method"] = "cheminf-detect"
             return G
 
-        # H has one valence orbital: at equilibrium its longer contacts to lone pairs are hydrogen bonds.
-        # They stay out of the Lewis structure and return as NCI edges. A transition state keeps a proton
-        # in flight bonded (no geometry tells it from a strong H-bond), as does a bond the caller gave.
-        hbonds = [] if self._geom_thresholds.transition_state else self._hydrogen_bond_legs(G)
-        if hbonds:
-            G.remove_edges_from((h, x) for h, x, _ in hbonds)
+        # H has one valence orbital: at equilibrium it bonds its nearest non-metal, and more only as a one-pair
+        # bridge. Its other contacts stay out of the Lewis structure; those to lone pairs return as hydrogen-bond
+        # NCI edges. A transition state keeps a proton in flight bonded (no geometry tells it from a strong
+        # H-bond), as does a bond the caller gave.
+        contacts = [] if self._geom_thresholds.transition_state else self._hydrogen_contacts(G)
+        if contacts:
+            G.remove_edges_from((h, x) for h, x, _, _ in contacts)
             non_metal = [n for n in G if G.nodes[n]["symbol"] not in DATA.metals]
             G.graph["_rings"] = smallest_rings(G.subgraph(non_metal).copy())
 
@@ -432,9 +435,10 @@ class GraphBuilder:
         self.log_buffer.extend(self._optimizer.get_log())
         G.graph["ligand_classification"] = ligand_classification
 
-        for h, x, data in hbonds:
-            G.add_edge(h, x, **{**data, "bond_order": 0.0, "NCI": True, "nci_type": "hbond"})
-            self.log(f"H{h}...{G.nodes[x]['symbol']}{x} is a hydrogen bond (NCI edge)", 1)
+        for h, x, data, hbond in contacts:
+            if hbond:
+                G.add_edge(h, x, **{**data, "bond_order": 0.0, "NCI": True, "nci_type": "hbond"})
+            self.log(f"H{h}...{G.nodes[x]['symbol']}{x} is a {'hydrogen bond (NCI edge)' if hbond else 'contact'}", 1)
 
         # Store oxidation states on metal nodes
         for metal_idx, ox_state in ligand_classification.get("metal_ox_states", {}).items():
