@@ -115,6 +115,15 @@ def test_agostic_hydrogen_bonds_only_in_a_transition_state():
     assert build_graph(atoms, charge=0, relaxed=True).has_edge(0, 2)
 
 
+def test_bent_agostic_carbon_does_not_bond_the_metal():
+    """A bent agostic C-H (Pd-H 1.99, Pd-C 2.61 A) touches Pd through its H: neither the H nor the C bonds Pd."""
+    atoms = [("Pd", (0.0, 0.0, 0.0)), ("Cl", (-2.3, 0.0, 0.0)), ("H", (1.99, 0.0, 0.0)), ("C", (2.402, 1.02, 0.0))]
+    atoms += [("H", (1.585, 1.742, 0.0)), ("H", (3.015, 1.164, -0.89)), ("H", (3.015, 1.164, 0.89))]
+    G = build_graph(atoms, charge=0)
+    assert set(G[0]) == {1}
+    assert set(G[3]) == {2, 4, 5, 6}
+
+
 def test_cation_takes_the_lone_pair_across_the_ring():
     """4-Aminobenzyl cation: the charge sits on the iminium N+, four bonds from the CH2, not on a carbocation."""
     atoms = [
