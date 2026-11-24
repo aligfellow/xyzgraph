@@ -41,21 +41,46 @@ def _load_fixture(name: str) -> dict:
 # ===========================================================================
 
 
-def test_second_hydrogen_contact_is_a_hydrogen_bond():
-    """At equilibrium an H's longer contact to an O is an NCI hydrogen bond; a transition state keeps it bonded."""
-    atoms = [
-        ("O", (0.0, 0.0, 0.0)),
-        ("H", (1.0, 0.0, 0.0)),
-        ("H", (-0.33, 0.94, 0.0)),
-        ("O", (2.4, 0.0, 0.0)),
-        ("H", (2.73, 0.94, 0.0)),
-        ("H", (2.73, -0.47, 0.82)),
-    ]
+WATER_DIMER = [
+    ("O", (0.0, 0.0, 0.0)),
+    ("H", (1.0, 0.0, 0.0)),
+    ("H", (-0.33, 0.94, 0.0)),
+    ("O", (2.4, 0.0, 0.0)),
+    ("H", (2.73, 0.94, 0.0)),
+    ("H", (2.73, -0.47, 0.82)),
+]
+# Water's O-H 1.12 A held 1.42 A from NMe3's N: the amine keeps its lone pair beside three C and the H.
+WATER_ON_TRIMETHYLAMINE = [
+    ("N", (0.0, 0.0, 0.0)),
+    ("C", (-0.49, -1.386, 0.0)),
+    ("C", (-0.49, 0.693, -1.2)),
+    ("C", (-0.49, 0.693, 1.2)),
+    ("H", (0.358, -2.071, 0.0)),
+    ("H", (-1.096, -1.557, -0.89)),
+    ("H", (-1.096, -1.557, 0.89)),
+    ("H", (-1.45, 0.271, -1.497)),
+    ("H", (0.228, 0.568, -2.011)),
+    ("H", (-0.611, 1.754, -0.983)),
+    ("H", (-1.45, 0.271, 1.497)),
+    ("H", (-0.611, 1.754, 0.983)),
+    ("H", (0.228, 0.568, 2.011)),
+    ("H", (1.42, 0.0, 0.0)),
+    ("O", (2.54, 0.0, 0.0)),
+    ("H", (2.775, 0.941, 0.0)),
+]
+
+
+@pytest.mark.parametrize(
+    ("atoms", "hydrogen", "acceptor"), [(WATER_DIMER, 1, 3), (WATER_ON_TRIMETHYLAMINE, 13, 0)], ids=["water", "amine"]
+)
+def test_second_hydrogen_contact_is_a_hydrogen_bond(atoms, hydrogen, acceptor):
+    """At equilibrium an H's longer contact to a lone pair is an NCI hydrogen bond; a transition state bonds it."""
     G = build_graph(atoms, charge=0)
-    assert G.edges[1, 3]["NCI"]
-    assert G.edges[1, 3]["bond_order"] == 0.0
+    assert G.edges[hydrogen, acceptor]["nci_type"] == "hbond"
+    assert G.edges[hydrogen, acceptor]["bond_order"] == 0.0
+    assert G.graph["validation_errors"] == []
     assert not any(G.nodes[n]["formal_charge"] for n in G)
-    assert not build_graph(atoms, charge=0, relaxed=True).edges[1, 3].get("NCI")
+    assert not build_graph(atoms, charge=0, relaxed=True).edges[hydrogen, acceptor].get("NCI")
 
 
 def test_boron_hydrogen_bridge_counts_one_shared_pair():
@@ -71,12 +96,32 @@ def test_boron_hydrogen_bridge_counts_one_shared_pair():
     assert sum(d["radical_electrons"] for _, d in G.nodes(data=True)) == 0
 
 
+def test_side_on_dihydrogen_on_a_borane_stays_h2():
+    """H2 held side-on to BH3 (H-H 0.70, B-H 1.57 and 1.65 A, as at the end of an H2 release) reads as H2 and BH3."""
+    atoms = [("B", (0, 0, 0)), ("H", (0, 1.19, 0)), ("H", (-1.03, -0.595, 0)), ("H", (1.03, -0.595, 0))]
+    atoms += [("H", (-0.166, 0, 1.561)), ("H", (0.534, 0, 1.561))]
+    G = build_graph(atoms, charge=0, kekule=True)
+
+    assert G.graph["validation_errors"] == []
+    assert not any(d["formal_charge"] for _, d in G.nodes(data=True))
+    assert [set(G[h]) for h in (4, 5)] == [{5}, {4}]  # B...H are contacts: no bond and no hydrogen-bond edge
+
+
 def test_agostic_hydrogen_bonds_only_in_a_transition_state():
     """A C-H pointing at a metal is agostic at equilibrium; a transition state keeps the M-H, an H in flight."""
     atoms = [("Pd", (0.0, 0.0, 0.0)), ("Cl", (-2.3, 0.0, 0.0)), ("H", (1.9, 0.0, 0.0)), ("C", (3.02, 0.0, 0.0))]
     atoms += [("H", (3.38, 1.03, 0.0)), ("H", (3.38, -0.51, 0.89)), ("H", (3.38, -0.51, -0.89))]
     assert not build_graph(atoms, charge=0).has_edge(0, 2)
     assert build_graph(atoms, charge=0, relaxed=True).has_edge(0, 2)
+
+
+def test_bent_agostic_carbon_does_not_bond_the_metal():
+    """A bent agostic C-H (Pd-H 1.99, Pd-C 2.61 A) touches Pd through its H: neither the H nor the C bonds Pd."""
+    atoms = [("Pd", (0.0, 0.0, 0.0)), ("Cl", (-2.3, 0.0, 0.0)), ("H", (1.99, 0.0, 0.0)), ("C", (2.402, 1.02, 0.0))]
+    atoms += [("H", (1.585, 1.742, 0.0)), ("H", (3.015, 1.164, -0.89)), ("H", (3.015, 1.164, 0.89))]
+    G = build_graph(atoms, charge=0)
+    assert set(G[0]) == {1}
+    assert set(G[3]) == {2, 4, 5, 6}
 
 
 def test_cation_takes_the_lone_pair_across_the_ring():

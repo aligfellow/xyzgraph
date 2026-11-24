@@ -712,9 +712,12 @@ class BondGeometryChecker:
         A metal has no valence limit (its oxidation states do not cap its coordination), so the bond
         is judged on x and its partners, the atoms bonded to both x and m:
 
-        - a saturated x (four sigma bonds, no lone pair) reaches m through its H partner when it has
-          one: an agostic C-H touches it, and the H is the bond, not M-x (a B-H-M or Si-H-M bridge is
-          one pair, see one_pair_partners);
+        - a saturated x (four sigma bonds, no lone pair) reaches m through an H of its own that m bonds,
+          so M-x is no bond (a B-H-M or Si-H-M bridge is one pair, see one_pair_partners). An agostic
+          C-H reaches m the same way though its M-H was refused as agostic, so there the H's place
+          decides: it lies nearer m than x. Only for a C-H pair alone: where x or a neighbour is
+          electropositive (a borohydride's B, a methylborate's CH3) the pair is shared, and M-x is
+          what holds the fragment on m;
         - a saturated x (four sigma bonds, no lone pair) bonds m only side-on through one partner
           (the B-B of a diborane); lying beyond its partners, it is instead the diagonal of a ring
           when it bridges two (a metallacycle's SiR2) or sits past a lone-pair donor (an amine's
@@ -734,12 +737,28 @@ class BondGeometryChecker:
         def lone_pair(a: int) -> bool:
             return has_lone_pair(G, a, self.data)
 
-        partners = [d for d in G.neighbors(x) if d != m and G.has_edge(d, m) and G.nodes[d]["symbol"] not in metals]
-        if not partners or G.nodes[x]["symbol"] == "H":
+        if G.nodes[x]["symbol"] == "H":
             return None
         saturated = sigma(x) >= 4 and not lone_pair(x)
-        if saturated and any(G.nodes[d]["symbol"] == "H" for d in partners):
-            return "reaches the metal through its bridging H"
+        pair_alone = not any(electropositive(G.nodes[n]["symbol"], self.data) for n in (x, *G.neighbors(x)) if n != m)
+        metal_at = np.asarray(G.nodes[m]["position"])
+        through_h = [
+            h
+            for h in G.neighbors(x)
+            if G.nodes[h]["symbol"] == "H"
+            and (
+                G.has_edge(h, m)
+                or (
+                    pair_alone
+                    and np.linalg.norm(np.asarray(G.nodes[h]["position"]) - metal_at) < G.edges[m, x]["distance"]
+                )
+            )
+        ]
+        if saturated and through_h:
+            return f"reaches the metal through H{through_h[0]}"
+        partners = [d for d in G.neighbors(x) if d != m and G.has_edge(d, m) and G.nodes[d]["symbol"] not in metals]
+        if not partners:
+            return None
         beyond = all(G.edges[m, x]["distance"] >= G.edges[m, d]["distance"] for d in partners)
         if saturated:
             if beyond and (len(partners) >= 2 or lone_pair(partners[0])):
