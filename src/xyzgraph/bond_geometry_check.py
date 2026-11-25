@@ -186,8 +186,10 @@ class BondGeometryChecker:
     ) -> bool:
         """Return True if bond should be rejected due to agostic filtering.
 
-        A C-H near a metal is agostic, not bonded to it. An H on an atom less electronegative than H
-        (B-H, Si-H) is hydridic and bridges the metal as a hydride (M-H-B), so it is kept.
+        An H on an atom less electronegative than H (B-H, Si-H) is hydridic and bridges the metal as a
+        hydride (M-H-B), so it is kept. A C-H is agostic: it gives the metal its C-H pair, so M-H is
+        refused only when C-H is strength_ratio times more confident. Any other H (N-H, an ammonium N-H+,
+        O-H, S-H) is protic, a hydrogen bond to the metal, and it and an F keep a 2x ratio.
         """
         nonmetal_atom = None
         nonmetal_sym = None
@@ -207,10 +209,11 @@ class BondGeometryChecker:
                 continue
             if nonmetal_sym == "H" and electropositive(X_sym, self.data):
                 continue
+            ratio = self.thresholds.strength_ratio if (nonmetal_sym, X_sym) == ("H", "C") else 2.0
 
             for conf, bi, bj, _, _ in baseline_bonds:
                 if nonmetal_atom in (bi, bj) and X_atom in (bi, bj):
-                    if conf / max(confidence, 0.01) > 2.0:
+                    if conf / max(confidence, 0.01) > ratio:
                         self._log(
                             "Rejected %s-M agostic: %s-X bond stronger (conf=%.2f vs %.2f)",
                             nonmetal_sym,
