@@ -107,12 +107,15 @@ def test_side_on_dihydrogen_on_a_borane_stays_h2():
     assert [set(G[h]) for h in (4, 5)] == [{5}, {4}]  # B...H are contacts: no bond and no hydrogen-bond edge
 
 
-def test_agostic_hydrogen_bonds_only_in_a_transition_state():
-    """A C-H pointing at a metal is agostic at equilibrium; a transition state keeps the M-H, an H in flight."""
-    atoms = [("Pd", (0.0, 0.0, 0.0)), ("Cl", (-2.3, 0.0, 0.0)), ("H", (1.9, 0.0, 0.0)), ("C", (3.02, 0.0, 0.0))]
-    atoms += [("H", (3.38, 1.03, 0.0)), ("H", (3.38, -0.51, 0.89)), ("H", (3.38, -0.51, -0.89))]
-    assert not build_graph(atoms, charge=0).has_edge(0, 2)
-    assert build_graph(atoms, charge=0, relaxed=True).has_edge(0, 2)
+def test_agostic_c_h_bonds_the_metal_but_an_o_h_only_in_a_transition_state():
+    """A C-H pointing at a metal gives it its pair (agostic); an O-H there is a hydrogen bond, an M-H only in flight."""
+    pd_h = [("Pd", (0.0, 0.0, 0.0)), ("Cl", (-2.3, 0.0, 0.0)), ("H", (1.9, 0.0, 0.0))]
+    methane = [*pd_h, ("C", (3.02, 0.0, 0.0)), ("H", (3.38, 1.03, 0.0)), ("H", (3.38, -0.51, 0.89))]
+    methane += [("H", (3.38, -0.51, -0.89))]
+    water = [*pd_h, ("O", (2.88, 0.0, 0.0)), ("H", (3.12, 0.93, 0.0))]
+    assert build_graph(methane, charge=0).has_edge(0, 2)
+    assert not build_graph(water, charge=0).has_edge(0, 2)
+    assert build_graph(water, charge=0, relaxed=True).has_edge(0, 2)
 
 
 def test_bent_agostic_carbon_does_not_bond_the_metal():

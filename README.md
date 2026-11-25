@@ -263,7 +263,8 @@ xyzgraph offers two distinct pathways for molecular graph construction:
 │      - Collinearity check: trans vs spurious detection          │
 │      - Existing ring diagonal rejection and 3-ring validation   │
 |      - Agostic bond filtering: H-M/F-M bonds rejected if        │
-│        stronger H-X or F-X bond exists (2x confidence ratio)    │
+│        stronger H-X or F-X bond exists (2x confidence ratio,    │
+│        20x for a C-H: strength_ratio)                           │
 │      - M-L priority check: diagonal M-ligand bonds in 3-rings   │
 │        rejected if stronger M-donor bond exists in ring (2x)    │
 │    • Allows sensible elongated bonds (e.g., TS structures)      │

@@ -48,7 +48,7 @@ class GeometryThresholds:
 
     # Agostic bond filtering
     strength_ratio: float = 20.0
-    """Reject M-H if existing_conf/new_conf > threshold. Filters spurious agostic bonds."""
+    """Reject an agostic M-H when its C-H is this many times more confident; also the weak 4-ring closure cut."""
 
     confidence_threshold: float = 0.75
     """Only validate bonds with confidence < threshold."""
